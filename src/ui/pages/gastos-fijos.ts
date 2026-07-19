@@ -7,14 +7,19 @@ import {
   actualizarGastoFijo,
   crearCategoria,
   crearGastoFijo,
+  diferenciasPago,
   eliminarCategoria,
   eliminarGastoFijo,
   listCategorias,
   listGastosFijosDelMes,
-  setGastoFijoEstado,
+  marcarGastoPagado,
+  marcarGastoPendiente,
+  sumDiferenciasPago,
+  sumGastosFijosPagado,
   sumGastosFijosPendientes,
   type GastoFijo,
 } from "../../domain/gastos";
+import { showAlert, showConfirm, showMontoPagadoDialog } from "../components/dialogs";
 import { createOptionCombo, type OptionCombo } from "../components/tipo-combo";
 
 type SortOrder = "nombre" | "monto-desc" | "monto-asc" | "dia";
@@ -41,7 +46,7 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
       <h1 class="page-title">${cashMinusIcon} Gastos Fijos</h1>
       <span class="month-badge">${formatMonthLabel()}</span>
     </div>
-    <div class="card-grid" style="max-width:560px">
+    <div class="card-grid" style="max-width:820px">
       <div class="card stat-card stat-card--primary">
         <div class="stat-card__value" id="gf-pendiente">—</div>
         <div class="stat-card__label">Gastos pendientes</div>
@@ -50,7 +55,14 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
         <div class="stat-card__value" id="gf-total">—</div>
         <div class="stat-card__label">Total gastos fijos</div>
       </div>
+      <div class="card stat-card">
+        <div class="stat-card__value" id="gf-pagado">—</div>
+        <div class="stat-card__label">Pagado</div>
+      </div>
     </div>
+    <button type="button" class="diff-pill" id="gf-diferencia-btn" style="margin-bottom:20px">
+      Diferencia con lo pagado: <span id="gf-diferencia-valor">$0</span>
+    </button>
 
     <div class="card" style="margin-bottom:20px">
       <h2 style="margin-top:0">Agregar gasto fijo de este mes</h2>
@@ -98,6 +110,16 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
       </form>
     </dialog>
 
+    <dialog id="diferencia-modal" class="modal">
+      <div class="modal__form">
+        <h2 class="modal__title">Diferencias entre lo esperado y lo pagado</h2>
+        <div id="diferencia-list"></div>
+        <div class="modal__actions">
+          <button type="button" class="btn-secondary" id="diferencia-modal-close">Cerrar</button>
+        </div>
+      </div>
+    </dialog>
+
     <dialog id="edit-modal" class="modal">
       <form class="modal__form" id="edit-form">
         <h2 class="modal__title">Editar gasto fijo</h2>
@@ -119,6 +141,12 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
 
   const totalEl = container.querySelector<HTMLDivElement>("#gf-total")!;
   const pendienteEl = container.querySelector<HTMLDivElement>("#gf-pendiente")!;
+  const pagadoEl = container.querySelector<HTMLDivElement>("#gf-pagado")!;
+  const diferenciaBtn = container.querySelector<HTMLButtonElement>("#gf-diferencia-btn")!;
+  const diferenciaValorEl = container.querySelector<HTMLSpanElement>("#gf-diferencia-valor")!;
+  const diferenciaModal = container.querySelector<HTMLDialogElement>("#diferencia-modal")!;
+  const diferenciaListEl = container.querySelector<HTMLDivElement>("#diferencia-list")!;
+  const diferenciaModalClose = container.querySelector<HTMLButtonElement>("#diferencia-modal-close")!;
   const listEl = container.querySelector<HTMLDivElement>("#gf-list")!;
   const form = container.querySelector<HTMLFormElement>("#gasto-form")!;
   const formError = container.querySelector<HTMLParagraphElement>("#gasto-form-error")!;
@@ -210,10 +238,18 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
   async function handleDeleteCategoria(categoria: string): Promise<void> {
     const enUso = currentGastos.some((g) => g.categoria === categoria);
     if (enUso) {
-      alert(`No puedes eliminar "${categoria}" porque tienes gastos fijos con esta categoría. Edítalos o elimínalos primero.`);
+      await showAlert(
+        `No puedes eliminar "${categoria}" porque tienes gastos fijos con esta categoría. Edítalos o elimínalos primero.`,
+        "No se puede eliminar",
+      );
       return;
     }
-    if (!confirm(`¿Eliminar la categoría "${categoria}"? Podrás volver a crearla cuando quieras.`)) return;
+    const ok = await showConfirm(`¿Eliminar la categoría "${categoria}"? Podrás volver a crearla cuando quieras.`, {
+      title: "Eliminar categoría",
+      confirmLabel: "Eliminar",
+      danger: true,
+    });
+    if (!ok) return;
     try {
       await eliminarCategoria(spreadsheetId, categoria);
       categorias = categorias.filter((c) => c !== categoria);
@@ -221,7 +257,7 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
       if (editCategoriaValue === categoria) editCategoriaValue = categorias[0] ?? "";
       refreshCombos();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "No se pudo eliminar la categoría.");
+      await showAlert(err instanceof Error ? err.message : "No se pudo eliminar la categoría.", "Error");
     }
   }
 
@@ -314,9 +350,39 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
     editModal.showModal();
   }
 
+  function openDiferenciaModal(): void {
+    const diffs = diferenciasPago(currentGastos);
+    if (diffs.length === 0) {
+      diferenciaListEl.innerHTML = `<p class="empty-state">No hay diferencias este mes: lo que pagaste coincide con lo esperado.</p>`;
+    } else {
+      diferenciaListEl.innerHTML = diffs
+        .map(({ gasto, diferencia }) => {
+          const mas = diferencia > 0;
+          return `
+            <div class="record-row">
+              <div class="record-row__main">
+                <span class="record-row__title">${gasto.nombre}</span>
+                <span class="record-row__subtitle">Esperado ${formatMoney(gasto.monto)} · Pagaste ${formatMoney(gasto.montoPagado ?? gasto.monto)}</span>
+              </div>
+              <div class="record-row__amount" style="color:${mas ? "var(--color-danger)" : "var(--color-success)"}">
+                ${mas ? "+" : ""}${formatMoney(diferencia)}
+              </div>
+            </div>
+          `;
+        })
+        .join("");
+    }
+    diferenciaModal.showModal();
+  }
+
+  diferenciaBtn.addEventListener("click", openDiferenciaModal);
+  diferenciaModalClose.addEventListener("click", () => diferenciaModal.close());
+
   function renderList(): void {
     totalEl.textContent = formatMoney(currentGastos.reduce((s, g) => s + g.monto, 0));
     pendienteEl.textContent = formatMoney(sumGastosFijosPendientes(currentGastos));
+    pagadoEl.textContent = formatMoney(sumGastosFijosPagado(currentGastos));
+    diferenciaValorEl.textContent = formatMoney(sumDiferenciasPago(currentGastos));
 
     if (currentGastos.length === 0) {
       listEl.innerHTML = `<p class="empty-state">Aún no registras gastos fijos este mes.</p>`;
@@ -328,13 +394,18 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
       .map((gasto) => {
         const pagado = gasto.estado === "Pagado";
         const esHoy = Number(gasto.diaPago) === hoy;
+        const tieneDiferencia = pagado && gasto.montoPagado !== null && gasto.montoPagado !== gasto.monto;
+        const diferencia = tieneDiferencia ? (gasto.montoPagado as number) - gasto.monto : 0;
+        const diferenciaHtml = tieneDiferencia
+          ? `<div class="amount-diff" style="color:${diferencia > 0 ? "var(--color-danger)" : "var(--color-success)"}">${diferencia > 0 ? "+" : ""}${formatMoney(diferencia)}</div>`
+          : "";
         return `
           <tr data-row="${gasto.row}" class="${esHoy ? "is-today" : ""}">
             <td>${gasto.nombre}</td>
             <td>${gasto.categoria ? `<span class="badge">${gasto.categoria}</span>` : "—"}</td>
             <td>${gasto.diaPago || "—"}${esHoy ? ` <span class="badge badge--today">Hoy</span>` : ""}</td>
             <td><button type="button" class="btn-toggle ${pagado ? "" : "is-off"}" data-row="${gasto.row}" data-action="toggle">${pagado ? "Pagado" : "Pendiente"}</button></td>
-            <td class="text-right amount-cell">${formatMoney(gasto.monto)}</td>
+            <td class="text-right amount-cell">${formatMoney(pagado ? (gasto.montoPagado ?? gasto.monto) : gasto.monto)}${diferenciaHtml}</td>
             <td class="actions-cell">
               <button type="button" class="icon-btn icon-btn--edit" data-row="${gasto.row}" data-action="edit" aria-label="Editar" title="Editar">${editIcon}</button>
               <button type="button" class="icon-btn icon-btn--delete" data-row="${gasto.row}" data-action="delete" aria-label="Eliminar" title="Eliminar">${trashIcon}</button>
@@ -370,12 +441,25 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
 
       if (btn.dataset.action === "toggle") {
         const pagado = gasto.estado === "Pagado";
-        btn.addEventListener("click", () => runAction(() => setGastoFijoEstado(spreadsheetId, gasto, pagado ? "Pendiente" : "Pagado")));
+        btn.addEventListener("click", async () => {
+          if (pagado) {
+            void runAction(() => marcarGastoPendiente(spreadsheetId, gasto));
+            return;
+          }
+          const montoPagado = await showMontoPagadoDialog(gasto.nombre, gasto.monto);
+          if (montoPagado === null) return;
+          void runAction(() => marcarGastoPagado(spreadsheetId, gasto, montoPagado));
+        });
       } else if (btn.dataset.action === "edit") {
         btn.addEventListener("click", () => openEditModal(gasto));
       } else if (btn.dataset.action === "delete") {
-        btn.addEventListener("click", () => {
-          if (!confirm(`¿Eliminar el gasto fijo "${gasto.nombre}" de ${formatMoney(gasto.monto)}?`)) return;
+        btn.addEventListener("click", async () => {
+          const ok = await showConfirm(`¿Eliminar el gasto fijo "${gasto.nombre}" de ${formatMoney(gasto.monto)}?`, {
+            title: "Eliminar gasto fijo",
+            confirmLabel: "Eliminar",
+            danger: true,
+          });
+          if (!ok) return;
           void runAction(() => eliminarGastoFijo(spreadsheetId, gasto));
         });
       }

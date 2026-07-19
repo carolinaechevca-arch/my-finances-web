@@ -1,6 +1,6 @@
 import { findFileByName } from "./drive";
 import { appendRecords, listRecords } from "./records";
-import { addSheets, createSpreadsheet, getSheetNames, updateValues, type SheetDefinition } from "./sheets";
+import { addSheets, createSpreadsheet, getSheetNames, getValues, updateValues, type SheetDefinition } from "./sheets";
 
 export const SPREADSHEET_TITLE = "MisFinanzas";
 
@@ -8,6 +8,7 @@ const SPREADSHEET_MIME = "application/vnd.google-apps.spreadsheet";
 
 export const TIPOS_INGRESO_SHEET = "TiposIngreso";
 export const INGRESOS_FIJOS_SHEET = "IngresosFijos";
+export const GASTOS_FIJOS_SHEET = "GastosFijos";
 export const CATEGORIAS_SHEET = "Categorias";
 
 /** Tipos de ingreso fijo con los que arranca toda cuenta nueva; el usuario puede agregar más. */
@@ -22,8 +23,8 @@ export const SHEET_DEFINITIONS: SheetDefinition[] = [
     headers: ["Tipo", "Monto", "Notas", "Recurrencia", "Mes", "Activo", "FechaCreacion"],
   },
   {
-    name: "GastosFijos",
-    headers: ["Nombre", "Monto", "DiaPago", "Categoria", "Mes", "Estado"],
+    name: GASTOS_FIJOS_SHEET,
+    headers: ["Nombre", "Monto", "DiaPago", "Categoria", "Mes", "Estado", "MontoPagado"],
   },
   {
     name: "Suscripciones",
@@ -72,6 +73,7 @@ async function ensureSpreadsheetInternal(): Promise<{ spreadsheetId: string; cre
   if (existingId) {
     await ensureSheets(existingId);
     await ensureIngresosFijosHeaders(existingId);
+    await ensureGastosFijosHeaders(existingId);
     await ensureDefaultTipos(existingId);
     return { spreadsheetId: existingId, created: false };
   }
@@ -92,6 +94,18 @@ async function ensureIngresosFijosHeaders(spreadsheetId: string): Promise<void> 
   const rows = await listRecords(spreadsheetId, INGRESOS_FIJOS_SHEET, 1);
   if (rows.length > 0) return;
   await updateValues(spreadsheetId, `${INGRESOS_FIJOS_SHEET}!A1`, [def.headers]);
+}
+
+/**
+ * Si GastosFijos ya existía sin la columna MontoPagado, la agrega al
+ * encabezado. Solo toca la fila 1 (encabezados), nunca las filas de datos,
+ * así que es seguro aunque ya haya gastos registrados.
+ */
+async function ensureGastosFijosHeaders(spreadsheetId: string): Promise<void> {
+  const def = SHEET_DEFINITIONS.find((s) => s.name === GASTOS_FIJOS_SHEET)!;
+  const [headerRow = []] = await getValues(spreadsheetId, `${GASTOS_FIJOS_SHEET}!A1:Z1`);
+  if (headerRow.length >= def.headers.length) return;
+  await updateValues(spreadsheetId, `${GASTOS_FIJOS_SHEET}!A1`, [def.headers]);
 }
 
 async function ensureDefaultTipos(spreadsheetId: string): Promise<void> {

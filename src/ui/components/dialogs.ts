@@ -1,0 +1,134 @@
+import { formatMoney } from "../../domain/format";
+
+function createDialog(): HTMLDialogElement {
+  const dialog = document.createElement("dialog");
+  dialog.className = "modal";
+  document.body.appendChild(dialog);
+  return dialog;
+}
+
+export interface ConfirmOptions {
+  title?: string;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  danger?: boolean;
+}
+
+/** Modal de confirmación (reemplaza al confirm() nativo). Resuelve true/false. */
+export function showConfirm(message: string, opts: ConfirmOptions = {}): Promise<boolean> {
+  return new Promise((resolve) => {
+    const dialog = createDialog();
+    dialog.innerHTML = `
+      <div class="modal__form">
+        ${opts.title ? `<h2 class="modal__title">${opts.title}</h2>` : ""}
+        <p class="modal__message">${message}</p>
+        <div class="modal__actions">
+          <button type="button" class="btn-secondary" data-action="cancel">${opts.cancelLabel ?? "Cancelar"}</button>
+          <button type="button" class="${opts.danger ? "btn-danger" : "btn"}" data-action="confirm">${opts.confirmLabel ?? "Confirmar"}</button>
+        </div>
+      </div>
+    `;
+
+    const cleanup = (result: boolean) => {
+      dialog.close();
+      dialog.remove();
+      resolve(result);
+    };
+
+    dialog.querySelector('[data-action="cancel"]')!.addEventListener("click", () => cleanup(false));
+    dialog.querySelector('[data-action="confirm"]')!.addEventListener("click", () => cleanup(true));
+    dialog.addEventListener("cancel", () => cleanup(false));
+    dialog.showModal();
+  });
+}
+
+/** Modal informativo con un botón "Entendido" (reemplaza al alert() nativo). */
+export function showAlert(message: string, title?: string): Promise<void> {
+  return new Promise((resolve) => {
+    const dialog = createDialog();
+    dialog.innerHTML = `
+      <div class="modal__form">
+        ${title ? `<h2 class="modal__title">${title}</h2>` : ""}
+        <p class="modal__message">${message}</p>
+        <div class="modal__actions">
+          <button type="button" class="btn" data-action="ok">Entendido</button>
+        </div>
+      </div>
+    `;
+
+    const cleanup = () => {
+      dialog.close();
+      dialog.remove();
+      resolve();
+    };
+
+    dialog.querySelector('[data-action="ok"]')!.addEventListener("click", cleanup);
+    dialog.addEventListener("cancel", cleanup);
+    dialog.showModal();
+  });
+}
+
+/**
+ * Modal para marcar un gasto como pagado: pregunta si el monto fue el
+ * esperado o uno distinto, y si es distinto pide el valor real. Devuelve el
+ * monto a registrar, o null si se canceló.
+ */
+export function showMontoPagadoDialog(nombre: string, montoEsperado: number): Promise<number | null> {
+  return new Promise((resolve) => {
+    const dialog = createDialog();
+    dialog.innerHTML = `
+      <div class="modal__form">
+        <h2 class="modal__title">Marcar como pagado</h2>
+        <p class="modal__message">¿Pagaste el monto exacto de <strong>${formatMoney(montoEsperado)}</strong> de "${nombre}"?</p>
+        <div class="field" id="monto-diferente-field" hidden>
+          <label for="monto-diferente-input">¿Cuánto pagaste realmente?</label>
+          <input id="monto-diferente-input" type="number" min="0" step="0.01" value="${montoEsperado}" />
+        </div>
+        <p class="empty-state" id="monto-diferente-error" hidden></p>
+        <div class="modal__actions">
+          <button type="button" class="btn-secondary" data-action="cancel">Cancelar</button>
+          <button type="button" class="btn-secondary" data-action="diferente">Fue otro monto</button>
+          <button type="button" class="btn" data-action="exacto">Sí, exacto</button>
+        </div>
+      </div>
+    `;
+
+    const field = dialog.querySelector<HTMLDivElement>("#monto-diferente-field")!;
+    const input = dialog.querySelector<HTMLInputElement>("#monto-diferente-input")!;
+    const error = dialog.querySelector<HTMLParagraphElement>("#monto-diferente-error")!;
+    const diferenteBtn = dialog.querySelector<HTMLButtonElement>('[data-action="diferente"]')!;
+    const exactoBtn = dialog.querySelector<HTMLButtonElement>('[data-action="exacto"]')!;
+    const cancelBtn = dialog.querySelector<HTMLButtonElement>('[data-action="cancel"]')!;
+
+    const cleanup = (result: number | null) => {
+      dialog.close();
+      dialog.remove();
+      resolve(result);
+    };
+
+    let modoDiferente = false;
+    diferenteBtn.addEventListener("click", () => {
+      if (!modoDiferente) {
+        modoDiferente = true;
+        field.hidden = false;
+        diferenteBtn.textContent = "Confirmar monto";
+        exactoBtn.hidden = true;
+        input.focus();
+        input.select();
+        return;
+      }
+      const monto = Number(input.value);
+      if (!monto || monto <= 0) {
+        error.hidden = false;
+        error.textContent = "Ingresa un monto válido.";
+        return;
+      }
+      cleanup(monto);
+    });
+    exactoBtn.addEventListener("click", () => cleanup(montoEsperado));
+    cancelBtn.addEventListener("click", () => cleanup(null));
+    dialog.addEventListener("cancel", () => cleanup(null));
+
+    dialog.showModal();
+  });
+}

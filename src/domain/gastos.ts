@@ -1,8 +1,7 @@
-import { CATEGORIAS_SHEET } from "../api/spreadsheet-bootstrap";
+import { CATEGORIAS_SHEET, GASTOS_FIJOS_SHEET } from "../api/spreadsheet-bootstrap";
 import { appendRecord, deleteRecord, listRecords, updateRecord, type SheetRow } from "../api/records";
 import { monthKey } from "./format";
 
-const GASTOS_FIJOS_SHEET = "GastosFijos";
 const GASTOS_PERSONALES_SHEET = "GastosPersonales";
 
 export interface GastoFijo {
@@ -13,6 +12,8 @@ export interface GastoFijo {
   categoria: string;
   mes: string;
   estado: string;
+  /** Lo que realmente se pagó (puede diferir de `monto`); null si aún no se ha pagado. */
+  montoPagado: number | null;
 }
 
 export interface GastoPersonal {
@@ -24,8 +25,17 @@ export interface GastoPersonal {
 }
 
 function parseGastoFijo(r: SheetRow): GastoFijo {
-  const [nombre = "", monto = "0", diaPago = "", categoria = "", mes = "", estado = ""] = r.values;
-  return { row: r.row, nombre, monto: Number(monto) || 0, diaPago, categoria, mes, estado };
+  const [nombre = "", monto = "0", diaPago = "", categoria = "", mes = "", estado = "", montoPagado = ""] = r.values;
+  return {
+    row: r.row,
+    nombre,
+    monto: Number(monto) || 0,
+    diaPago,
+    categoria,
+    mes,
+    estado,
+    montoPagado: montoPagado === "" ? null : Number(montoPagado) || 0,
+  };
 }
 
 function parseGastoPersonal(r: SheetRow): GastoPersonal {
@@ -34,7 +44,7 @@ function parseGastoPersonal(r: SheetRow): GastoPersonal {
 }
 
 export async function listGastosFijosDelMes(spreadsheetId: string, date: Date = new Date()): Promise<GastoFijo[]> {
-  const rows = await listRecords(spreadsheetId, GASTOS_FIJOS_SHEET, 6);
+  const rows = await listRecords(spreadsheetId, GASTOS_FIJOS_SHEET, 7);
   const mes = monthKey(date);
   return rows.map(parseGastoFijo).filter((g) => g.mes === mes);
 }
@@ -46,17 +56,40 @@ export async function crearGastoFijo(
   categoria: string,
   diaPago: string,
 ): Promise<void> {
-  await appendRecord(spreadsheetId, GASTOS_FIJOS_SHEET, [nombre, monto, diaPago, categoria, monthKey(), "Pendiente"]);
+  await appendRecord(spreadsheetId, GASTOS_FIJOS_SHEET, [
+    nombre,
+    monto,
+    diaPago,
+    categoria,
+    monthKey(),
+    "Pendiente",
+    "",
+  ]);
 }
 
-export async function setGastoFijoEstado(spreadsheetId: string, gasto: GastoFijo, estado: string): Promise<void> {
+/** Marca el gasto como pagado con el monto que realmente se pagó (puede ser distinto al esperado). */
+export async function marcarGastoPagado(spreadsheetId: string, gasto: GastoFijo, montoPagado: number): Promise<void> {
   await updateRecord(spreadsheetId, GASTOS_FIJOS_SHEET, gasto.row, [
     gasto.nombre,
     gasto.monto,
     gasto.diaPago,
     gasto.categoria,
     gasto.mes,
-    estado,
+    "Pagado",
+    montoPagado,
+  ]);
+}
+
+/** Revierte el gasto a pendiente y limpia el monto pagado registrado. */
+export async function marcarGastoPendiente(spreadsheetId: string, gasto: GastoFijo): Promise<void> {
+  await updateRecord(spreadsheetId, GASTOS_FIJOS_SHEET, gasto.row, [
+    gasto.nombre,
+    gasto.monto,
+    gasto.diaPago,
+    gasto.categoria,
+    gasto.mes,
+    "Pendiente",
+    "",
   ]);
 }
 
@@ -79,6 +112,7 @@ export async function actualizarGastoFijo(
     cambios.categoria,
     gasto.mes,
     gasto.estado,
+    gasto.montoPagado === null ? "" : gasto.montoPagado,
   ]);
 }
 
@@ -142,4 +176,28 @@ export function sumGastos(fijos: GastoFijo[], personales: GastoPersonal[]): numb
 /** Suma solo los gastos fijos que aún no están marcados como "Pagado". */
 export function sumGastosFijosPendientes(fijos: GastoFijo[]): number {
   return fijos.filter((g) => g.estado !== "Pagado").reduce((s, g) => s + g.monto, 0);
+}
+
+/** Suma lo realmente pagado (usa el monto esperado si un gasto pagado no tiene monto pagado registrado). */
+export function sumGastosFijosPagado(fijos: GastoFijo[]): number {
+  return fijos
+    .filter((g) => g.estado === "Pagado")
+    .reduce((s, g) => s + (g.montoPagado ?? g.monto), 0);
+}
+
+export interface DiferenciaPago {
+  gasto: GastoFijo;
+  /** monto pagado - monto esperado: positivo si pagó de más, negativo si pagó de menos. */
+  diferencia: number;
+}
+
+/** Gastos pagados cuyo monto real fue distinto al esperado, para el detalle de diferencias. */
+export function diferenciasPago(fijos: GastoFijo[]): DiferenciaPago[] {
+  return fijos
+    .filter((g) => g.estado === "Pagado" && g.montoPagado !== null && g.montoPagado !== g.monto)
+    .map((g) => ({ gasto: g, diferencia: (g.montoPagado as number) - g.monto }));
+}
+
+export function sumDiferenciasPago(fijos: GastoFijo[]): number {
+  return diferenciasPago(fijos).reduce((s, d) => s + d.diferencia, 0);
 }

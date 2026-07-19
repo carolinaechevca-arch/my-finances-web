@@ -16,6 +16,7 @@ import {
   sumIngresosFijosRecurrentes,
   type IngresoFijo,
 } from "../../domain/ingresos";
+import { showAlert, showConfirm } from "../components/dialogs";
 import { createOptionCombo, type OptionCombo } from "../components/tipo-combo";
 
 type SortOrder = "tipo" | "monto-desc" | "monto-asc";
@@ -232,10 +233,18 @@ export async function renderIngresos(container: HTMLElement): Promise<void> {
   async function handleDeleteTipo(tipo: string): Promise<void> {
     const enUso = currentIngresos.some((i) => i.tipo === tipo);
     if (enUso) {
-      alert(`No puedes eliminar "${tipo}" porque tienes ingresos activos de este tipo. Edítalos o elimínalos primero.`);
+      await showAlert(
+        `No puedes eliminar "${tipo}" porque tienes ingresos activos de este tipo. Edítalos o elimínalos primero.`,
+        "No se puede eliminar",
+      );
       return;
     }
-    if (!confirm(`¿Eliminar el tipo "${tipo}"? Podrás volver a crearlo cuando quieras.`)) return;
+    const ok = await showConfirm(`¿Eliminar el tipo "${tipo}"? Podrás volver a crearlo cuando quieras.`, {
+      title: "Eliminar tipo",
+      confirmLabel: "Eliminar",
+      danger: true,
+    });
+    if (!ok) return;
     try {
       await eliminarTipoIngreso(spreadsheetId, tipo);
       tipos = tipos.filter((t) => t !== tipo);
@@ -243,7 +252,7 @@ export async function renderIngresos(container: HTMLElement): Promise<void> {
       if (editTipoValue === tipo) editTipoValue = tipos[0] ?? "";
       refreshCombos();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "No se pudo eliminar el tipo.");
+      await showAlert(err instanceof Error ? err.message : "No se pudo eliminar el tipo.", "Error");
     }
   }
 
@@ -402,8 +411,13 @@ export async function renderIngresos(container: HTMLElement): Promise<void> {
       } else if (btn.dataset.action === "edit") {
         btn.addEventListener("click", () => openEditModal(ingreso));
       } else if (btn.dataset.action === "delete") {
-        btn.addEventListener("click", () => {
-          if (!confirm(`¿Eliminar el ingreso "${ingreso.tipo}" de ${formatMoney(ingreso.monto)}?`)) return;
+        btn.addEventListener("click", async () => {
+          const ok = await showConfirm(`¿Eliminar el ingreso "${ingreso.tipo}" de ${formatMoney(ingreso.monto)}?`, {
+            title: "Eliminar ingreso",
+            confirmLabel: "Eliminar",
+            danger: true,
+          });
+          if (!ok) return;
           void runAction(() => eliminarIngreso(spreadsheetId, ingreso));
         });
       }

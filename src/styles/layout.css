@@ -470,6 +470,24 @@
   background: var(--color-bg);
 }
 
+.btn-danger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: var(--color-danger);
+  color: white;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.btn-danger:hover {
+  filter: brightness(0.92);
+}
+
 /* --- Botones de icono (editar / eliminar en tablas) --- */
 .icon-btn {
   display: inline-flex;
@@ -613,6 +631,35 @@
   background: rgba(201, 138, 31, 0.07);
 }
 
+.amount-diff {
+  font-size: 11px;
+  font-weight: 600;
+  margin-top: 2px;
+}
+
+.diff-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.diff-pill:hover {
+  border-color: var(--color-accent);
+}
+
+.diff-pill span {
+  color: var(--color-text);
+  font-weight: 700;
+}
+
 /* --- Modal --- */
 .modal {
   border: none;
@@ -639,9 +686,20 @@
   font-size: 20px;
 }
 
+.modal__message {
+  margin: 0;
+  color: var(--color-text-muted);
+  line-height: 1.5;
+}
+
+.modal__message strong {
+  color: var(--color-text);
+}
+
 .modal__actions {
   display: flex;
   justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 10px;
   margin-top: 4px;
 }
