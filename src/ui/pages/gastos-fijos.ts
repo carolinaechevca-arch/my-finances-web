@@ -12,6 +12,7 @@ import {
   listCategorias,
   listGastosFijosDelMes,
   setGastoFijoEstado,
+  sumGastosFijosPendientes,
   type GastoFijo,
 } from "../../domain/gastos";
 import { createOptionCombo, type OptionCombo } from "../components/tipo-combo";
@@ -40,9 +41,15 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
       <h1 class="page-title">${cashMinusIcon} Gastos Fijos</h1>
       <span class="month-badge">${formatMonthLabel()}</span>
     </div>
-    <div class="card stat-card stat-card--primary" style="max-width:260px;margin-bottom:20px">
-      <div class="stat-card__value" id="gf-total">—</div>
-      <div class="stat-card__label">Total del mes</div>
+    <div class="card-grid" style="max-width:560px">
+      <div class="card stat-card stat-card--primary">
+        <div class="stat-card__value" id="gf-pendiente">—</div>
+        <div class="stat-card__label">Gastos pendientes</div>
+      </div>
+      <div class="card stat-card">
+        <div class="stat-card__value" id="gf-total">—</div>
+        <div class="stat-card__label">Total gastos fijos</div>
+      </div>
     </div>
 
     <div class="card" style="margin-bottom:20px">
@@ -111,6 +118,7 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
   `;
 
   const totalEl = container.querySelector<HTMLDivElement>("#gf-total")!;
+  const pendienteEl = container.querySelector<HTMLDivElement>("#gf-pendiente")!;
   const listEl = container.querySelector<HTMLDivElement>("#gf-list")!;
   const form = container.querySelector<HTMLFormElement>("#gasto-form")!;
   const formError = container.querySelector<HTMLParagraphElement>("#gasto-form-error")!;
@@ -308,6 +316,7 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
 
   function renderList(): void {
     totalEl.textContent = formatMoney(currentGastos.reduce((s, g) => s + g.monto, 0));
+    pendienteEl.textContent = formatMoney(sumGastosFijosPendientes(currentGastos));
 
     if (currentGastos.length === 0) {
       listEl.innerHTML = `<p class="empty-state">Aún no registras gastos fijos este mes.</p>`;

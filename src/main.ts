@@ -1,6 +1,6 @@
 import "./styles/theme.css";
 import "./styles/layout.css";
-import { signOut, type AuthUser } from "./auth/google-auth";
+import { signOut, trySilentSignIn, type AuthUser } from "./auth/google-auth";
 import { renderLogin } from "./ui/pages/login";
 import { renderAppShell, NAV_SECTIONS } from "./ui/layout";
 import { renderDashboard } from "./ui/pages/dashboard";
@@ -55,4 +55,25 @@ function showLogin(): void {
   renderLogin(root, showApp);
 }
 
-showLogin();
+/** Si el intento silencioso no responde (sin sesión de Google, cookies bloqueadas, etc.), no se queda colgado. */
+function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(fallback), ms);
+    promise.then((value) => {
+      clearTimeout(timer);
+      resolve(value);
+    });
+  });
+}
+
+async function bootstrap(): Promise<void> {
+  root.innerHTML = `<div class="boot-loader"><p class="empty-state">Cargando…</p></div>`;
+  const user = await withTimeout(trySilentSignIn(), 3500, null);
+  if (user) {
+    showApp(user);
+  } else {
+    showLogin();
+  }
+}
+
+void bootstrap();

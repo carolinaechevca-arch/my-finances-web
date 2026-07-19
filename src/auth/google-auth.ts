@@ -135,12 +135,7 @@ async function fetchUserInfo(token: string): Promise<AuthUser> {
   return { email: data.email, name: data.name, picture: data.picture };
 }
 
-/**
- * Inicia sesión, valida contra la whitelist de un solo correo y devuelve el
- * usuario. Si el correo no coincide, revoca el token y lanza AuthError.
- */
-export async function signIn(): Promise<AuthUser> {
-  const token = await requestToken("consent");
+async function resolveUser(token: string): Promise<AuthUser> {
   const user = await fetchUserInfo(token);
 
   const allowedEmail = import.meta.env.VITE_ALLOWED_EMAIL?.toLowerCase();
@@ -150,6 +145,30 @@ export async function signIn(): Promise<AuthUser> {
   }
 
   return user;
+}
+
+/**
+ * Inicia sesión, valida contra la whitelist de un solo correo y devuelve el
+ * usuario. Si el correo no coincide, revoca el token y lanza AuthError.
+ */
+export async function signIn(): Promise<AuthUser> {
+  const token = await requestToken("consent");
+  return resolveUser(token);
+}
+
+/**
+ * Intenta recuperar la sesión sin mostrar ningún diálogo (se usa al cargar
+ * la app). Si el navegador todavía tiene la sesión de Google activa y ya
+ * diste consentimiento antes, esto entra directo sin pedir login de nuevo;
+ * si no, devuelve null y se muestra la pantalla de login normal.
+ */
+export async function trySilentSignIn(): Promise<AuthUser | null> {
+  try {
+    const token = await requestToken("");
+    return await resolveUser(token);
+  } catch {
+    return null;
+  }
 }
 
 export async function signOut(): Promise<void> {

@@ -1,5 +1,7 @@
 import cashBanknotePlusIcon from "../icon/cash-banknote-plus.svg?raw";
 import cashMinusIcon from "../icon/cash-minus.svg?raw";
+import financeIcon from "../icon/finance.svg?raw";
+import homeDollarIcon from "../icon/home-dollar.svg?raw";
 import type { AuthUser } from "../auth/google-auth";
 import { mountThemeToggle } from "./theme-toggle";
 
@@ -10,7 +12,7 @@ export interface NavSection {
 }
 
 export const NAV_SECTIONS: NavSection[] = [
-  { id: "inicio", label: "Inicio", icon: "🏠" },
+  { id: "inicio", label: "Inicio", icon: `<span class="nav-icon nav-icon--white">${homeDollarIcon}</span>` },
   { id: "ingresos", label: "Ingresos", icon: `<span class="nav-icon nav-icon--white">${cashBanknotePlusIcon}</span>` },
   { id: "gastos-fijos", label: "Gastos Fijos", icon: `<span class="nav-icon nav-icon--white">${cashMinusIcon}</span>` },
   { id: "gastos-personales", label: "Gastos y Compras", icon: "🛒" },
@@ -44,7 +46,7 @@ export function renderAppShell(
 
   const brand = document.createElement("div");
   brand.className = "sidebar__brand";
-  brand.innerHTML = `💰 <span>Mis Finanzas</span>`;
+  brand.innerHTML = `<span class="nav-icon nav-icon--white">${financeIcon}</span><span>Mis Finanzas</span>`;
   sidebar.appendChild(brand);
 
   const nav = document.createElement("nav");

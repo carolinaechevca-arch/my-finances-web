@@ -138,3 +138,8 @@ export async function crearGastoPersonal(
 export function sumGastos(fijos: GastoFijo[], personales: GastoPersonal[]): number {
   return fijos.reduce((s, g) => s + g.monto, 0) + personales.reduce((s, g) => s + g.monto, 0);
 }
+
+/** Suma solo los gastos fijos que aún no están marcados como "Pagado". */
+export function sumGastosFijosPendientes(fijos: GastoFijo[]): number {
+  return fijos.filter((g) => g.estado !== "Pagado").reduce((s, g) => s + g.monto, 0);
+}
