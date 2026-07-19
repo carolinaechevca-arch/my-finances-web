@@ -2,6 +2,8 @@ import cashBanknotePlusIcon from "../icon/cash-banknote-plus.svg?raw";
 import cashMinusIcon from "../icon/cash-minus.svg?raw";
 import financeIcon from "../icon/finance.svg?raw";
 import homeDollarIcon from "../icon/home-dollar.svg?raw";
+import menuIcon from "../icon/menu-2.svg?raw";
+import shoppingCartIcon from "../icon/shopping-cart.svg?raw";
 import type { AuthUser } from "../auth/google-auth";
 import { mountThemeToggle } from "./theme-toggle";
 
@@ -15,7 +17,7 @@ export const NAV_SECTIONS: NavSection[] = [
   { id: "inicio", label: "Inicio", icon: `<span class="nav-icon nav-icon--white">${homeDollarIcon}</span>` },
   { id: "ingresos", label: "Ingresos", icon: `<span class="nav-icon nav-icon--white">${cashBanknotePlusIcon}</span>` },
   { id: "gastos-fijos", label: "Gastos Fijos", icon: `<span class="nav-icon nav-icon--white">${cashMinusIcon}</span>` },
-  { id: "gastos-personales", label: "Gastos y Compras", icon: "🛒" },
+  { id: "gastos-personales", label: "Gastos y Compras", icon: `<span class="nav-icon nav-icon--white">${shoppingCartIcon}</span>` },
   { id: "facturas", label: "Facturas", icon: "🧾" },
   { id: "deudas", label: "Deudas", icon: "📉" },
   { id: "me-deben", label: "Me Deben", icon: "🤝" },
@@ -44,10 +46,23 @@ export function renderAppShell(
   const sidebar = document.createElement("aside");
   sidebar.className = "sidebar";
 
+  const top = document.createElement("div");
+  top.className = "sidebar__top";
+
   const brand = document.createElement("div");
   brand.className = "sidebar__brand";
   brand.innerHTML = `<span class="nav-icon nav-icon--white">${financeIcon}</span><span>Mis Finanzas</span>`;
-  sidebar.appendChild(brand);
+  top.appendChild(brand);
+
+  const toggleBtn = document.createElement("button");
+  toggleBtn.type = "button";
+  toggleBtn.className = "sidebar__toggle";
+  toggleBtn.setAttribute("aria-label", "Abrir menú");
+  toggleBtn.innerHTML = menuIcon;
+  toggleBtn.addEventListener("click", () => sidebar.classList.toggle("is-open"));
+  top.appendChild(toggleBtn);
+
+  sidebar.appendChild(top);
 
   const nav = document.createElement("nav");
   nav.className = "sidebar__nav";
@@ -58,7 +73,10 @@ export function renderAppShell(
     link.type = "button";
     link.className = "sidebar__link";
     link.innerHTML = `<span aria-hidden="true">${section.icon}</span><span>${section.label}</span>`;
-    link.addEventListener("click", () => onNavigate(section.id));
+    link.addEventListener("click", () => {
+      onNavigate(section.id);
+      sidebar.classList.remove("is-open");
+    });
     nav.appendChild(link);
     links.set(section.id, link);
   }
@@ -71,7 +89,10 @@ export function renderAppShell(
   logoutBtn.type = "button";
   logoutBtn.className = "sidebar__link";
   logoutBtn.innerHTML = `<span aria-hidden="true">🚪</span><span>Cerrar sesión (${user.name.split(" ")[0]})</span>`;
-  logoutBtn.addEventListener("click", onLogout);
+  logoutBtn.addEventListener("click", () => {
+    sidebar.classList.remove("is-open");
+    onLogout();
+  });
   footer.appendChild(logoutBtn);
   sidebar.appendChild(footer);
 

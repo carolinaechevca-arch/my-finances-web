@@ -1,4 +1,4 @@
-import { GASTOS_Y_COMPRAS_SHEET } from "../api/spreadsheet-bootstrap";
+import { CATEGORIAS_GASTOS_Y_COMPRAS_SHEET, GASTOS_Y_COMPRAS_SHEET } from "../api/spreadsheet-bootstrap";
 import { appendRecord, deleteRecord, listRecords, updateRecord, type SheetRow } from "../api/records";
 import { monthKey, parseDateInput } from "./format";
 
@@ -8,19 +8,19 @@ export interface GastoYCompra {
   row: number;
   fecha: string;
   categoria: string;
-  descripcion: string;
+  nombre: string;
   monto: number;
   estado: EstadoGasto;
   linkFactura: string;
 }
 
 function parseGasto(r: SheetRow): GastoYCompra {
-  const [fecha = "", categoria = "", descripcion = "", monto = "0", estado = "", linkFactura = ""] = r.values;
+  const [fecha = "", categoria = "", nombre = "", monto = "0", estado = "", linkFactura = ""] = r.values;
   return {
     row: r.row,
     fecha,
     categoria,
-    descripcion,
+    nombre,
     monto: Number(monto) || 0,
     estado: estado === "Pendiente" ? "Pendiente" : "Pagado",
     linkFactura,
@@ -57,7 +57,7 @@ export async function listPendientes(spreadsheetId: string): Promise<GastoYCompr
 export interface NuevoGasto {
   fecha: string;
   categoria: string;
-  descripcion: string;
+  nombre: string;
   monto: number;
   estado: EstadoGasto;
 }
@@ -67,7 +67,7 @@ export async function crearGasto(spreadsheetId: string, gasto: NuevoGasto): Prom
   const row = await appendRecord(spreadsheetId, GASTOS_Y_COMPRAS_SHEET, [
     gasto.fecha,
     gasto.categoria,
-    gasto.descripcion,
+    gasto.nombre,
     gasto.monto,
     gasto.estado,
     "",
@@ -84,7 +84,7 @@ export async function marcarComoPagado(
   await updateRecord(spreadsheetId, GASTOS_Y_COMPRAS_SHEET, gasto.row, [
     cambios.fecha,
     gasto.categoria,
-    gasto.descripcion,
+    gasto.nombre,
     cambios.monto,
     "Pagado",
     gasto.linkFactura,
@@ -95,7 +95,7 @@ export async function marcarComoPagado(
 export interface GastoCambios {
   fecha: string;
   categoria: string;
-  descripcion: string;
+  nombre: string;
   monto: number;
   estado: EstadoGasto;
 }
@@ -108,7 +108,7 @@ export async function actualizarGasto(
   await updateRecord(spreadsheetId, GASTOS_Y_COMPRAS_SHEET, gasto.row, [
     cambios.fecha,
     cambios.categoria,
-    cambios.descripcion,
+    cambios.nombre,
     cambios.monto,
     cambios.estado,
     gasto.linkFactura,
@@ -123,7 +123,7 @@ export async function adjuntarFactura(spreadsheetId: string, gasto: GastoYCompra
   await updateRecord(spreadsheetId, GASTOS_Y_COMPRAS_SHEET, gasto.row, [
     gasto.fecha,
     gasto.categoria,
-    gasto.descripcion,
+    gasto.nombre,
     gasto.monto,
     gasto.estado,
     link,
@@ -132,4 +132,35 @@ export async function adjuntarFactura(spreadsheetId: string, gasto: GastoYCompra
 
 export function sumGastos(gastos: GastoYCompra[]): number {
   return gastos.reduce((s, g) => s + g.monto, 0);
+}
+
+/** Categorías propias de Gastos y Compras — independientes de las de Gastos Fijos. */
+export async function listCategorias(spreadsheetId: string): Promise<string[]> {
+  const rows = await listRecords(spreadsheetId, CATEGORIAS_GASTOS_Y_COMPRAS_SHEET, 1);
+  const seen = new Set<string>();
+  const categorias: string[] = [];
+  for (const r of rows) {
+    const nombre = r.values[0];
+    if (nombre && !seen.has(nombre)) {
+      seen.add(nombre);
+      categorias.push(nombre);
+    }
+  }
+  return categorias;
+}
+
+export async function crearCategoria(spreadsheetId: string, nombre: string): Promise<void> {
+  await appendRecord(spreadsheetId, CATEGORIAS_GASTOS_Y_COMPRAS_SHEET, [nombre]);
+}
+
+/** Borra todas las filas con ese nombre (por si quedaron duplicadas). */
+export async function eliminarCategoria(spreadsheetId: string, nombre: string): Promise<void> {
+  const rows = await listRecords(spreadsheetId, CATEGORIAS_GASTOS_Y_COMPRAS_SHEET, 1);
+  const matching = rows
+    .filter((r) => r.values[0] === nombre)
+    .map((r) => r.row)
+    .sort((a, b) => b - a);
+  for (const row of matching) {
+    await deleteRecord(spreadsheetId, CATEGORIAS_GASTOS_Y_COMPRAS_SHEET, row);
+  }
 }

@@ -10,7 +10,10 @@ export const TIPOS_INGRESO_SHEET = "TiposIngreso";
 export const INGRESOS_FIJOS_SHEET = "IngresosFijos";
 export const GASTOS_FIJOS_SHEET = "GastosFijos";
 export const GASTOS_Y_COMPRAS_SHEET = "GastosYCompras";
+/** Categorías de Gastos Fijos. Independiente de CATEGORIAS_GASTOS_Y_COMPRAS_SHEET a propósito. */
 export const CATEGORIAS_SHEET = "Categorias";
+/** Categorías de Gastos y Compras. Misma mecánica que CATEGORIAS_SHEET pero una lista aparte. */
+export const CATEGORIAS_GASTOS_Y_COMPRAS_SHEET = "CategoriasGastosYCompras";
 
 /** Tipos de ingreso fijo con los que arranca toda cuenta nueva; el usuario puede agregar más. */
 const DEFAULT_TIPOS_INGRESO = ["Nómina", "Trabajo independiente", "Regalo", "Otro"];
@@ -33,7 +36,7 @@ export const SHEET_DEFINITIONS: SheetDefinition[] = [
   },
   {
     name: GASTOS_Y_COMPRAS_SHEET,
-    headers: ["Fecha", "Categoria", "Descripcion", "Monto", "Estado", "LinkFactura"],
+    headers: ["Fecha", "Categoria", "Nombre", "Monto", "Estado", "LinkFactura"],
   },
   {
     name: "Facturas",
@@ -47,6 +50,7 @@ export const SHEET_DEFINITIONS: SheetDefinition[] = [
   { name: "MetasAhorro", headers: ["Nombre", "MontoObjetivo", "FechaObjetivo"] },
   { name: "PresupuestosCategoria", headers: ["Categoria", "LimiteMensual"] },
   { name: CATEGORIAS_SHEET, headers: ["Nombre"] },
+  { name: CATEGORIAS_GASTOS_Y_COMPRAS_SHEET, headers: ["Nombre"] },
 ];
 
 let ensurePromise: Promise<{ spreadsheetId: string; created: boolean }> | null = null;
@@ -77,6 +81,7 @@ async function ensureSpreadsheetInternal(): Promise<{ spreadsheetId: string; cre
     await ensureSheets(existingId);
     await ensureIngresosFijosHeaders(existingId);
     await ensureGastosFijosHeaders(existingId);
+    await ensureGastosYComprasHeaders(existingId);
     await ensureDefaultTipos(existingId);
     return { spreadsheetId: existingId, created: false };
   }
@@ -109,6 +114,17 @@ async function ensureGastosFijosHeaders(spreadsheetId: string): Promise<void> {
   const [headerRow = []] = await getValues(spreadsheetId, `${GASTOS_FIJOS_SHEET}!A1:Z1`);
   if (headerRow.length >= def.headers.length) return;
   await updateValues(spreadsheetId, `${GASTOS_FIJOS_SHEET}!A1`, [def.headers]);
+}
+
+/**
+ * Renombra el encabezado "Descripcion" de GastosYCompras a "Nombre" (mismo
+ * significado, solo cambia el texto de la columna). Solo toca la fila 1.
+ */
+async function ensureGastosYComprasHeaders(spreadsheetId: string): Promise<void> {
+  const def = SHEET_DEFINITIONS.find((s) => s.name === GASTOS_Y_COMPRAS_SHEET)!;
+  const [headerRow = []] = await getValues(spreadsheetId, `${GASTOS_Y_COMPRAS_SHEET}!A1:Z1`);
+  if (headerRow.join() === def.headers.join()) return;
+  await updateValues(spreadsheetId, `${GASTOS_Y_COMPRAS_SHEET}!A1`, [def.headers]);
 }
 
 async function ensureDefaultTipos(spreadsheetId: string): Promise<void> {

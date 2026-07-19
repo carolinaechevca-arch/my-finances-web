@@ -134,6 +134,12 @@
   padding: 20px 14px;
 }
 
+.sidebar__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
 .sidebar__brand {
   display: flex;
   align-items: center;
@@ -142,6 +148,24 @@
   font-weight: 700;
   font-size: 16px;
   padding: 8px 10px 20px;
+}
+
+.sidebar__toggle {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: transparent;
+  color: var(--color-sidebar-text-active);
+  cursor: pointer;
+}
+
+.sidebar__toggle svg {
+  width: 20px;
+  height: 20px;
 }
 
 .sidebar__nav {
@@ -197,27 +221,105 @@
 
   .sidebar {
     width: 100%;
-    flex-direction: row;
-    overflow-x: auto;
-    padding: 10px;
+    padding: 10px 14px;
     padding-top: 58px;
   }
 
-  .sidebar__brand,
+  .sidebar__brand {
+    padding: 8px 10px;
+  }
+
+  .sidebar__toggle {
+    display: inline-flex;
+  }
+
+  .sidebar__nav,
   .sidebar__footer {
     display: none;
+    flex-direction: column;
   }
 
-  .sidebar__nav {
-    flex-direction: row;
-  }
-
-  .sidebar__link {
-    white-space: nowrap;
+  .sidebar.is-open .sidebar__nav,
+  .sidebar.is-open .sidebar__footer {
+    display: flex;
+    margin-top: 10px;
   }
 
   .content {
     padding: 18px;
+  }
+
+  .table-toolbar {
+    align-items: stretch;
+  }
+
+  .field--inline {
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+  }
+
+  /* Tablas -> una tarjeta por fila, sin scroll horizontal. */
+  .table-scroll {
+    overflow-x: visible;
+  }
+
+  .data-table thead {
+    display: none;
+  }
+
+  .data-table,
+  .data-table tbody,
+  .data-table tr {
+    display: block;
+    width: 100%;
+  }
+
+  .data-table tr {
+    margin-bottom: 12px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: 4px 14px;
+    background: var(--color-surface);
+  }
+
+  .data-table tr:last-child {
+    margin-bottom: 0;
+  }
+
+  .data-table td {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    width: 100%;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--color-border);
+    white-space: normal;
+    text-align: right;
+  }
+
+  .data-table tr td:last-child {
+    border-bottom: none;
+  }
+
+  .data-table td::before {
+    content: attr(data-label);
+    flex-shrink: 0;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--color-text-muted);
+    text-align: left;
+  }
+
+  .data-table .actions-cell {
+    justify-content: flex-end;
+  }
+
+  .data-table .actions-cell::before {
+    content: none;
   }
 }
 
@@ -362,6 +464,9 @@
 
 .field input,
 .field select {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
   padding: 9px 12px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--color-border);
@@ -542,6 +647,7 @@
   flex-direction: row;
   align-items: center;
   gap: 8px;
+  min-width: 0;
 }
 
 .field--inline label {

@@ -1,14 +1,17 @@
 import editIcon from "../../icon/edit.svg?raw";
+import eyeIcon from "../../icon/eye.svg?raw";
 import shoppingCartIcon from "../../icon/shopping-cart.svg?raw";
 import trashIcon from "../../icon/trash-x.svg?raw";
 import { uploadGastoFactura } from "../../api/drive";
 import { ensureSpreadsheet } from "../../api/spreadsheet-bootstrap";
-import { crearCategoria, eliminarCategoria, listCategorias } from "../../domain/gastos";
 import {
   actualizarGasto,
   adjuntarFactura,
+  crearCategoria,
   crearGasto,
+  eliminarCategoria,
   eliminarGasto,
+  listCategorias,
   listGastosDelMes,
   listPendientes,
   marcarComoPagado,
@@ -45,7 +48,7 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
           <label>Categoría</label>
           <div id="gc-categoria-mount"></div>
         </div>
-        <div class="field"><label for="gc-descripcion">Descripción</label><input id="gc-descripcion" type="text" placeholder="Ej. Mercado Éxito" required /></div>
+        <div class="field"><label for="gc-nombre">Nombre</label><input id="gc-nombre" type="text" placeholder="Ej. Mercado Éxito" required /></div>
         <div class="field"><label for="gc-monto">Monto</label><input id="gc-monto" type="number" min="0" step="0.01" required /></div>
         <div class="field">
           <label for="gc-pendiente-check">¿Ya lo hiciste?</label>
@@ -103,7 +106,7 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
           <label>Categoría</label>
           <div id="edit-categoria-mount"></div>
         </div>
-        <div class="field"><label for="edit-descripcion">Descripción</label><input id="edit-descripcion" type="text" required /></div>
+        <div class="field"><label for="edit-nombre">Nombre</label><input id="edit-nombre" type="text" required /></div>
         <div class="field"><label for="edit-monto">Monto</label><input id="edit-monto" type="number" min="0" step="0.01" required /></div>
         <div class="field">
           <label for="edit-estado">Estado</label>
@@ -131,7 +134,7 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
   const formError = container.querySelector<HTMLParagraphElement>("#gasto-form-error")!;
   const submitBtn = form.querySelector<HTMLButtonElement>('button[type="submit"]')!;
   const fechaInput = container.querySelector<HTMLInputElement>("#gc-fecha")!;
-  const descripcionInput = container.querySelector<HTMLInputElement>("#gc-descripcion")!;
+  const nombreInput = container.querySelector<HTMLInputElement>("#gc-nombre")!;
   const montoInput = container.querySelector<HTMLInputElement>("#gc-monto")!;
   const estadoSelect = container.querySelector<HTMLSelectElement>("#gc-pendiente-check")!;
 
@@ -146,7 +149,7 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
   const editModal = container.querySelector<HTMLDialogElement>("#edit-modal")!;
   const editForm = container.querySelector<HTMLFormElement>("#edit-form")!;
   const editFechaInput = container.querySelector<HTMLInputElement>("#edit-fecha")!;
-  const editDescripcionInput = container.querySelector<HTMLInputElement>("#edit-descripcion")!;
+  const editNombreInput = container.querySelector<HTMLInputElement>("#edit-nombre")!;
   const editMontoInput = container.querySelector<HTMLInputElement>("#edit-monto")!;
   const editEstadoSelect = container.querySelector<HTMLSelectElement>("#edit-estado")!;
   const editModalError = container.querySelector<HTMLParagraphElement>("#edit-modal-error")!;
@@ -310,7 +313,7 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
     const file = await pickFacturaFile();
     if (!file) return;
     try {
-      const uploaded = await uploadGastoFactura(file, parseDateInput(gasto.fecha), gasto.descripcion, gasto.fecha);
+      const uploaded = await uploadGastoFactura(file, parseDateInput(gasto.fecha), gasto.nombre, gasto.fecha);
       await adjuntarFactura(spreadsheetId, gasto, uploaded.webViewLink);
       await reload();
     } catch (err) {
@@ -323,7 +326,7 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
     editFechaInput.value = gasto.fecha;
     editCategoriaValue = gasto.categoria;
     editCategoriaCombo.refresh();
-    editDescripcionInput.value = gasto.descripcion;
+    editNombreInput.value = gasto.nombre;
     editMontoInput.value = String(gasto.monto);
     editEstadoSelect.value = gasto.estado;
     editModalError.hidden = true;
@@ -345,11 +348,11 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
       "submit",
       async (e) => {
         e.preventDefault();
-        const descripcion = editDescripcionInput.value.trim();
+        const nombre = editNombreInput.value.trim();
         const monto = Number(editMontoInput.value);
-        if (!descripcion || !monto || monto <= 0 || !editFechaInput.value) {
+        if (!nombre || !monto || monto <= 0 || !editFechaInput.value) {
           editModalError.hidden = false;
-          editModalError.textContent = "Completa fecha, descripción y un monto válido.";
+          editModalError.textContent = "Completa fecha, nombre y un monto válido.";
           return;
         }
         if (!editingGasto) return;
@@ -359,7 +362,7 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
           await actualizarGasto(spreadsheetId, editingGasto, {
             fecha: editFechaInput.value,
             categoria: editCategoriaValue,
-            descripcion,
+            nombre,
             monto,
             estado: editEstadoSelect.value as EstadoGasto,
           });
@@ -381,7 +384,7 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
 
   function facturaCellHtml(gasto: GastoYCompra): string {
     if (gasto.linkFactura) {
-      return `<a href="${gasto.linkFactura}" target="_blank" rel="noopener" class="btn-secondary" style="padding:6px 10px;font-size:12px">📎 Ver</a>`;
+      return `<a href="${gasto.linkFactura}" target="_blank" rel="noopener" class="icon-btn icon-btn--edit" aria-label="Ver factura" title="Ver factura">${eyeIcon}</a>`;
     }
     return `<button type="button" class="btn-secondary" style="padding:6px 10px;font-size:12px" data-row="${gasto.row}" data-action="adjuntar">Adjuntar factura</button>`;
   }
@@ -400,7 +403,7 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
       item.className = "record-row";
       item.innerHTML = `
         <div class="record-row__main">
-          <span class="record-row__title">${gasto.descripcion}${gasto.categoria ? ` <span class="badge">${gasto.categoria}</span>` : ""}</span>
+          <span class="record-row__title">${gasto.nombre}${gasto.categoria ? ` <span class="badge">${gasto.categoria}</span>` : ""}</span>
           <span class="record-row__subtitle">Registrado el ${gasto.fecha}</span>
         </div>
         <div class="record-row__amount">${formatMoney(gasto.monto)}</div>
@@ -408,7 +411,7 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
         <button type="button" class="icon-btn icon-btn--delete" data-action="eliminar" aria-label="Eliminar" title="Eliminar">${trashIcon}</button>
       `;
       item.querySelector('[data-action="completar"]')!.addEventListener("click", async () => {
-        const resultado = await showCompletarGastoDialog(gasto.descripcion, gasto.monto);
+        const resultado = await showCompletarGastoDialog(gasto.nombre, gasto.monto);
         if (!resultado) return;
         await runAction(async () => {
           const actualizado = await marcarComoPagado(spreadsheetId, gasto, resultado);
@@ -416,7 +419,7 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
         });
       });
       item.querySelector('[data-action="eliminar"]')!.addEventListener("click", async () => {
-        const ok = await showConfirm(`¿Eliminar "${gasto.descripcion}" de las compras pendientes?`, {
+        const ok = await showConfirm(`¿Eliminar "${gasto.nombre}" de las compras pendientes?`, {
           title: "Eliminar pendiente",
           confirmLabel: "Eliminar",
           danger: true,
@@ -442,11 +445,11 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
       .map(
         (gasto) => `
           <tr data-row="${gasto.row}">
-            <td>${gasto.fecha}</td>
-            <td>${gasto.categoria ? `<span class="badge">${gasto.categoria}</span>` : "—"}</td>
-            <td>${gasto.descripcion}</td>
-            <td class="text-right amount-cell">${formatMoney(gasto.monto)}</td>
-            <td>${facturaCellHtml(gasto)}</td>
+            <td data-label="Fecha">${gasto.fecha}</td>
+            <td data-label="Categoría">${gasto.categoria ? `<span class="badge">${gasto.categoria}</span>` : "—"}</td>
+            <td data-label="Nombre">${gasto.nombre}</td>
+            <td data-label="Monto" class="text-right amount-cell">${formatMoney(gasto.monto)}</td>
+            <td data-label="Factura">${facturaCellHtml(gasto)}</td>
             <td class="actions-cell">
               <button type="button" class="icon-btn icon-btn--edit" data-row="${gasto.row}" data-action="edit" aria-label="Editar" title="Editar">${editIcon}</button>
               <button type="button" class="icon-btn icon-btn--delete" data-row="${gasto.row}" data-action="delete" aria-label="Eliminar" title="Eliminar">${trashIcon}</button>
@@ -463,7 +466,7 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
             <tr>
               <th>Fecha</th>
               <th>Categoría</th>
-              <th>Descripción</th>
+              <th>Nombre</th>
               <th class="text-right">Monto</th>
               <th>Factura</th>
               <th class="actions-col">Acciones</th>
@@ -484,7 +487,7 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
         btn.addEventListener("click", () => openEditModal(gasto));
       } else if (btn.dataset.action === "delete") {
         btn.addEventListener("click", async () => {
-          const ok = await showConfirm(`¿Eliminar el gasto "${gasto.descripcion}" de ${formatMoney(gasto.monto)}?`, {
+          const ok = await showConfirm(`¿Eliminar el gasto "${gasto.nombre}" de ${formatMoney(gasto.monto)}?`, {
             title: "Eliminar gasto",
             confirmLabel: "Eliminar",
             danger: true,
@@ -527,11 +530,11 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
     e.preventDefault();
     formError.hidden = true;
 
-    const descripcion = descripcionInput.value.trim();
+    const nombre = nombreInput.value.trim();
     const monto = Number(montoInput.value);
-    if (!descripcion || !monto || monto <= 0 || !fechaInput.value) {
+    if (!nombre || !monto || monto <= 0 || !fechaInput.value) {
       formError.hidden = false;
-      formError.textContent = "Completa fecha, descripción y un monto válido.";
+      formError.textContent = "Completa fecha, nombre y un monto válido.";
       return;
     }
     if (!formCategoriaValue) {
@@ -546,11 +549,11 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
       const creado = await crearGasto(spreadsheetId, {
         fecha: fechaInput.value,
         categoria: formCategoriaValue,
-        descripcion,
+        nombre,
         monto,
         estado,
       });
-      descripcionInput.value = "";
+      nombreInput.value = "";
       montoInput.value = "";
       fechaInput.value = todayISO();
       estadoSelect.value = "Pagado";

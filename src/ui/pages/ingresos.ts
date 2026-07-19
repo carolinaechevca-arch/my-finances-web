@@ -378,11 +378,11 @@ export async function renderIngresos(container: HTMLElement): Promise<void> {
           : `<span class="badge badge--neutral">Puntual</span>`;
         return `
           <tr data-row="${ingreso.row}">
-            <td>${ingreso.tipo}</td>
-            <td><span class="badge ${esFijo ? "badge--fijo" : "badge--unico"}">${esFijo ? "Fijo" : "Solo este mes"}</span></td>
-            <td class="text-muted">${ingreso.notas || "—"}</td>
-            <td>${estadoCell}</td>
-            <td class="text-right amount-cell">${formatMoney(ingreso.monto)}</td>
+            <td data-label="Tipo">${ingreso.tipo}</td>
+            <td data-label="Recurrencia"><span class="badge ${esFijo ? "badge--fijo" : "badge--unico"}">${esFijo ? "Fijo" : "Solo este mes"}</span></td>
+            <td data-label="Notas" class="text-muted">${ingreso.notas || "—"}</td>
+            <td data-label="Estado">${estadoCell}</td>
+            <td data-label="Monto" class="text-right amount-cell">${formatMoney(ingreso.monto)}</td>
             <td class="actions-cell">
               <button type="button" class="icon-btn icon-btn--edit" data-row="${ingreso.row}" data-action="edit" aria-label="Editar" title="Editar">${editIcon}</button>
               <button type="button" class="icon-btn icon-btn--delete" data-row="${ingreso.row}" data-action="delete" aria-label="Eliminar" title="Eliminar">${trashIcon}</button>

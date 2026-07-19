@@ -419,11 +419,11 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
             : "";
         return `
           <tr data-row="${gasto.row}" class="${vencido ? "is-vencido" : esHoy ? "is-today" : ""}">
-            <td>${gasto.nombre}</td>
-            <td>${gasto.categoria ? `<span class="badge">${gasto.categoria}</span>` : "—"}</td>
-            <td>${gasto.diaPago || "—"}${diaBadge}</td>
-            <td><button type="button" class="btn-toggle ${pagado ? "" : "is-off"}" data-row="${gasto.row}" data-action="toggle">${pagado ? "Pagado" : "Pendiente"}</button></td>
-            <td class="text-right amount-cell">${formatMoney(pagado ? (gasto.montoPagado ?? gasto.monto) : gasto.monto)}${diferenciaHtml}</td>
+            <td data-label="Nombre">${gasto.nombre}</td>
+            <td data-label="Categoría">${gasto.categoria ? `<span class="badge">${gasto.categoria}</span>` : "—"}</td>
+            <td data-label="Día de pago">${gasto.diaPago || "—"}${diaBadge}</td>
+            <td data-label="Estado"><button type="button" class="btn-toggle ${pagado ? "" : "is-off"}" data-row="${gasto.row}" data-action="toggle">${pagado ? "Pagado" : "Pendiente"}</button></td>
+            <td data-label="Monto" class="text-right amount-cell">${formatMoney(pagado ? (gasto.montoPagado ?? gasto.monto) : gasto.monto)}${diferenciaHtml}</td>
             <td class="actions-cell">
               <button type="button" class="icon-btn icon-btn--edit" data-row="${gasto.row}" data-action="edit" aria-label="Editar" title="Editar">${editIcon}</button>
               <button type="button" class="icon-btn icon-btn--delete" data-row="${gasto.row}" data-action="delete" aria-label="Eliminar" title="Eliminar">${trashIcon}</button>
