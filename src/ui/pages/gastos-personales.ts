@@ -504,11 +504,13 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
   async function runAction(action: () => Promise<void>): Promise<void> {
     if (busy) return;
     busy = true;
+    renderHistorial();
     try {
       await action();
       await reload();
     } finally {
       busy = false;
+      renderHistorial();
     }
   }
 

@@ -17,9 +17,22 @@ export const CATEGORIAS_GASTOS_Y_COMPRAS_SHEET = "CategoriasGastosYCompras";
 /** Deudas propias (YoDebo) y de terceros (MeDeben) unificadas, distinguidas por la columna Direccion. */
 export const DEUDAS_SHEET = "Deudas";
 export const ABONOS_DEUDAS_SHEET = "AbonosDeudas";
+/** Tipos de deuda (tarjeta, préstamo, etc.), compartidos entre Deudas y Me Deben. */
+export const TIPOS_DEUDA_SHEET = "TiposDeuda";
+/** Contrapartes (acreedores/deudores) conocidas, compartidas entre Deudas y Me Deben. */
+export const CONTRAPARTES_SHEET = "Contrapartes";
 
 /** Tipos de ingreso fijo con los que arranca toda cuenta nueva; el usuario puede agregar más. */
 const DEFAULT_TIPOS_INGRESO = ["Nómina", "Trabajo independiente", "Regalo", "Otro"];
+/** Tipos de deuda con los que arranca toda cuenta nueva; el usuario puede agregar/eliminar más. */
+const DEFAULT_TIPOS_DEUDA = [
+  "Tarjeta de crédito",
+  "Préstamo personal",
+  "Préstamo bancario",
+  "Crédito informal",
+  "Hipoteca",
+  "Otro",
+];
 
 /** Definición de todas las hojas del spreadsheet y sus encabezados. */
 export const SHEET_DEFINITIONS: SheetDefinition[] = [
@@ -71,6 +84,8 @@ export const SHEET_DEFINITIONS: SheetDefinition[] = [
   { name: "PresupuestosCategoria", headers: ["Categoria", "LimiteMensual"] },
   { name: CATEGORIAS_SHEET, headers: ["Nombre"] },
   { name: CATEGORIAS_GASTOS_Y_COMPRAS_SHEET, headers: ["Nombre"] },
+  { name: TIPOS_DEUDA_SHEET, headers: ["Nombre"] },
+  { name: CONTRAPARTES_SHEET, headers: ["Nombre"] },
 ];
 
 let ensurePromise: Promise<{ spreadsheetId: string; created: boolean }> | null = null;
@@ -104,10 +119,12 @@ async function ensureSpreadsheetInternal(): Promise<{ spreadsheetId: string; cre
     await ensureGastosYComprasHeaders(existingId);
     await ensureDeudasHeaders(existingId);
     await ensureDefaultTipos(existingId);
+    await ensureDefaultTiposDeuda(existingId);
     return { spreadsheetId: existingId, created: false };
   }
   const spreadsheetId = await createSpreadsheet(SPREADSHEET_TITLE, SHEET_DEFINITIONS);
   await ensureDefaultTipos(spreadsheetId);
+  await ensureDefaultTiposDeuda(spreadsheetId);
   return { spreadsheetId, created: true };
 }
 
@@ -175,5 +192,15 @@ async function ensureDefaultTipos(spreadsheetId: string): Promise<void> {
     spreadsheetId,
     TIPOS_INGRESO_SHEET,
     DEFAULT_TIPOS_INGRESO.map((nombre) => [nombre]),
+  );
+}
+
+async function ensureDefaultTiposDeuda(spreadsheetId: string): Promise<void> {
+  const rows = await listRecords(spreadsheetId, TIPOS_DEUDA_SHEET, 1);
+  if (rows.length > 0) return;
+  await appendRecords(
+    spreadsheetId,
+    TIPOS_DEUDA_SHEET,
+    DEFAULT_TIPOS_DEUDA.map((nombre) => [nombre]),
   );
 }

@@ -1,3 +1,4 @@
+import businessplanIcon from "../icon/businessplan.svg?raw";
 import cashBanknotePlusIcon from "../icon/cash-banknote-plus.svg?raw";
 import cashMinusIcon from "../icon/cash-minus.svg?raw";
 import financeIcon from "../icon/finance.svg?raw";
@@ -19,9 +20,8 @@ export const NAV_SECTIONS: NavSection[] = [
   { id: "ingresos", label: "Ingresos", icon: `<span class="nav-icon nav-icon--white">${cashBanknotePlusIcon}</span>` },
   { id: "gastos-fijos", label: "Gastos Fijos", icon: `<span class="nav-icon nav-icon--white">${cashMinusIcon}</span>` },
   { id: "gastos-personales", label: "Gastos y Compras", icon: `<span class="nav-icon nav-icon--white">${shoppingCartIcon}</span>` },
-  { id: "facturas", label: "Facturas", icon: "🧾" },
   { id: "deudas", label: "Deudas", icon: `<span class="nav-icon nav-icon--white">${pigMoneyIcon}</span>` },
-  { id: "me-deben", label: "Me Deben", icon: "🤝" },
+  { id: "me-deben", label: "Me Deben", icon: `<span class="nav-icon nav-icon--white">${businessplanIcon}</span>` },
   { id: "ahorros", label: "Ahorros y Metas", icon: "🐷" },
   { id: "presupuestos", label: "Presupuestos", icon: "📊" },
   { id: "exportar", label: "Exportar", icon: "📤" },

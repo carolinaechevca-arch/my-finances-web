@@ -2,19 +2,23 @@ import editIcon from "../../icon/edit.svg?raw";
 import trashIcon from "../../icon/trash-x.svg?raw";
 import { ensureSpreadsheet } from "../../api/spreadsheet-bootstrap";
 import {
-  TIPOS_DEUDA,
   actualizarDeuda,
   agregarMontoADeuda,
   agruparEventosPorDeuda,
   buscarDeudaActivaPorContraparte,
   calcularEstadoDeuda,
+  crearContraparte,
   crearDeuda,
+  crearTipoDeuda,
+  eliminarContraparte,
   eliminarDeuda,
+  eliminarTipoDeuda,
   estadoAlerta,
   estimarMesesRestantes,
   historialConSaldos,
-  listContrapartes,
+  listContrapartesGuardadas,
   listDeudas,
+  listTiposDeuda,
   listTodosLosEventos,
   marcarDeudaPagada,
   reabrirDeuda,
@@ -28,6 +32,7 @@ import {
 } from "../../domain/deudas";
 import { formatMoney, todayISO } from "../../domain/format";
 import { showAbonoDialog, showAlert, showConfirm, showMergeChoice } from "../components/dialogs";
+import { createOptionCombo, type OptionCombo } from "../components/tipo-combo";
 
 export interface ModuloDeudaConfig {
   direccion: Direccion;
@@ -52,13 +57,12 @@ export async function renderDeudasModulo(container: HTMLElement, config: ModuloD
       <h2 style="margin-top:0">Agregar deuda</h2>
       <form id="deuda-form" class="form">
         <div class="field">
-          <label for="dd-contraparte">${config.labelContraparte}</label>
-          <input id="dd-contraparte" type="text" list="dd-contrapartes" placeholder="${config.placeholderContraparte}" autocomplete="off" required />
-          <datalist id="dd-contrapartes"></datalist>
+          <label>${config.labelContraparte}</label>
+          <div id="dd-contraparte-mount"></div>
         </div>
         <div class="field">
-          <label for="dd-tipo">Tipo</label>
-          <select id="dd-tipo">${TIPOS_DEUDA.map((t) => `<option value="${t}">${t}</option>`).join("")}</select>
+          <label>Tipo</label>
+          <div id="dd-tipo-mount"></div>
         </div>
         <div class="field"><label for="dd-monto">Monto original</label><input id="dd-monto" type="number" min="0" step="0.01" required /></div>
         <div class="field"><label for="dd-tasa">Tasa de interés (%)</label><input id="dd-tasa" type="number" min="0" step="0.01" value="0" /></div>
@@ -88,10 +92,13 @@ export async function renderDeudasModulo(container: HTMLElement, config: ModuloD
     <dialog id="edit-modal" class="modal">
       <form class="modal__form" id="edit-form">
         <h2 class="modal__title">Editar deuda</h2>
-        <div class="field"><label for="edit-contraparte">${config.labelContraparte}</label><input id="edit-contraparte" type="text" required /></div>
         <div class="field">
-          <label for="edit-tipo">Tipo</label>
-          <select id="edit-tipo">${TIPOS_DEUDA.map((t) => `<option value="${t}">${t}</option>`).join("")}</select>
+          <label>${config.labelContraparte}</label>
+          <div id="edit-contraparte-mount"></div>
+        </div>
+        <div class="field">
+          <label>Tipo</label>
+          <div id="edit-tipo-mount"></div>
         </div>
         <div class="field"><label for="edit-monto">Monto original</label><input id="edit-monto" type="number" min="0" step="0.01" required /></div>
         <div class="field"><label for="edit-tasa">Tasa de interés (%)</label><input id="edit-tasa" type="number" min="0" step="0.01" /></div>
@@ -114,6 +121,36 @@ export async function renderDeudasModulo(container: HTMLElement, config: ModuloD
       </form>
     </dialog>
 
+    <dialog id="tipo-modal" class="modal">
+      <form class="modal__form" id="tipo-form">
+        <h2 class="modal__title">Nuevo tipo de deuda</h2>
+        <div class="field">
+          <label for="tipo-modal-input">Nombre</label>
+          <input id="tipo-modal-input" type="text" placeholder="Ej. Crédito de estudio" required />
+        </div>
+        <p class="empty-state" id="tipo-modal-error" hidden></p>
+        <div class="modal__actions">
+          <button type="button" class="btn-secondary" id="tipo-modal-cancel">Cancelar</button>
+          <button type="submit" class="btn">Agregar</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="contraparte-modal" class="modal">
+      <form class="modal__form" id="contraparte-form">
+        <h2 class="modal__title">${config.labelContraparte}</h2>
+        <div class="field">
+          <label for="contraparte-modal-input">Nombre</label>
+          <input id="contraparte-modal-input" type="text" placeholder="${config.placeholderContraparte}" required />
+        </div>
+        <p class="empty-state" id="contraparte-modal-error" hidden></p>
+        <div class="modal__actions">
+          <button type="button" class="btn-secondary" id="contraparte-modal-cancel">Cancelar</button>
+          <button type="submit" class="btn">Agregar</button>
+        </div>
+      </form>
+    </dialog>
+
     <dialog id="historial-modal" class="modal">
       <div class="modal__form">
         <h2 class="modal__title" id="historial-titulo">Historial</h2>
@@ -129,13 +166,10 @@ export async function renderDeudasModulo(container: HTMLElement, config: ModuloD
   const activasListEl = container.querySelector<HTMLDivElement>("#dd-activas-list")!;
   const pagadasListEl = container.querySelector<HTMLDivElement>("#dd-pagadas-list")!;
   const pagadasCard = container.querySelector<HTMLDetailsElement>("#dd-pagadas-card")!;
-  const contrapartesDatalist = container.querySelector<HTMLDataListElement>("#dd-contrapartes")!;
 
   const form = container.querySelector<HTMLFormElement>("#deuda-form")!;
   const formError = container.querySelector<HTMLParagraphElement>("#deuda-form-error")!;
   const submitBtn = form.querySelector<HTMLButtonElement>('button[type="submit"]')!;
-  const contraparteInput = container.querySelector<HTMLInputElement>("#dd-contraparte")!;
-  const tipoSelect = container.querySelector<HTMLSelectElement>("#dd-tipo")!;
   const montoInput = container.querySelector<HTMLInputElement>("#dd-monto")!;
   const tasaInput = container.querySelector<HTMLInputElement>("#dd-tasa")!;
   const periodicidadSelect = container.querySelector<HTMLSelectElement>("#dd-periodicidad")!;
@@ -148,8 +182,6 @@ export async function renderDeudasModulo(container: HTMLElement, config: ModuloD
   const editForm = container.querySelector<HTMLFormElement>("#edit-form")!;
   const editModalError = container.querySelector<HTMLParagraphElement>("#edit-modal-error")!;
   const editModalCancel = container.querySelector<HTMLButtonElement>("#edit-modal-cancel")!;
-  const editContraparteInput = container.querySelector<HTMLInputElement>("#edit-contraparte")!;
-  const editTipoSelect = container.querySelector<HTMLSelectElement>("#edit-tipo")!;
   const editMontoInput = container.querySelector<HTMLInputElement>("#edit-monto")!;
   const editTasaInput = container.querySelector<HTMLInputElement>("#edit-tasa")!;
   const editPeriodicidadSelect = container.querySelector<HTMLSelectElement>("#edit-periodicidad")!;
@@ -163,17 +195,219 @@ export async function renderDeudasModulo(container: HTMLElement, config: ModuloD
   const historialListEl = container.querySelector<HTMLDivElement>("#historial-list")!;
   const historialModalClose = container.querySelector<HTMLButtonElement>("#historial-modal-close")!;
 
+  const tipoModal = container.querySelector<HTMLDialogElement>("#tipo-modal")!;
+  const tipoForm = container.querySelector<HTMLFormElement>("#tipo-form")!;
+  const tipoModalInput = container.querySelector<HTMLInputElement>("#tipo-modal-input")!;
+  const tipoModalError = container.querySelector<HTMLParagraphElement>("#tipo-modal-error")!;
+  const tipoModalCancel = container.querySelector<HTMLButtonElement>("#tipo-modal-cancel")!;
+
+  const contraparteModal = container.querySelector<HTMLDialogElement>("#contraparte-modal")!;
+  const contraparteForm = container.querySelector<HTMLFormElement>("#contraparte-form")!;
+  const contraparteModalInput = container.querySelector<HTMLInputElement>("#contraparte-modal-input")!;
+  const contraparteModalError = container.querySelector<HTMLParagraphElement>("#contraparte-modal-error")!;
+  const contraparteModalCancel = container.querySelector<HTMLButtonElement>("#contraparte-modal-cancel")!;
+
   let spreadsheetId = "";
   let deudas: Deuda[] = [];
   let eventosPorDeuda = new Map<string, EventoAbono[]>();
+  let tiposDeuda: string[] = [];
+  let contrapartesGuardadas: string[] = [];
   let busy = false;
   let editingDeuda: Deuda | null = null;
+  let formContraparteValue = "";
+  let formTipoValue = "";
+  let editContraparteValue = "";
+  let editTipoValue = "";
 
-  function renderContrapartesDatalist(): void {
-    contrapartesDatalist.innerHTML = listContrapartes(deudas)
-      .map((n) => `<option value="${n}"></option>`)
-      .join("");
+/** Nombres disponibles = los guardados en la hoja de gestión + los que ya aparecen en deudas existentes. */
+  function contrapartesDisponibles(): string[] {
+    return Array.from(new Set([...contrapartesGuardadas, ...deudas.map((d) => d.contraparte)]));
   }
+
+  function tiposDisponibles(): string[] {
+    return Array.from(new Set([...tiposDeuda, ...deudas.map((d) => d.tipo)]));
+  }
+
+  function refreshCombos(): void {
+    contraparteCombo.refresh();
+    editContraparteCombo.refresh();
+    tipoCombo.refresh();
+    editTipoCombo.refresh();
+  }
+
+  function openTipoModal(onDone: (nombre: string) => void): void {
+    tipoModalInput.value = "";
+    tipoModalError.hidden = true;
+    const controller = new AbortController();
+    const { signal } = controller;
+
+    tipoModal.addEventListener("cancel", () => controller.abort(), { signal });
+    tipoModalCancel.addEventListener("click", () => { controller.abort(); tipoModal.close(); }, { signal });
+
+    tipoForm.addEventListener(
+      "submit",
+      async (e) => {
+        e.preventDefault();
+        const nombre = tipoModalInput.value.trim();
+        if (!nombre) {
+          tipoModalError.hidden = false;
+          tipoModalError.textContent = "Escribe un nombre.";
+          return;
+        }
+        const confirmBtn = tipoForm.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+        confirmBtn.disabled = true;
+        try {
+          if (!tiposDeuda.includes(nombre)) {
+            await crearTipoDeuda(spreadsheetId, nombre);
+            tiposDeuda.push(nombre);
+          }
+          controller.abort();
+          tipoModal.close();
+          onDone(nombre);
+          refreshCombos();
+        } catch (err) {
+          tipoModalError.hidden = false;
+          tipoModalError.textContent = err instanceof Error ? err.message : "No se pudo crear el tipo.";
+        } finally {
+          confirmBtn.disabled = false;
+        }
+      },
+      { signal },
+    );
+
+    tipoModal.showModal();
+    tipoModalInput.focus();
+  }
+
+  function openContraparteModal(onDone: (nombre: string) => void): void {
+    contraparteModalInput.value = "";
+    contraparteModalError.hidden = true;
+    const controller = new AbortController();
+    const { signal } = controller;
+
+    contraparteModal.addEventListener("cancel", () => controller.abort(), { signal });
+    contraparteModalCancel.addEventListener("click", () => { controller.abort(); contraparteModal.close(); }, { signal });
+
+    contraparteForm.addEventListener(
+      "submit",
+      async (e) => {
+        e.preventDefault();
+        const nombre = contraparteModalInput.value.trim();
+        if (!nombre) {
+          contraparteModalError.hidden = false;
+          contraparteModalError.textContent = "Escribe un nombre.";
+          return;
+        }
+        const confirmBtn = contraparteForm.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+        confirmBtn.disabled = true;
+        try {
+          if (!contrapartesGuardadas.includes(nombre)) {
+            await crearContraparte(spreadsheetId, nombre);
+            contrapartesGuardadas.push(nombre);
+          }
+          controller.abort();
+          contraparteModal.close();
+          onDone(nombre);
+          refreshCombos();
+        } catch (err) {
+          contraparteModalError.hidden = false;
+          contraparteModalError.textContent = err instanceof Error ? err.message : "No se pudo guardar.";
+        } finally {
+          confirmBtn.disabled = false;
+        }
+      },
+      { signal },
+    );
+
+    contraparteModal.showModal();
+    contraparteModalInput.focus();
+  }
+
+  async function handleDeleteTipo(nombre: string): Promise<void> {
+    const enUso = deudas.some((d) => d.tipo === nombre);
+    if (enUso) {
+      await showAlert(`No puedes eliminar "${nombre}" porque hay deudas con ese tipo. Edítalas primero.`, "No se puede eliminar");
+      return;
+    }
+    const ok = await showConfirm(`¿Eliminar el tipo "${nombre}"?`, { title: "Eliminar tipo", confirmLabel: "Eliminar", danger: true });
+    if (!ok) return;
+    try {
+      await eliminarTipoDeuda(spreadsheetId, nombre);
+      tiposDeuda = tiposDeuda.filter((t) => t !== nombre);
+      if (formTipoValue === nombre) formTipoValue = tiposDisponibles()[0] ?? "";
+      if (editTipoValue === nombre) editTipoValue = tiposDisponibles()[0] ?? "";
+      refreshCombos();
+    } catch (err) {
+      await showAlert(err instanceof Error ? err.message : "No se pudo eliminar el tipo.", "Error");
+    }
+  }
+
+  async function handleDeleteContraparte(nombre: string): Promise<void> {
+    const enUso = deudas.some((d) => d.contraparte === nombre);
+    if (enUso) {
+      await showAlert(`No puedes eliminar "${nombre}" porque tiene deudas registradas. Edítalas primero.`, "No se puede eliminar");
+      return;
+    }
+    const ok = await showConfirm(`¿Eliminar "${nombre}" de la lista?`, { title: "Eliminar", confirmLabel: "Eliminar", danger: true });
+    if (!ok) return;
+    try {
+      await eliminarContraparte(spreadsheetId, nombre);
+      contrapartesGuardadas = contrapartesGuardadas.filter((c) => c !== nombre);
+      if (formContraparteValue === nombre) formContraparteValue = "";
+      if (editContraparteValue === nombre) editContraparteValue = "";
+      refreshCombos();
+    } catch (err) {
+      await showAlert(err instanceof Error ? err.message : "No se pudo eliminar.", "Error");
+    }
+  }
+
+  const contraparteCombo: OptionCombo = createOptionCombo({
+    getOptions: contrapartesDisponibles,
+    getValue: () => formContraparteValue,
+    onSelect: (v) => { formContraparteValue = v; contraparteCombo.refresh(); },
+    onRequestNuevo: () => openContraparteModal((nombre) => { formContraparteValue = nombre; }),
+    onRequestDelete: (v) => void handleDeleteContraparte(v),
+    placeholder: config.placeholderContraparte,
+    addLabel: "+ Nuevo…",
+    deleteLabel: "Eliminar",
+  });
+  container.querySelector("#dd-contraparte-mount")!.appendChild(contraparteCombo.el);
+
+  const editContraparteCombo: OptionCombo = createOptionCombo({
+    getOptions: contrapartesDisponibles,
+    getValue: () => editContraparteValue,
+    onSelect: (v) => { editContraparteValue = v; editContraparteCombo.refresh(); },
+    onRequestNuevo: () => openContraparteModal((nombre) => { editContraparteValue = nombre; }),
+    onRequestDelete: (v) => void handleDeleteContraparte(v),
+    placeholder: config.placeholderContraparte,
+    addLabel: "+ Nuevo…",
+    deleteLabel: "Eliminar",
+  });
+  container.querySelector("#edit-contraparte-mount")!.appendChild(editContraparteCombo.el);
+
+  const tipoCombo: OptionCombo = createOptionCombo({
+    getOptions: tiposDisponibles,
+    getValue: () => formTipoValue,
+    onSelect: (v) => { formTipoValue = v; tipoCombo.refresh(); },
+    onRequestNuevo: () => openTipoModal((nombre) => { formTipoValue = nombre; }),
+    onRequestDelete: (v) => void handleDeleteTipo(v),
+    placeholder: "Selecciona un tipo",
+    addLabel: "+ Nuevo tipo…",
+    deleteLabel: "Eliminar tipo",
+  });
+  container.querySelector("#dd-tipo-mount")!.appendChild(tipoCombo.el);
+
+  const editTipoCombo: OptionCombo = createOptionCombo({
+    getOptions: tiposDisponibles,
+    getValue: () => editTipoValue,
+    onSelect: (v) => { editTipoValue = v; editTipoCombo.refresh(); },
+    onRequestNuevo: () => openTipoModal((nombre) => { editTipoValue = nombre; }),
+    onRequestDelete: (v) => void handleDeleteTipo(v),
+    placeholder: "Selecciona un tipo",
+    addLabel: "+ Nuevo tipo…",
+    deleteLabel: "Eliminar tipo",
+  });
+  container.querySelector("#edit-tipo-mount")!.appendChild(editTipoCombo.el);
 
   historialModalClose.addEventListener("click", () => historialModal.close());
 
@@ -223,9 +457,16 @@ export async function renderDeudasModulo(container: HTMLElement, config: ModuloD
     return `A este ritmo, se termina de pagar en aproximadamente ${meses} ${meses === 1 ? "mes" : "meses"} (${fechaLabel}).`;
   }
 
+  function tasaBadge(deuda: Deuda): string {
+    if (!deuda.tasaInteres) return "";
+    const periodo = deuda.periodicidadInteres === "Anual" ? "anual" : "mensual";
+    return `<span class="badge">${deuda.tasaInteres}% ${periodo}</span>`;
+  }
+
   function renderDeudaCard(deuda: Deuda): HTMLDivElement {
     const eventos = eventosPorDeuda.get(deuda.id) ?? [];
     const estado = calcularEstadoDeuda(deuda, eventos);
+    const pagada = deuda.estado === "Pagada";
     const card = document.createElement("div");
     card.className = "card deuda-card";
     card.innerHTML = `
@@ -233,25 +474,31 @@ export async function renderDeudasModulo(container: HTMLElement, config: ModuloD
         <div>
           <span class="deuda-card__contraparte">${deuda.contraparte}</span>
           <span class="badge">${deuda.tipo}</span>
-          ${deuda.estado === "Activa" ? alertaBadge(deuda) : ""}
+          ${tasaBadge(deuda)}
+          ${pagada ? `<span class="badge badge--fijo">Pagada</span>` : alertaBadge(deuda)}
         </div>
         <div class="deuda-card__actions">
           <button type="button" class="icon-btn icon-btn--edit" data-action="edit" aria-label="Editar" title="Editar">${editIcon}</button>
           <button type="button" class="icon-btn icon-btn--delete" data-action="delete" aria-label="Eliminar" title="Eliminar">${trashIcon}</button>
         </div>
       </div>
+      ${
+        pagada
+          ? `<p class="empty-state" style="margin:0">Monto original ${formatMoney(deuda.montoOriginal)} · Total pagado ${formatMoney(estado.totalAbonado)}</p>`
+          : `
       <div class="progress-bar"><div class="progress-bar__fill" style="width:${estado.progresoPct}%"></div></div>
       <div class="deuda-card__stats">
         <div class="deuda-card__stat"><span class="deuda-card__stat-label">Saldo capital</span><span class="deuda-card__stat-value">${formatMoney(estado.saldoCapital)}</span></div>
         <div class="deuda-card__stat"><span class="deuda-card__stat-label">Interés pendiente</span><span class="deuda-card__stat-value">${formatMoney(estado.interesPendiente)}</span></div>
         <div class="deuda-card__stat"><span class="deuda-card__stat-label">Total hoy</span><span class="deuda-card__stat-value deuda-card__stat-value--total">${formatMoney(estado.totalHoy)}</span></div>
       </div>
-      ${deuda.estado === "Activa" ? `<p class="empty-state" style="margin:10px 0 0">${deuda.diaPago ? `Próximo pago: día ${deuda.diaPago} · ` : ""}Mínimo ${formatMoney(deuda.pagoMinimo)}</p>
-      <p class="empty-state" style="margin:4px 0 0">${proyeccionTexto(deuda)}</p>` : ""}
+      <p class="empty-state" style="margin:10px 0 0">${deuda.diaPago ? `Próximo pago: día ${deuda.diaPago} · ` : ""}Mínimo ${formatMoney(deuda.pagoMinimo)}</p>
+      <p class="empty-state" style="margin:4px 0 0">${proyeccionTexto(deuda)}</p>`
+      }
       <div class="deuda-card__footer">
-        ${deuda.estado === "Activa" ? `<button type="button" class="btn" data-action="abonar">Registrar abono</button>` : ""}
+        ${!pagada ? `<button type="button" class="btn" data-action="abonar">Registrar abono</button>` : ""}
         <button type="button" class="btn-secondary" data-action="historial">Ver historial</button>
-        ${deuda.estado === "Activa" ? `<button type="button" class="btn-secondary" data-action="pagada">Marcar como pagada</button>` : `<button type="button" class="btn-secondary" data-action="reabrir">Reabrir</button>`}
+        ${!pagada ? `<button type="button" class="btn-secondary" data-action="pagada">Marcar como pagada</button>` : `<button type="button" class="btn-secondary" data-action="reabrir">Reabrir</button>`}
       </div>
     `;
 
@@ -278,10 +525,11 @@ export async function renderDeudasModulo(container: HTMLElement, config: ModuloD
 
     const pagadaBtn = card.querySelector<HTMLButtonElement>('[data-action="pagada"]');
     pagadaBtn?.addEventListener("click", async () => {
-      const ok = await showConfirm(`¿Marcar la deuda con "${deuda.contraparte}" como pagada?`, {
-        title: "Marcar como pagada",
-        confirmLabel: "Marcar pagada",
-      });
+      const mensaje =
+        estado.totalHoy > 0
+          ? `Esta deuda todavía tiene un saldo de ${formatMoney(estado.totalHoy)}. ¿Confirmas marcarla como pagada de todas formas?`
+          : `¿Marcar la deuda con "${deuda.contraparte}" como pagada?`;
+      const ok = await showConfirm(mensaje, { title: "Marcar como pagada", confirmLabel: "Marcar pagada" });
       if (!ok) return;
       void runAction(() => marcarDeudaPagada(spreadsheetId, deuda));
     });
@@ -338,14 +586,16 @@ export async function renderDeudasModulo(container: HTMLElement, config: ModuloD
     ]);
     deudas = deudasList;
     eventosPorDeuda = agruparEventosPorDeuda(eventos);
-    renderContrapartesDatalist();
+    refreshCombos();
     renderList();
   }
 
   function openEditModal(deuda: Deuda): void {
     editingDeuda = deuda;
-    editContraparteInput.value = deuda.contraparte;
-    editTipoSelect.value = deuda.tipo;
+    editContraparteValue = deuda.contraparte;
+    editTipoValue = deuda.tipo;
+    editContraparteCombo.refresh();
+    editTipoCombo.refresh();
     editMontoInput.value = String(deuda.montoOriginal);
     editTasaInput.value = String(deuda.tasaInteres);
     editPeriodicidadSelect.value = deuda.periodicidadInteres;
@@ -365,7 +615,7 @@ export async function renderDeudasModulo(container: HTMLElement, config: ModuloD
       "submit",
       async (e) => {
         e.preventDefault();
-        const contraparte = editContraparteInput.value.trim();
+        const contraparte = editContraparteValue;
         const monto = Number(editMontoInput.value);
         if (!contraparte || !monto || monto <= 0 || !editFechaInicioInput.value) {
           editModalError.hidden = false;
@@ -379,7 +629,7 @@ export async function renderDeudasModulo(container: HTMLElement, config: ModuloD
           const cambios: NuevaDeuda = {
             direccion: config.direccion,
             contraparte,
-            tipo: editTipoSelect.value,
+            tipo: editTipoValue,
             montoOriginal: monto,
             tasaInteres: Number(editTasaInput.value) || 0,
             periodicidadInteres: editPeriodicidadSelect.value as PeriodicidadInteres,
@@ -409,18 +659,23 @@ export async function renderDeudasModulo(container: HTMLElement, config: ModuloD
     e.preventDefault();
     formError.hidden = true;
 
-    const contraparte = contraparteInput.value.trim();
+    const contraparte = formContraparteValue;
     const monto = Number(montoInput.value);
     if (!contraparte || !monto || monto <= 0 || !fechaInicioInput.value) {
       formError.hidden = false;
       formError.textContent = "Completa la contraparte, la fecha y un monto válido.";
       return;
     }
+    if (!formTipoValue) {
+      formError.hidden = false;
+      formError.textContent = "Elige o crea un tipo de deuda.";
+      return;
+    }
 
     const nueva: NuevaDeuda = {
       direccion: config.direccion,
       contraparte,
-      tipo: tipoSelect.value,
+      tipo: formTipoValue,
       montoOriginal: monto,
       tasaInteres: Number(tasaInput.value) || 0,
       periodicidadInteres: periodicidadSelect.value as PeriodicidadInteres,
@@ -461,6 +716,13 @@ export async function renderDeudasModulo(container: HTMLElement, config: ModuloD
   try {
     const ensured = await ensureSpreadsheet();
     spreadsheetId = ensured.spreadsheetId;
+    const [tipos, contrapartes] = await Promise.all([
+      listTiposDeuda(spreadsheetId),
+      listContrapartesGuardadas(spreadsheetId),
+    ]);
+    tiposDeuda = tipos;
+    contrapartesGuardadas = contrapartes;
+    formTipoValue = tipos[0] ?? "";
     await reload();
   } catch (err) {
     activasListEl.innerHTML = `<p class="empty-state">${err instanceof Error ? err.message : "No se pudo cargar la información."}</p>`;

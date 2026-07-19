@@ -134,6 +134,15 @@
   padding: 20px 14px;
 }
 
+@media (min-width: 781px) {
+  .sidebar {
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+  }
+}
+
 .sidebar__top {
   display: flex;
   align-items: center;

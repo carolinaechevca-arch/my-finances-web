@@ -1,4 +1,4 @@
-import { ABONOS_DEUDAS_SHEET, DEUDAS_SHEET } from "../api/spreadsheet-bootstrap";
+import { ABONOS_DEUDAS_SHEET, CONTRAPARTES_SHEET, DEUDAS_SHEET, TIPOS_DEUDA_SHEET } from "../api/spreadsheet-bootstrap";
 import { appendRecord, deleteRecord, listRecords, updateRecord, type SheetRow } from "../api/records";
 import { parseDateInput, todayISO } from "./format";
 
@@ -6,15 +6,6 @@ export type Direccion = "YoDebo" | "MeDeben";
 export type PeriodicidadInteres = "Anual" | "Mensual";
 export type EstadoDeuda = "Activa" | "Pagada";
 export type TipoEventoAbono = "Abono" | "MontoAgregado";
-
-export const TIPOS_DEUDA = [
-  "Tarjeta de crédito",
-  "Préstamo personal",
-  "Préstamo bancario",
-  "Crédito informal",
-  "Hipoteca",
-  "Otro",
-];
 
 export interface Deuda {
   id: string;
@@ -403,3 +394,41 @@ export function estadoAlerta(
   if (dia - hoyDia <= 5) return "proxima";
   return null;
 }
+
+async function listNombres(spreadsheetId: string, sheet: string): Promise<string[]> {
+  const rows = await listRecords(spreadsheetId, sheet, 1);
+  const seen = new Set<string>();
+  const nombres: string[] = [];
+  for (const r of rows) {
+    const nombre = r.values[0];
+    if (nombre && !seen.has(nombre)) {
+      seen.add(nombre);
+      nombres.push(nombre);
+    }
+  }
+  return nombres;
+}
+
+async function eliminarNombre(spreadsheetId: string, sheet: string, nombre: string): Promise<void> {
+  const rows = await listRecords(spreadsheetId, sheet, 1);
+  const matching = rows
+    .filter((r) => r.values[0] === nombre)
+    .map((r) => r.row)
+    .sort((a, b) => b - a);
+  for (const row of matching) {
+    await deleteRecord(spreadsheetId, sheet, row);
+  }
+}
+
+export const listTiposDeuda = (spreadsheetId: string): Promise<string[]> => listNombres(spreadsheetId, TIPOS_DEUDA_SHEET);
+export const crearTipoDeuda = (spreadsheetId: string, nombre: string): Promise<void> =>
+  appendRecord(spreadsheetId, TIPOS_DEUDA_SHEET, [nombre]).then(() => undefined);
+export const eliminarTipoDeuda = (spreadsheetId: string, nombre: string): Promise<void> =>
+  eliminarNombre(spreadsheetId, TIPOS_DEUDA_SHEET, nombre);
+
+export const listContrapartesGuardadas = (spreadsheetId: string): Promise<string[]> =>
+  listNombres(spreadsheetId, CONTRAPARTES_SHEET);
+export const crearContraparte = (spreadsheetId: string, nombre: string): Promise<void> =>
+  appendRecord(spreadsheetId, CONTRAPARTES_SHEET, [nombre]).then(() => undefined);
+export const eliminarContraparte = (spreadsheetId: string, nombre: string): Promise<void> =>
+  eliminarNombre(spreadsheetId, CONTRAPARTES_SHEET, nombre);
