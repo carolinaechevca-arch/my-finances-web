@@ -4,6 +4,9 @@
 // See: https://developers.google.com/identity/oauth2/web/guides/use-token-model
 
 const SCOPES = [
+  "openid",
+  "email",
+  "profile",
   "https://www.googleapis.com/auth/spreadsheets",
   "https://www.googleapis.com/auth/drive.file",
 ].join(" ");
