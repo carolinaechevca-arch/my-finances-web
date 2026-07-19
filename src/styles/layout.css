@@ -229,6 +229,26 @@
   margin: 0 0 20px;
 }
 
+.page-title svg {
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+}
+
+.nav-icon {
+  display: inline-flex;
+  align-items: center;
+}
+
+.nav-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.nav-icon--white {
+  color: white;
+}
+
 .page-title-row {
   display: flex;
   align-items: center;
@@ -236,6 +256,8 @@
   flex-wrap: wrap;
   gap: 12px;
   margin-bottom: 20px;
+  /* Deja espacio para que el switch de tema (fixed, arriba a la derecha) no tape el badge del mes. */
+  padding-right: 56px;
 }
 
 .page-title-row .page-title {
@@ -280,6 +302,18 @@
   color: var(--color-text-muted);
   font-size: 13px;
   margin-top: 4px;
+}
+
+.stat-card--primary {
+  background: var(--color-primary);
+}
+
+.stat-card--primary .stat-card__value {
+  color: white;
+}
+
+.stat-card--primary .stat-card__label {
+  color: rgba(255, 255, 255, 0.8);
 }
 
 .btn {
@@ -369,6 +403,20 @@
 
 .record-row__title {
   font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 .record-row__subtitle {
@@ -402,4 +450,334 @@
 .btn-toggle:disabled {
   opacity: 0.6;
   cursor: default;
+}
+
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text);
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.btn-secondary:hover {
+  background: var(--color-bg);
+}
+
+/* --- Botones de icono (editar / eliminar en tablas) --- */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  cursor: pointer;
+}
+
+.icon-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+.icon-btn--edit {
+  color: var(--color-primary);
+}
+
+.icon-btn--edit:hover {
+  background: rgba(0, 102, 107, 0.1);
+}
+
+.icon-btn--delete {
+  color: var(--color-danger);
+}
+
+.icon-btn--delete:hover {
+  background: rgba(193, 68, 60, 0.1);
+}
+
+.icon-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* --- Tabla de registros --- */
+.table-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.field--inline {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.field--inline label {
+  white-space: nowrap;
+}
+
+.table-scroll {
+  overflow-x: auto;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.data-table th {
+  text-align: left;
+  padding: 10px 12px;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+
+.data-table td {
+  padding: 12px;
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.data-table tr:last-child td {
+  border-bottom: none;
+}
+
+.data-table .text-right {
+  text-align: right;
+}
+
+.data-table .text-muted {
+  color: var(--color-text-muted);
+  white-space: normal;
+}
+
+.data-table .amount-cell {
+  font-weight: 700;
+  color: var(--color-primary);
+}
+
+.data-table .actions-cell,
+.data-table .actions-col {
+  text-align: right;
+}
+
+.data-table .actions-cell {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.badge--fijo {
+  background: rgba(46, 158, 91, 0.12);
+  border-color: transparent;
+  color: var(--color-success);
+}
+
+.badge--unico {
+  background: rgba(201, 138, 31, 0.12);
+  border-color: transparent;
+  color: var(--color-warning);
+}
+
+.badge--neutral {
+  color: var(--color-text-muted);
+}
+
+.badge--today {
+  background: rgba(201, 138, 31, 0.15);
+  border-color: transparent;
+  color: var(--color-warning);
+}
+
+.data-table tr.is-today {
+  background: rgba(201, 138, 31, 0.07);
+}
+
+/* --- Modal --- */
+.modal {
+  border: none;
+  border-radius: var(--radius-md);
+  padding: 24px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-shadow: var(--shadow-card);
+  width: min(420px, calc(100vw - 40px));
+}
+
+.modal::backdrop {
+  background: rgba(3, 17, 42, 0.5);
+}
+
+.modal__form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.modal__title {
+  margin: 0;
+  font-size: 20px;
+}
+
+.modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+/* --- Combo a medida (selector de tipo con crear/eliminar) --- */
+.combo {
+  position: relative;
+}
+
+.combo__trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: 14px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.combo.is-open .combo__trigger,
+.combo__trigger:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+.combo__value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+
+.combo__trigger svg {
+  width: 16px;
+  height: 16px;
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+  transition: transform 0.15s ease;
+}
+
+.combo.is-open .combo__trigger svg {
+  transform: rotate(180deg);
+}
+
+.combo__panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 30;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-card);
+  padding: 6px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.combo__option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.combo__option:hover {
+  background: var(--color-bg);
+}
+
+.combo__option.is-selected {
+  background: rgba(0, 102, 107, 0.08);
+}
+
+.combo__check {
+  width: 14px;
+  color: var(--color-primary);
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.combo__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.combo__delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--color-danger);
+  border-radius: var(--radius-sm);
+  opacity: 0;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.combo__delete svg {
+  width: 14px;
+  height: 14px;
+}
+
+.combo__option:hover .combo__delete {
+  opacity: 1;
+}
+
+.combo__delete:hover {
+  background: rgba(193, 68, 60, 0.12);
+}
+
+.combo__option--add {
+  margin-top: 4px;
+  border-top: 1px solid var(--color-border);
+  border-radius: 0;
+  padding-top: 12px;
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+.combo__option--add .combo__label {
+  color: var(--color-primary);
 }

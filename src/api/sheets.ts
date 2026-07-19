@@ -65,6 +65,29 @@ export async function getSheetNames(spreadsheetId: string): Promise<string[]> {
   return (data.sheets ?? []).map((s: { properties: { title: string } }) => s.properties.title);
 }
 
+/** Mapa nombre de hoja -> id numérico interno (lo pide la API para operaciones estructurales como borrar filas). */
+export async function getSheetIds(spreadsheetId: string): Promise<Record<string, number>> {
+  const res = await authedFetch(`${SHEETS_BASE}/${spreadsheetId}?fields=sheets.properties(sheetId,title)`);
+  const data = await res.json();
+  const ids: Record<string, number> = {};
+  for (const s of data.sheets ?? []) {
+    ids[s.properties.title] = s.properties.sheetId;
+  }
+  return ids;
+}
+
+/** Borra una fila (1-based, incluye el encabezado en el conteo) de una hoja. */
+export async function deleteRow(spreadsheetId: string, sheetId: number, row: number): Promise<void> {
+  await authedFetch(`${SHEETS_BASE}/${spreadsheetId}:batchUpdate`, {
+    method: "POST",
+    body: JSON.stringify({
+      requests: [
+        { deleteDimension: { range: { sheetId, dimension: "ROWS", startIndex: row - 1, endIndex: row } } },
+      ],
+    }),
+  });
+}
+
 export async function getValues(spreadsheetId: string, range: string): Promise<string[][]> {
   const res = await authedFetch(`${SHEETS_BASE}/${spreadsheetId}/values/${encodeURIComponent(range)}`);
   const data = await res.json();

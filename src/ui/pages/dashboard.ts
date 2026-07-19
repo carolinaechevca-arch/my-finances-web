@@ -1,7 +1,7 @@
 import { ensureSpreadsheet } from "../../api/spreadsheet-bootstrap";
 import { formatMonthLabel, formatMoney } from "../../domain/format";
 import { listGastosFijosDelMes, listGastosPersonalesDelMes, sumGastos } from "../../domain/gastos";
-import { listIngresosFijos, sumIngresosFijosActivos } from "../../domain/ingresos";
+import { listIngresosVigentes, sumIngresosActivos } from "../../domain/ingresos";
 
 export async function renderDashboard(container: HTMLElement, onNavigate: (sectionId: string) => void): Promise<void> {
   container.innerHTML = `
@@ -54,12 +54,12 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
     }
 
     const [ingresos, gastosFijos, gastosPersonales] = await Promise.all([
-      listIngresosFijos(spreadsheetId),
+      listIngresosVigentes(spreadsheetId),
       listGastosFijosDelMes(spreadsheetId),
       listGastosPersonalesDelMes(spreadsheetId),
     ]);
 
-    const totalIngresos = sumIngresosFijosActivos(ingresos);
+    const totalIngresos = sumIngresosActivos(ingresos);
     const totalGastos = sumGastos(gastosFijos, gastosPersonales);
 
     statIngresos.textContent = formatMoney(totalIngresos);

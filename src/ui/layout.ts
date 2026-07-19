@@ -1,3 +1,5 @@
+import cashBanknotePlusIcon from "../icon/cash-banknote-plus.svg?raw";
+import cashMinusIcon from "../icon/cash-minus.svg?raw";
 import type { AuthUser } from "../auth/google-auth";
 import { mountThemeToggle } from "./theme-toggle";
 
@@ -9,8 +11,8 @@ export interface NavSection {
 
 export const NAV_SECTIONS: NavSection[] = [
   { id: "inicio", label: "Inicio", icon: "🏠" },
-  { id: "ingresos", label: "Ingresos", icon: "💵" },
-  { id: "gastos-fijos", label: "Gastos Fijos", icon: "🏦" },
+  { id: "ingresos", label: "Ingresos", icon: `<span class="nav-icon nav-icon--white">${cashBanknotePlusIcon}</span>` },
+  { id: "gastos-fijos", label: "Gastos Fijos", icon: `<span class="nav-icon nav-icon--white">${cashMinusIcon}</span>` },
   { id: "gastos-personales", label: "Gastos y Compras", icon: "🛒" },
   { id: "facturas", label: "Facturas", icon: "🧾" },
   { id: "deudas", label: "Deudas", icon: "📉" },

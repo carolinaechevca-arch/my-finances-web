@@ -1,4 +1,4 @@
-import { appendValues, getValues, updateValues } from "./sheets";
+import { appendValues, deleteRow, getSheetIds, getValues, updateValues } from "./sheets";
 
 export interface SheetRow {
   /** Número de fila en la hoja (1-based, la fila 1 es el encabezado). */
@@ -43,4 +43,11 @@ export async function updateRecord(
 ): Promise<void> {
   const range = `${sheet}!A${row}:${columnLetter(values.length)}${row}`;
   await updateValues(spreadsheetId, range, [values]);
+}
+
+export async function deleteRecord(spreadsheetId: string, sheet: string, row: number): Promise<void> {
+  const ids = await getSheetIds(spreadsheetId);
+  const sheetId = ids[sheet];
+  if (sheetId === undefined) throw new Error(`No se encontró la hoja "${sheet}".`);
+  await deleteRow(spreadsheetId, sheetId, row);
 }

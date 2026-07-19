@@ -1,4 +1,5 @@
-import { appendRecord, listRecords, updateRecord, type SheetRow } from "../api/records";
+import { CATEGORIAS_SHEET } from "../api/spreadsheet-bootstrap";
+import { appendRecord, deleteRecord, listRecords, updateRecord, type SheetRow } from "../api/records";
 import { monthKey } from "./format";
 
 const GASTOS_FIJOS_SHEET = "GastosFijos";
@@ -57,6 +58,62 @@ export async function setGastoFijoEstado(spreadsheetId: string, gasto: GastoFijo
     gasto.mes,
     estado,
   ]);
+}
+
+export interface GastoFijoCambios {
+  nombre: string;
+  monto: number;
+  categoria: string;
+  diaPago: string;
+}
+
+export async function actualizarGastoFijo(
+  spreadsheetId: string,
+  gasto: GastoFijo,
+  cambios: GastoFijoCambios,
+): Promise<void> {
+  await updateRecord(spreadsheetId, GASTOS_FIJOS_SHEET, gasto.row, [
+    cambios.nombre,
+    cambios.monto,
+    cambios.diaPago,
+    cambios.categoria,
+    gasto.mes,
+    gasto.estado,
+  ]);
+}
+
+export async function eliminarGastoFijo(spreadsheetId: string, gasto: GastoFijo): Promise<void> {
+  await deleteRecord(spreadsheetId, GASTOS_FIJOS_SHEET, gasto.row);
+}
+
+export async function listCategorias(spreadsheetId: string): Promise<string[]> {
+  const rows = await listRecords(spreadsheetId, CATEGORIAS_SHEET, 1);
+  const seen = new Set<string>();
+  const categorias: string[] = [];
+  for (const r of rows) {
+    const nombre = r.values[0];
+    if (nombre && !seen.has(nombre)) {
+      seen.add(nombre);
+      categorias.push(nombre);
+    }
+  }
+  return categorias;
+}
+
+export async function crearCategoria(spreadsheetId: string, nombre: string): Promise<void> {
+  await appendRecord(spreadsheetId, CATEGORIAS_SHEET, [nombre]);
+}
+
+/** Borra todas las filas con ese nombre en Categorias (por si quedaron duplicadas). */
+export async function eliminarCategoria(spreadsheetId: string, nombre: string): Promise<void> {
+  const rows = await listRecords(spreadsheetId, CATEGORIAS_SHEET, 1);
+  const matching = rows
+    .filter((r) => r.values[0] === nombre)
+    .map((r) => r.row)
+    .sort((a, b) => b - a);
+  for (const row of matching) {
+    await deleteRecord(spreadsheetId, CATEGORIAS_SHEET, row);
+  }
 }
 
 export async function listGastosPersonalesDelMes(

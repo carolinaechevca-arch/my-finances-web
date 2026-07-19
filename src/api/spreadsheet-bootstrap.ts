@@ -1,6 +1,6 @@
 import { findFileByName } from "./drive";
 import { appendRecords, listRecords } from "./records";
-import { addSheets, createSpreadsheet, getSheetNames, type SheetDefinition } from "./sheets";
+import { addSheets, createSpreadsheet, getSheetNames, updateValues, type SheetDefinition } from "./sheets";
 
 export const SPREADSHEET_TITLE = "MisFinanzas";
 
@@ -8,6 +8,7 @@ const SPREADSHEET_MIME = "application/vnd.google-apps.spreadsheet";
 
 export const TIPOS_INGRESO_SHEET = "TiposIngreso";
 export const INGRESOS_FIJOS_SHEET = "IngresosFijos";
+export const CATEGORIAS_SHEET = "Categorias";
 
 /** Tipos de ingreso fijo con los que arranca toda cuenta nueva; el usuario puede agregar más. */
 const DEFAULT_TIPOS_INGRESO = ["Nómina", "Trabajo independiente", "Regalo", "Otro"];
@@ -16,7 +17,10 @@ const DEFAULT_TIPOS_INGRESO = ["Nómina", "Trabajo independiente", "Regalo", "Ot
 export const SHEET_DEFINITIONS: SheetDefinition[] = [
   { name: "Nomina_Ingresos", headers: ["Fecha", "Fuente", "Monto", "Notas"] },
   { name: TIPOS_INGRESO_SHEET, headers: ["Nombre"] },
-  { name: INGRESOS_FIJOS_SHEET, headers: ["Tipo", "Monto", "Notas", "Activo", "FechaCreacion"] },
+  {
+    name: INGRESOS_FIJOS_SHEET,
+    headers: ["Tipo", "Monto", "Notas", "Recurrencia", "Mes", "Activo", "FechaCreacion"],
+  },
   {
     name: "GastosFijos",
     headers: ["Nombre", "Monto", "DiaPago", "Categoria", "Mes", "Estado"],
@@ -38,19 +42,36 @@ export const SHEET_DEFINITIONS: SheetDefinition[] = [
   { name: "Ahorros", headers: ["Fecha", "Monto", "Meta", "Notas"] },
   { name: "MetasAhorro", headers: ["Nombre", "MontoObjetivo", "FechaObjetivo"] },
   { name: "PresupuestosCategoria", headers: ["Categoria", "LimiteMensual"] },
-  { name: "Categorias", headers: ["Nombre"] },
+  { name: CATEGORIAS_SHEET, headers: ["Nombre"] },
 ];
+
+let ensurePromise: Promise<{ spreadsheetId: string; created: boolean }> | null = null;
 
 /**
  * Busca el spreadsheet "MisFinanzas" en el Drive del usuario; si no existe,
  * lo crea con todas las hojas y encabezados. Si ya existe pero le faltan
  * hojas (porque se agregaron después, como Ingresos), las completa sin
  * tocar las que ya tienen datos. Devuelve su ID.
+ *
+ * Cachea la promesa en curso: si dos páginas la llaman casi al mismo tiempo
+ * (ej. Inicio y luego Ingresos al navegar rápido), comparten la misma
+ * ejecución en vez de correr el seed de tipos por duplicado.
  */
-export async function ensureSpreadsheet(): Promise<{ spreadsheetId: string; created: boolean }> {
+export function ensureSpreadsheet(): Promise<{ spreadsheetId: string; created: boolean }> {
+  if (!ensurePromise) {
+    ensurePromise = ensureSpreadsheetInternal().catch((err) => {
+      ensurePromise = null;
+      throw err;
+    });
+  }
+  return ensurePromise;
+}
+
+async function ensureSpreadsheetInternal(): Promise<{ spreadsheetId: string; created: boolean }> {
   const existingId = await findFileByName(SPREADSHEET_TITLE, SPREADSHEET_MIME);
   if (existingId) {
     await ensureSheets(existingId);
+    await ensureIngresosFijosHeaders(existingId);
     await ensureDefaultTipos(existingId);
     return { spreadsheetId: existingId, created: false };
   }
@@ -63,6 +84,14 @@ async function ensureSheets(spreadsheetId: string): Promise<void> {
   const existingNames = new Set(await getSheetNames(spreadsheetId));
   const missing = SHEET_DEFINITIONS.filter((s) => !existingNames.has(s.name));
   await addSheets(spreadsheetId, missing);
+}
+
+/** Si IngresosFijos ya existía con el encabezado viejo (sin Recurrencia/Mes) y aún no tiene datos, lo actualiza. */
+async function ensureIngresosFijosHeaders(spreadsheetId: string): Promise<void> {
+  const def = SHEET_DEFINITIONS.find((s) => s.name === INGRESOS_FIJOS_SHEET)!;
+  const rows = await listRecords(spreadsheetId, INGRESOS_FIJOS_SHEET, 1);
+  if (rows.length > 0) return;
+  await updateValues(spreadsheetId, `${INGRESOS_FIJOS_SHEET}!A1`, [def.headers]);
 }
 
 async function ensureDefaultTipos(spreadsheetId: string): Promise<void> {
