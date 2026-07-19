@@ -2,8 +2,6 @@ import { CATEGORIAS_SHEET, GASTOS_FIJOS_SHEET } from "../api/spreadsheet-bootstr
 import { appendRecord, deleteRecord, listRecords, updateRecord, type SheetRow } from "../api/records";
 import { monthKey } from "./format";
 
-const GASTOS_PERSONALES_SHEET = "GastosPersonales";
-
 export interface GastoFijo {
   row: number;
   nombre: string;
@@ -14,14 +12,6 @@ export interface GastoFijo {
   estado: string;
   /** Lo que realmente se pagó (puede diferir de `monto`); null si aún no se ha pagado. */
   montoPagado: number | null;
-}
-
-export interface GastoPersonal {
-  row: number;
-  fecha: string;
-  categoria: string;
-  monto: number;
-  descripcion: string;
 }
 
 function parseGastoFijo(r: SheetRow): GastoFijo {
@@ -36,11 +26,6 @@ function parseGastoFijo(r: SheetRow): GastoFijo {
     estado,
     montoPagado: montoPagado === "" ? null : Number(montoPagado) || 0,
   };
-}
-
-function parseGastoPersonal(r: SheetRow): GastoPersonal {
-  const [fecha = "", categoria = "", monto = "0", descripcion = ""] = r.values;
-  return { row: r.row, fecha, categoria, monto: Number(monto) || 0, descripcion };
 }
 
 export async function listGastosFijosDelMes(spreadsheetId: string, date: Date = new Date()): Promise<GastoFijo[]> {
@@ -150,27 +135,23 @@ export async function eliminarCategoria(spreadsheetId: string, nombre: string): 
   }
 }
 
-export async function listGastosPersonalesDelMes(
-  spreadsheetId: string,
-  date: Date = new Date(),
-): Promise<GastoPersonal[]> {
-  const rows = await listRecords(spreadsheetId, GASTOS_PERSONALES_SHEET, 4);
-  const mes = monthKey(date);
-  return rows.map(parseGastoPersonal).filter((g) => g.fecha.startsWith(mes));
+/** Nombres distintos usados en gastos fijos de cualquier mes, para autocompletar el formulario. */
+export async function listGastosFijosNombres(spreadsheetId: string): Promise<string[]> {
+  const rows = await listRecords(spreadsheetId, GASTOS_FIJOS_SHEET, 7);
+  const seen = new Set<string>();
+  const nombres: string[] = [];
+  for (const r of rows) {
+    const nombre = r.values[0];
+    if (nombre && !seen.has(nombre)) {
+      seen.add(nombre);
+      nombres.push(nombre);
+    }
+  }
+  return nombres;
 }
 
-export async function crearGastoPersonal(
-  spreadsheetId: string,
-  fecha: string,
-  categoria: string,
-  monto: number,
-  descripcion: string,
-): Promise<void> {
-  await appendRecord(spreadsheetId, GASTOS_PERSONALES_SHEET, [fecha, categoria, monto, descripcion]);
-}
-
-export function sumGastos(fijos: GastoFijo[], personales: GastoPersonal[]): number {
-  return fijos.reduce((s, g) => s + g.monto, 0) + personales.reduce((s, g) => s + g.monto, 0);
+export function sumGastosFijosTotal(fijos: GastoFijo[]): number {
+  return fijos.reduce((s, g) => s + g.monto, 0);
 }
 
 /** Suma solo los gastos fijos que aún no están marcados como "Pagado". */

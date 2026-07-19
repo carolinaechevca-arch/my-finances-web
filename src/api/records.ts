@@ -26,8 +26,11 @@ export async function listRecords(spreadsheetId: string, sheet: string, columnCo
     .filter((r) => r.values.some((v) => v !== "" && v != null));
 }
 
-export async function appendRecord(spreadsheetId: string, sheet: string, values: unknown[]): Promise<void> {
-  await appendValues(spreadsheetId, `${sheet}!A1`, [values]);
+/** Agrega una fila y devuelve el número de fila (1-based) donde quedó insertada. */
+export async function appendRecord(spreadsheetId: string, sheet: string, values: unknown[]): Promise<number> {
+  const { updatedRange } = await appendValues(spreadsheetId, `${sheet}!A1`, [values]);
+  const match = updatedRange.match(/!\D+(\d+)/);
+  return match ? Number(match[1]) : 0;
 }
 
 export async function appendRecords(spreadsheetId: string, sheet: string, rows: unknown[][]): Promise<void> {

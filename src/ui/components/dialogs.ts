@@ -1,4 +1,4 @@
-import { formatMoney } from "../../domain/format";
+import { formatMoney, todayISO } from "../../domain/format";
 
 function createDialog(): HTMLDialogElement {
   const dialog = document.createElement("dialog");
@@ -107,14 +107,26 @@ export function showMontoPagadoDialog(nombre: string, montoEsperado: number): Pr
     };
 
     let modoDiferente = false;
-    diferenteBtn.addEventListener("click", () => {
-      if (!modoDiferente) {
-        modoDiferente = true;
-        field.hidden = false;
-        diferenteBtn.textContent = "Confirmar monto";
-        exactoBtn.hidden = true;
+
+    function setModoDiferente(value: boolean): void {
+      modoDiferente = value;
+      field.hidden = !value;
+      error.hidden = true;
+      // .btn ya trae "display: inline-flex", que empata en especificidad con
+      // el estilo por defecto de [hidden] y gana por orden — por eso no basta
+      // con el atributo `hidden` aquí, hay que forzar el display a mano.
+      exactoBtn.style.display = value ? "none" : "";
+      diferenteBtn.textContent = value ? "Confirmar monto" : "Fue otro monto";
+      cancelBtn.textContent = value ? "Atrás" : "Cancelar";
+      if (value) {
         input.focus();
         input.select();
+      }
+    }
+
+    diferenteBtn.addEventListener("click", () => {
+      if (!modoDiferente) {
+        setModoDiferente(true);
         return;
       }
       const monto = Number(input.value);
@@ -126,7 +138,69 @@ export function showMontoPagadoDialog(nombre: string, montoEsperado: number): Pr
       cleanup(monto);
     });
     exactoBtn.addEventListener("click", () => cleanup(montoEsperado));
-    cancelBtn.addEventListener("click", () => cleanup(null));
+    cancelBtn.addEventListener("click", () => {
+      if (modoDiferente) {
+        setModoDiferente(false);
+        return;
+      }
+      cleanup(null);
+    });
+    dialog.addEventListener("cancel", () => cleanup(null));
+
+    dialog.showModal();
+  });
+}
+
+/**
+ * Modal para marcar una compra/gasto pendiente como realizado: pide el
+ * monto real y la fecha real en que se hizo (puede ser distinta a cuando se
+ * planeó). Devuelve { monto, fecha } o null si se canceló.
+ */
+export function showCompletarGastoDialog(
+  descripcion: string,
+  montoPlaneado: number,
+): Promise<{ monto: number; fecha: string } | null> {
+  return new Promise((resolve) => {
+    const dialog = createDialog();
+    dialog.innerHTML = `
+      <div class="modal__form">
+        <h2 class="modal__title">Marcar "${descripcion}" como realizado</h2>
+        <div class="field">
+          <label for="completar-fecha">¿Cuándo lo hiciste?</label>
+          <input id="completar-fecha" type="date" value="${todayISO()}" />
+        </div>
+        <div class="field">
+          <label for="completar-monto">¿Cuánto pagaste?</label>
+          <input id="completar-monto" type="number" min="0" step="0.01" value="${montoPlaneado}" />
+        </div>
+        <p class="empty-state" id="completar-error" hidden></p>
+        <div class="modal__actions">
+          <button type="button" class="btn-secondary" data-action="cancel">Cancelar</button>
+          <button type="button" class="btn" data-action="confirm">Marcar como realizado</button>
+        </div>
+      </div>
+    `;
+
+    const fechaInput = dialog.querySelector<HTMLInputElement>("#completar-fecha")!;
+    const montoInput = dialog.querySelector<HTMLInputElement>("#completar-monto")!;
+    const error = dialog.querySelector<HTMLParagraphElement>("#completar-error")!;
+
+    const cleanup = (result: { monto: number; fecha: string } | null) => {
+      dialog.close();
+      dialog.remove();
+      resolve(result);
+    };
+
+    dialog.querySelector('[data-action="cancel"]')!.addEventListener("click", () => cleanup(null));
+    dialog.querySelector('[data-action="confirm"]')!.addEventListener("click", () => {
+      const monto = Number(montoInput.value);
+      if (!monto || monto <= 0 || !fechaInput.value) {
+        error.hidden = false;
+        error.textContent = "Ingresa una fecha y un monto válido.";
+        return;
+      }
+      cleanup({ monto, fecha: fechaInput.value });
+    });
     dialog.addEventListener("cancel", () => cleanup(null));
 
     dialog.showModal();

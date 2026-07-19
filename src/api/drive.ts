@@ -69,9 +69,32 @@ export interface UploadedFile {
 /** Sube una foto de factura a la carpeta Facturas/<año> y devuelve su link. */
 export async function uploadFacturaFoto(file: File, year: number): Promise<UploadedFile> {
   const folderId = await ensureFacturasFolder(year);
+  return uploadFileToFolder(file, folderId, file.name);
+}
+
+/** Encuentra o crea FINANZAS_<año>/<Mes> (mes en español, ej. "Julio") y devuelve su ID. */
+export async function ensureGastoFacturaFolder(year: number, mesNombre: string): Promise<string> {
+  const rootId = await findOrCreateFolder(`FINANZAS_${year}`);
+  return findOrCreateFolder(mesNombre, rootId);
+}
+
+/** name→lowercase, sin tildes, espacios por guiones (para nombres de archivo). */
+export function slugify(text: string): string {
+  return (
+    text
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "gasto"
+  );
+}
+
+async function uploadFileToFolder(file: File, folderId: string, name: string): Promise<UploadedFile> {
   const token = await getAccessToken();
 
-  const metadata = { name: file.name, parents: [folderId] };
+  const metadata = { name, parents: [folderId] };
   const form = new FormData();
   form.append("metadata", new Blob([JSON.stringify(metadata)], { type: "application/json" }));
   form.append("file", file);
@@ -86,4 +109,26 @@ export async function uploadFacturaFoto(file: File, year: number): Promise<Uploa
     throw new Error(`Drive API error ${res.status}: ${body}`);
   }
   return res.json();
+}
+
+/**
+ * Sube la foto/PDF de una factura de un gasto a FINANZAS_<año>/<Mes>/,
+ * nombrada "<descripcion-slug>_<YYYY-MM-DD>.<ext>".
+ */
+export async function uploadGastoFactura(
+  file: File,
+  fecha: Date,
+  descripcion: string,
+  fechaISO: string,
+): Promise<UploadedFile> {
+  const folderId = await ensureGastoFacturaFolder(fecha.getFullYear(), monthNameFor(fecha));
+  const ext = file.name.includes(".") ? file.name.slice(file.name.lastIndexOf(".")) : "";
+  const name = `${slugify(descripcion)}_${fechaISO}${ext}`;
+  return uploadFileToFolder(file, folderId, name);
+}
+
+const monthFormatterEs = new Intl.DateTimeFormat("es-CO", { month: "long" });
+function monthNameFor(date: Date): string {
+  const label = monthFormatterEs.format(date);
+  return label.charAt(0).toUpperCase() + label.slice(1);
 }

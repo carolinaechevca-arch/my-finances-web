@@ -3,6 +3,8 @@ import editIcon from "../../icon/edit.svg?raw";
 import trashIcon from "../../icon/trash-x.svg?raw";
 import { ensureSpreadsheet } from "../../api/spreadsheet-bootstrap";
 import { formatMoney, formatMonthLabel } from "../../domain/format";
+import { listGastosFijosDelMes, sumGastosFijosTotal } from "../../domain/gastos";
+import { listGastosDelMes, sumGastos as sumGastosYCompras } from "../../domain/gastos-y-compras";
 import {
   actualizarIngreso,
   crearIngreso,
@@ -39,7 +41,7 @@ export async function renderIngresos(container: HTMLElement): Promise<void> {
       <h1 class="page-title">${cashBanknotePlusIcon} Ingresos Fijos</h1>
       <span class="month-badge">${formatMonthLabel()}</span>
     </div>
-    <div class="card-grid" style="max-width:560px">
+    <div class="card-grid" style="max-width:820px">
       <div class="card stat-card stat-card--primary">
         <div class="stat-card__value" id="ingresos-total">—</div>
         <div class="stat-card__label">Total mensual vigente</div>
@@ -47,6 +49,10 @@ export async function renderIngresos(container: HTMLElement): Promise<void> {
       <div class="card stat-card">
         <div class="stat-card__value" id="ingresos-total-fijo">—</div>
         <div class="stat-card__label">Ingresos fijos recurrentes</div>
+      </div>
+      <div class="card stat-card">
+        <div class="stat-card__value" id="ingresos-balance">—</div>
+        <div class="stat-card__label">Balance disponible este mes</div>
       </div>
     </div>
 
@@ -140,6 +146,7 @@ export async function renderIngresos(container: HTMLElement): Promise<void> {
 
   const totalEl = container.querySelector<HTMLDivElement>("#ingresos-total")!;
   const totalFijoEl = container.querySelector<HTMLDivElement>("#ingresos-total-fijo")!;
+  const balanceEl = container.querySelector<HTMLDivElement>("#ingresos-balance")!;
   const recurrenciaSelect = container.querySelector<HTMLSelectElement>("#ingreso-recurrencia")!;
   const montoInput = container.querySelector<HTMLInputElement>("#ingreso-monto")!;
   const notasInput = container.querySelector<HTMLInputElement>("#ingreso-notas")!;
@@ -166,6 +173,7 @@ export async function renderIngresos(container: HTMLElement): Promise<void> {
   let spreadsheetId = "";
   let tipos: string[] = [];
   let currentIngresos: IngresoFijo[] = [];
+  let gastosDelMesTotal = 0;
   let sortOrder: SortOrder = "tipo";
   let busy = false;
   let formTipoValue = "";
@@ -351,8 +359,10 @@ export async function renderIngresos(container: HTMLElement): Promise<void> {
   }
 
   function renderList(): void {
-    totalEl.textContent = formatMoney(sumIngresosActivos(currentIngresos));
+    const totalIngresos = sumIngresosActivos(currentIngresos);
+    totalEl.textContent = formatMoney(totalIngresos);
     totalFijoEl.textContent = formatMoney(sumIngresosFijosRecurrentes(currentIngresos));
+    balanceEl.textContent = formatMoney(totalIngresos - gastosDelMesTotal);
 
     if (currentIngresos.length === 0) {
       listEl.innerHTML = `<p class="empty-state">Aún no tienes ingresos registrados este mes. Agrega el primero arriba.</p>`;
@@ -365,7 +375,7 @@ export async function renderIngresos(container: HTMLElement): Promise<void> {
         const esFijo = ingreso.recurrencia === "Fijo";
         const estadoCell = esFijo
           ? `<button type="button" class="btn-toggle ${ingreso.activo ? "" : "is-off"}" data-row="${ingreso.row}" data-action="toggle">${ingreso.activo ? "Activo" : "Pausado"}</button>`
-          : `<span class="badge badge--neutral">—</span>`;
+          : `<span class="badge badge--neutral">Puntual</span>`;
         return `
           <tr data-row="${ingreso.row}">
             <td>${ingreso.tipo}</td>
@@ -487,7 +497,13 @@ export async function renderIngresos(container: HTMLElement): Promise<void> {
   try {
     const ensured = await ensureSpreadsheet();
     spreadsheetId = ensured.spreadsheetId;
-    tipos = await listTiposIngreso(spreadsheetId);
+    const [tiposList, gastosFijos, gastosYCompras] = await Promise.all([
+      listTiposIngreso(spreadsheetId),
+      listGastosFijosDelMes(spreadsheetId),
+      listGastosDelMes(spreadsheetId),
+    ]);
+    tipos = tiposList;
+    gastosDelMesTotal = sumGastosFijosTotal(gastosFijos) + sumGastosYCompras(gastosYCompras);
     formTipoValue = tipos[0] ?? "";
     refreshCombos();
     await reload();

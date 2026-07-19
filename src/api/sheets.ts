@@ -94,11 +94,18 @@ export async function getValues(spreadsheetId: string, range: string): Promise<s
   return data.values ?? [];
 }
 
-export async function appendValues(spreadsheetId: string, range: string, values: unknown[][]): Promise<void> {
-  await authedFetch(
+/** Devuelve el rango donde quedó insertada la fila (ej. "Hoja!A5:F5"), útil para saber su número de fila. */
+export async function appendValues(
+  spreadsheetId: string,
+  range: string,
+  values: unknown[][],
+): Promise<{ updatedRange: string }> {
+  const res = await authedFetch(
     `${SHEETS_BASE}/${spreadsheetId}/values/${encodeURIComponent(range)}:append?valueInputOption=USER_ENTERED`,
     { method: "POST", body: JSON.stringify({ values }) },
   );
+  const data = await res.json();
+  return { updatedRange: data.updates?.updatedRange ?? "" };
 }
 
 export async function updateValues(spreadsheetId: string, range: string, values: unknown[][]): Promise<void> {

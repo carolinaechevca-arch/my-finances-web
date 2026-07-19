@@ -12,6 +12,7 @@ import {
   eliminarGastoFijo,
   listCategorias,
   listGastosFijosDelMes,
+  listGastosFijosNombres,
   marcarGastoPagado,
   marcarGastoPendiente,
   sumDiferenciasPago,
@@ -67,7 +68,11 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
     <div class="card" style="margin-bottom:20px">
       <h2 style="margin-top:0">Agregar gasto fijo de este mes</h2>
       <form id="gasto-form" class="form">
-        <div class="field"><label for="gf-nombre">Nombre</label><input id="gf-nombre" type="text" required /></div>
+        <div class="field">
+          <label for="gf-nombre">Nombre</label>
+          <input id="gf-nombre" type="text" list="gf-nombres-datalist" autocomplete="off" required />
+          <datalist id="gf-nombres-datalist"></datalist>
+        </div>
         <div class="field">
           <label>Categoría</label>
           <div id="gf-categoria-mount"></div>
@@ -152,6 +157,7 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
   const formError = container.querySelector<HTMLParagraphElement>("#gasto-form-error")!;
   const submitBtn = form.querySelector<HTMLButtonElement>('button[type="submit"]')!;
   const nombreInput = container.querySelector<HTMLInputElement>("#gf-nombre")!;
+  const nombresDatalist = container.querySelector<HTMLDataListElement>("#gf-nombres-datalist")!;
   const montoInput = container.querySelector<HTMLInputElement>("#gf-monto")!;
   const diaInput = container.querySelector<HTMLInputElement>("#gf-dia")!;
   const ordenSelect = container.querySelector<HTMLSelectElement>("#gf-orden")!;
@@ -172,6 +178,7 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
 
   let spreadsheetId = "";
   let categorias: string[] = [];
+  let nombresConocidos: string[] = [];
   let currentGastos: GastoFijo[] = [];
   let sortOrder: SortOrder = "nombre";
   let busy = false;
@@ -182,6 +189,10 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
   function refreshCombos(): void {
     categoriaCombo.refresh();
     editCategoriaCombo.refresh();
+  }
+
+  function renderNombresDatalist(): void {
+    nombresDatalist.innerHTML = nombresConocidos.map((n) => `<option value="${n}"></option>`).join("");
   }
 
   function openCategoriaModal(onDone: (nombre: string) => void): void {
@@ -393,17 +404,24 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
     const rows = ordered
       .map((gasto) => {
         const pagado = gasto.estado === "Pagado";
-        const esHoy = Number(gasto.diaPago) === hoy;
+        const diaPagoNum = Number(gasto.diaPago) || 0;
+        const esHoy = diaPagoNum === hoy;
+        const vencido = !pagado && diaPagoNum > 0 && diaPagoNum < hoy;
         const tieneDiferencia = pagado && gasto.montoPagado !== null && gasto.montoPagado !== gasto.monto;
         const diferencia = tieneDiferencia ? (gasto.montoPagado as number) - gasto.monto : 0;
         const diferenciaHtml = tieneDiferencia
           ? `<div class="amount-diff" style="color:${diferencia > 0 ? "var(--color-danger)" : "var(--color-success)"}">${diferencia > 0 ? "+" : ""}${formatMoney(diferencia)}</div>`
           : "";
+        const diaBadge = vencido
+          ? ` <span class="badge badge--vencido">Vencido</span>`
+          : esHoy
+            ? ` <span class="badge badge--today">Hoy</span>`
+            : "";
         return `
-          <tr data-row="${gasto.row}" class="${esHoy ? "is-today" : ""}">
+          <tr data-row="${gasto.row}" class="${vencido ? "is-vencido" : esHoy ? "is-today" : ""}">
             <td>${gasto.nombre}</td>
             <td>${gasto.categoria ? `<span class="badge">${gasto.categoria}</span>` : "—"}</td>
-            <td>${gasto.diaPago || "—"}${esHoy ? ` <span class="badge badge--today">Hoy</span>` : ""}</td>
+            <td>${gasto.diaPago || "—"}${diaBadge}</td>
             <td><button type="button" class="btn-toggle ${pagado ? "" : "is-off"}" data-row="${gasto.row}" data-action="toggle">${pagado ? "Pagado" : "Pendiente"}</button></td>
             <td class="text-right amount-cell">${formatMoney(pagado ? (gasto.montoPagado ?? gasto.monto) : gasto.monto)}${diferenciaHtml}</td>
             <td class="actions-cell">
@@ -509,6 +527,10 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
     submitBtn.disabled = true;
     try {
       await crearGastoFijo(spreadsheetId, nombre, monto, formCategoriaValue, diaInput.value.trim());
+      if (!nombresConocidos.includes(nombre)) {
+        nombresConocidos.push(nombre);
+        renderNombresDatalist();
+      }
       nombreInput.value = "";
       montoInput.value = "";
       diaInput.value = "";
@@ -524,9 +546,15 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
   try {
     const ensured = await ensureSpreadsheet();
     spreadsheetId = ensured.spreadsheetId;
-    categorias = await listCategorias(spreadsheetId);
+    const [categoriasList, nombresList] = await Promise.all([
+      listCategorias(spreadsheetId),
+      listGastosFijosNombres(spreadsheetId),
+    ]);
+    categorias = categoriasList;
+    nombresConocidos = nombresList;
     formCategoriaValue = categorias[0] ?? "";
     refreshCombos();
+    renderNombresDatalist();
     await reload();
   } catch (err) {
     listEl.innerHTML = `<p class="empty-state">${err instanceof Error ? err.message : "No se pudo cargar la información."}</p>`;

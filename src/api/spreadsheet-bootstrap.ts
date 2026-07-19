@@ -9,6 +9,7 @@ const SPREADSHEET_MIME = "application/vnd.google-apps.spreadsheet";
 export const TIPOS_INGRESO_SHEET = "TiposIngreso";
 export const INGRESOS_FIJOS_SHEET = "IngresosFijos";
 export const GASTOS_FIJOS_SHEET = "GastosFijos";
+export const GASTOS_Y_COMPRAS_SHEET = "GastosYCompras";
 export const CATEGORIAS_SHEET = "Categorias";
 
 /** Tipos de ingreso fijo con los que arranca toda cuenta nueva; el usuario puede agregar más. */
@@ -30,8 +31,10 @@ export const SHEET_DEFINITIONS: SheetDefinition[] = [
     name: "Suscripciones",
     headers: ["Nombre", "Monto", "Ciclo", "ProximaFecha", "Categoria", "Activa"],
   },
-  { name: "GastosPersonales", headers: ["Fecha", "Categoria", "Monto", "Descripcion"] },
-  { name: "Compras", headers: ["Fecha", "Item", "Monto", "MetodoPago"] },
+  {
+    name: GASTOS_Y_COMPRAS_SHEET,
+    headers: ["Fecha", "Categoria", "Descripcion", "Monto", "Estado", "LinkFactura"],
+  },
   {
     name: "Facturas",
     headers: ["Fecha", "Proveedor", "Monto", "Categoria", "LinkDrive", "DeducibleRenta"],
