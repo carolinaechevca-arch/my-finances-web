@@ -229,6 +229,29 @@
   margin: 0 0 20px;
 }
 
+.page-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.page-title-row .page-title {
+  margin-bottom: 0;
+}
+
+.month-badge {
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: var(--color-primary);
+  color: white;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 .card {
   background: var(--color-surface);
   border-radius: var(--radius-md);
@@ -281,4 +304,102 @@
 .empty-state {
   color: var(--color-text-muted);
   font-size: 14px;
+}
+
+/* --- Formularios --- */
+.form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 14px;
+  align-items: end;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field label {
+  font-size: 13px;
+  color: var(--color-text-muted);
+  font-weight: 600;
+}
+
+.field input,
+.field select {
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: 14px;
+  font-family: inherit;
+}
+
+.field input:focus,
+.field select:focus {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+.form .btn {
+  align-self: end;
+}
+
+/* --- Listas de registros (ingresos, gastos) --- */
+.record-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.record-row:last-child {
+  border-bottom: none;
+}
+
+.record-row__main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.record-row__title {
+  font-weight: 600;
+}
+
+.record-row__subtitle {
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+.record-row__amount {
+  font-weight: 700;
+  color: var(--color-primary);
+  white-space: nowrap;
+}
+
+.btn-toggle {
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--color-success);
+  background: transparent;
+  color: var(--color-success);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btn-toggle.is-off {
+  border-color: var(--color-text-muted);
+  color: var(--color-text-muted);
+}
+
+.btn-toggle:disabled {
+  opacity: 0.6;
+  cursor: default;
 }

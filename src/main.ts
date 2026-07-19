@@ -4,6 +4,9 @@ import { signOut, type AuthUser } from "./auth/google-auth";
 import { renderLogin } from "./ui/pages/login";
 import { renderAppShell, NAV_SECTIONS } from "./ui/layout";
 import { renderDashboard } from "./ui/pages/dashboard";
+import { renderIngresos } from "./ui/pages/ingresos";
+import { renderGastosFijos } from "./ui/pages/gastos-fijos";
+import { renderGastosPersonales } from "./ui/pages/gastos-personales";
 import { initTheme } from "./ui/theme-toggle";
 
 initTheme();
@@ -21,24 +24,31 @@ function renderPlaceholder(container: HTMLElement, sectionId: string): void {
 }
 
 function showApp(user: AuthUser): void {
-  const shell = renderAppShell(
-    root,
-    user,
-    (sectionId) => {
-      shell.setActive(sectionId);
-      if (sectionId === "inicio") {
-        void renderDashboard(shell.contentEl);
-      } else {
+  function renderSection(sectionId: string): void {
+    shell.setActive(sectionId);
+    switch (sectionId) {
+      case "inicio":
+        void renderDashboard(shell.contentEl, renderSection);
+        break;
+      case "ingresos":
+        void renderIngresos(shell.contentEl);
+        break;
+      case "gastos-fijos":
+        void renderGastosFijos(shell.contentEl);
+        break;
+      case "gastos-personales":
+        void renderGastosPersonales(shell.contentEl);
+        break;
+      default:
         renderPlaceholder(shell.contentEl, sectionId);
-      }
-    },
-    async () => {
-      await signOut();
-      showLogin();
-    },
-  );
-  shell.setActive("inicio");
-  void renderDashboard(shell.contentEl);
+    }
+  }
+
+  const shell = renderAppShell(root, user, renderSection, async () => {
+    await signOut();
+    showLogin();
+  });
+  renderSection("inicio");
 }
 
 function showLogin(): void {

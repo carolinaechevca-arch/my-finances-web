@@ -44,6 +44,21 @@ export async function createSpreadsheet(title: string, sheets: SheetDefinition[]
   return spreadsheetId;
 }
 
+/** Agrega hojas nuevas (con encabezados) a un spreadsheet ya existente. */
+export async function addSheets(spreadsheetId: string, sheets: SheetDefinition[]): Promise<void> {
+  if (sheets.length === 0) return;
+  await authedFetch(`${SHEETS_BASE}/${spreadsheetId}:batchUpdate`, {
+    method: "POST",
+    body: JSON.stringify({
+      requests: sheets.map((s) => ({ addSheet: { properties: { title: s.name } } })),
+    }),
+  });
+  await batchUpdateValues(
+    spreadsheetId,
+    sheets.map((s) => ({ range: `${s.name}!A1`, values: [s.headers] })),
+  );
+}
+
 export async function getSheetNames(spreadsheetId: string): Promise<string[]> {
   const res = await authedFetch(`${SHEETS_BASE}/${spreadsheetId}?fields=sheets.properties.title`);
   const data = await res.json();
