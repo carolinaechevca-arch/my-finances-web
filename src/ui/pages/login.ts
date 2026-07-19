@@ -40,8 +40,12 @@ export function renderLogin(root: HTMLElement, onSuccess: (user: AuthUser) => vo
       onSuccess(user);
     } catch (err) {
       errorBox.hidden = false;
-      errorBox.textContent =
-        err instanceof AuthError ? err.message : "No se pudo iniciar sesión. Intenta de nuevo.";
+      if (err instanceof AuthError) {
+        errorBox.textContent = err.message;
+      } else {
+        console.error(err);
+        errorBox.textContent = "No pudimos conectar con Google en este momento. Intenta de nuevo en unos minutos.";
+      }
       button.disabled = false;
       button.textContent = "Iniciar sesión con Google";
     }

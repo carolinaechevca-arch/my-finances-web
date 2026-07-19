@@ -44,7 +44,11 @@ export interface AuthUser {
   picture: string;
 }
 
+/** Error seguro de mostrar tal cual al usuario (ej. correo no autorizado). */
 export class AuthError extends Error {}
+
+/** Error de configuración/infraestructura: no se muestra su mensaje crudo al usuario. */
+export class ConfigError extends Error {}
 
 let tokenClient: TokenClient | null = null;
 let accessToken: string | null = null;
@@ -75,7 +79,7 @@ async function ensureTokenClient(): Promise<TokenClient> {
 
   const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
   if (!clientId) {
-    throw new AuthError("Falta VITE_GOOGLE_CLIENT_ID en el archivo .env");
+    throw new ConfigError("Falta VITE_GOOGLE_CLIENT_ID en el archivo .env");
   }
 
   tokenClient = window.google!.accounts.oauth2.initTokenClient({
