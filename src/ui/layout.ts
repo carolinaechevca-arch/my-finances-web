@@ -1,0 +1,89 @@
+import type { AuthUser } from "../auth/google-auth";
+import { mountThemeToggle } from "./theme-toggle";
+
+export interface NavSection {
+  id: string;
+  label: string;
+  icon: string;
+}
+
+export const NAV_SECTIONS: NavSection[] = [
+  { id: "inicio", label: "Inicio", icon: "🏠" },
+  { id: "ingresos", label: "Ingresos", icon: "💵" },
+  { id: "gastos-fijos", label: "Gastos Fijos", icon: "🏦" },
+  { id: "gastos-personales", label: "Gastos y Compras", icon: "🛒" },
+  { id: "facturas", label: "Facturas", icon: "🧾" },
+  { id: "deudas", label: "Deudas", icon: "📉" },
+  { id: "me-deben", label: "Me Deben", icon: "🤝" },
+  { id: "ahorros", label: "Ahorros y Metas", icon: "🐷" },
+  { id: "presupuestos", label: "Presupuestos", icon: "📊" },
+  { id: "exportar", label: "Exportar", icon: "📤" },
+];
+
+export interface AppShell {
+  contentEl: HTMLElement;
+  setActive: (sectionId: string) => void;
+}
+
+export function renderAppShell(
+  root: HTMLElement,
+  user: AuthUser,
+  onNavigate: (sectionId: string) => void,
+  onLogout: () => void,
+): AppShell {
+  root.innerHTML = "";
+  root.appendChild(mountThemeToggle());
+
+  const shell = document.createElement("div");
+  shell.className = "app-shell";
+
+  const sidebar = document.createElement("aside");
+  sidebar.className = "sidebar";
+
+  const brand = document.createElement("div");
+  brand.className = "sidebar__brand";
+  brand.innerHTML = `💰 <span>Mis Finanzas</span>`;
+  sidebar.appendChild(brand);
+
+  const nav = document.createElement("nav");
+  nav.className = "sidebar__nav";
+
+  const links = new Map<string, HTMLButtonElement>();
+  for (const section of NAV_SECTIONS) {
+    const link = document.createElement("button");
+    link.type = "button";
+    link.className = "sidebar__link";
+    link.innerHTML = `<span aria-hidden="true">${section.icon}</span><span>${section.label}</span>`;
+    link.addEventListener("click", () => onNavigate(section.id));
+    nav.appendChild(link);
+    links.set(section.id, link);
+  }
+  sidebar.appendChild(nav);
+
+  const footer = document.createElement("div");
+  footer.className = "sidebar__footer";
+
+  const logoutBtn = document.createElement("button");
+  logoutBtn.type = "button";
+  logoutBtn.className = "sidebar__link";
+  logoutBtn.innerHTML = `<span aria-hidden="true">🚪</span><span>Cerrar sesión (${user.name.split(" ")[0]})</span>`;
+  logoutBtn.addEventListener("click", onLogout);
+  footer.appendChild(logoutBtn);
+  sidebar.appendChild(footer);
+
+  const content = document.createElement("main");
+  content.className = "content";
+
+  shell.appendChild(sidebar);
+  shell.appendChild(content);
+  root.appendChild(shell);
+
+  return {
+    contentEl: content,
+    setActive: (sectionId: string) => {
+      for (const [id, link] of links) {
+        link.classList.toggle("is-active", id === sectionId);
+      }
+    },
+  };
+}
