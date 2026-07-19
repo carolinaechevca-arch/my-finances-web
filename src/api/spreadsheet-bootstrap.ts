@@ -14,6 +14,9 @@ export const GASTOS_Y_COMPRAS_SHEET = "GastosYCompras";
 export const CATEGORIAS_SHEET = "Categorias";
 /** Categorías de Gastos y Compras. Misma mecánica que CATEGORIAS_SHEET pero una lista aparte. */
 export const CATEGORIAS_GASTOS_Y_COMPRAS_SHEET = "CategoriasGastosYCompras";
+/** Deudas propias (YoDebo) y de terceros (MeDeben) unificadas, distinguidas por la columna Direccion. */
+export const DEUDAS_SHEET = "Deudas";
+export const ABONOS_DEUDAS_SHEET = "AbonosDeudas";
 
 /** Tipos de ingreso fijo con los que arranca toda cuenta nueva; el usuario puede agregar más. */
 const DEFAULT_TIPOS_INGRESO = ["Nómina", "Trabajo independiente", "Regalo", "Otro"];
@@ -42,10 +45,27 @@ export const SHEET_DEFINITIONS: SheetDefinition[] = [
     name: "Facturas",
     headers: ["Fecha", "Proveedor", "Monto", "Categoria", "LinkDrive", "DeducibleRenta"],
   },
-  { name: "Deudas", headers: ["Id", "Nombre", "MontoOriginal", "ProximoPago"] },
-  { name: "AbonosDeudas", headers: ["IdDeuda", "Fecha", "MontoAbonado"] },
-  { name: "MeDeben", headers: ["Id", "Quien", "MontoOriginal", "Fecha"] },
-  { name: "AbonosMeDeben", headers: ["IdRegistro", "Fecha", "MontoRecibido"] },
+  {
+    name: DEUDAS_SHEET,
+    headers: [
+      "Id",
+      "Direccion",
+      "Contraparte",
+      "Tipo",
+      "MontoOriginal",
+      "TasaInteres",
+      "PeriodicidadInteres",
+      "PagoMinimo",
+      "DiaPago",
+      "FechaInicio",
+      "Notas",
+      "Estado",
+    ],
+  },
+  {
+    name: ABONOS_DEUDAS_SHEET,
+    headers: ["IdDeuda", "Fecha", "Tipo", "Monto", "MontoInteres", "MontoCapital", "Nota"],
+  },
   { name: "Ahorros", headers: ["Fecha", "Monto", "Meta", "Notas"] },
   { name: "MetasAhorro", headers: ["Nombre", "MontoObjetivo", "FechaObjetivo"] },
   { name: "PresupuestosCategoria", headers: ["Categoria", "LimiteMensual"] },
@@ -82,6 +102,7 @@ async function ensureSpreadsheetInternal(): Promise<{ spreadsheetId: string; cre
     await ensureIngresosFijosHeaders(existingId);
     await ensureGastosFijosHeaders(existingId);
     await ensureGastosYComprasHeaders(existingId);
+    await ensureDeudasHeaders(existingId);
     await ensureDefaultTipos(existingId);
     return { spreadsheetId: existingId, created: false };
   }
@@ -125,6 +146,26 @@ async function ensureGastosYComprasHeaders(spreadsheetId: string): Promise<void>
   const [headerRow = []] = await getValues(spreadsheetId, `${GASTOS_Y_COMPRAS_SHEET}!A1:Z1`);
   if (headerRow.join() === def.headers.join()) return;
   await updateValues(spreadsheetId, `${GASTOS_Y_COMPRAS_SHEET}!A1`, [def.headers]);
+}
+
+/**
+ * Deudas/AbonosDeudas tenían un esquema viejo mucho más chico (sin
+ * Direccion, interés, etc.). Reescribe el encabezado solo si la hoja
+ * todavía no tiene filas de datos, para no dejar datos reales bajo
+ * columnas que ya no significan lo mismo.
+ */
+async function ensureDeudasHeaders(spreadsheetId: string): Promise<void> {
+  const deudasDef = SHEET_DEFINITIONS.find((s) => s.name === DEUDAS_SHEET)!;
+  const deudasRows = await listRecords(spreadsheetId, DEUDAS_SHEET, 1);
+  if (deudasRows.length === 0) {
+    await updateValues(spreadsheetId, `${DEUDAS_SHEET}!A1`, [deudasDef.headers]);
+  }
+
+  const abonosDef = SHEET_DEFINITIONS.find((s) => s.name === ABONOS_DEUDAS_SHEET)!;
+  const abonosRows = await listRecords(spreadsheetId, ABONOS_DEUDAS_SHEET, 1);
+  if (abonosRows.length === 0) {
+    await updateValues(spreadsheetId, `${ABONOS_DEUDAS_SHEET}!A1`, [abonosDef.headers]);
+  }
 }
 
 async function ensureDefaultTipos(spreadsheetId: string): Promise<void> {

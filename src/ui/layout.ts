@@ -3,6 +3,7 @@ import cashMinusIcon from "../icon/cash-minus.svg?raw";
 import financeIcon from "../icon/finance.svg?raw";
 import homeDollarIcon from "../icon/home-dollar.svg?raw";
 import menuIcon from "../icon/menu-2.svg?raw";
+import pigMoneyIcon from "../icon/pig-money.svg?raw";
 import shoppingCartIcon from "../icon/shopping-cart.svg?raw";
 import type { AuthUser } from "../auth/google-auth";
 import { mountThemeToggle } from "./theme-toggle";
@@ -19,7 +20,7 @@ export const NAV_SECTIONS: NavSection[] = [
   { id: "gastos-fijos", label: "Gastos Fijos", icon: `<span class="nav-icon nav-icon--white">${cashMinusIcon}</span>` },
   { id: "gastos-personales", label: "Gastos y Compras", icon: `<span class="nav-icon nav-icon--white">${shoppingCartIcon}</span>` },
   { id: "facturas", label: "Facturas", icon: "🧾" },
-  { id: "deudas", label: "Deudas", icon: "📉" },
+  { id: "deudas", label: "Deudas", icon: `<span class="nav-icon nav-icon--white">${pigMoneyIcon}</span>` },
   { id: "me-deben", label: "Me Deben", icon: "🤝" },
   { id: "ahorros", label: "Ahorros y Metas", icon: "🐷" },
   { id: "presupuestos", label: "Presupuestos", icon: "📊" },

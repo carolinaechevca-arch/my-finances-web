@@ -1,4 +1,5 @@
 import { ensureSpreadsheet } from "../../api/spreadsheet-bootstrap";
+import { agruparEventosPorDeuda, estadoAlerta, listDeudas, listTodosLosEventos } from "../../domain/deudas";
 import { formatMonthLabel, formatMoney } from "../../domain/format";
 import { listGastosFijosDelMes, sumGastosFijosTotal } from "../../domain/gastos";
 import { listGastosDelMes, sumGastos as sumGastosYCompras } from "../../domain/gastos-y-compras";
@@ -20,6 +21,10 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
       <p class="empty-state" style="margin:0 0 12px">Aún no registras ningún ingreso fijo mensual.</p>
       <button type="button" class="btn" id="ingresos-cta-btn">➕ Agregar ingreso fijo</button>
     </div>
+    <div class="card" id="deudas-alerta-card" hidden style="margin-bottom:20px; border-left: 4px solid var(--color-danger)">
+      <p style="margin:0 0 12px" id="deudas-alerta-texto"></p>
+      <button type="button" class="btn-secondary" id="deudas-alerta-btn">Ver deudas</button>
+    </div>
     <div class="card" id="sheet-link-card">
       <h2 style="margin-top:0">🔗 Tu Hoja de Cálculo en Drive</h2>
       <p class="empty-state" id="sheet-status">Conectando con Google Sheets…</p>
@@ -34,6 +39,12 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
   const ctaCard = container.querySelector<HTMLDivElement>("#ingresos-cta-card")!;
   const ctaBtn = container.querySelector<HTMLButtonElement>("#ingresos-cta-btn")!;
   ctaBtn.addEventListener("click", () => onNavigate("ingresos"));
+
+  const deudasAlertaCard = container.querySelector<HTMLDivElement>("#deudas-alerta-card")!;
+  const deudasAlertaTexto = container.querySelector<HTMLParagraphElement>("#deudas-alerta-texto")!;
+  const deudasAlertaBtn = container.querySelector<HTMLButtonElement>("#deudas-alerta-btn")!;
+  let deudasAlertaDestino = "deudas";
+  deudasAlertaBtn.addEventListener("click", () => onNavigate(deudasAlertaDestino));
 
   try {
     const { spreadsheetId, created } = await ensureSpreadsheet();
@@ -54,10 +65,13 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
       card.appendChild(note);
     }
 
-    const [ingresos, gastosFijos, gastosYCompras] = await Promise.all([
+    const [ingresos, gastosFijos, gastosYCompras, deudasYoDebo, deudasMeDeben, eventosDeudas] = await Promise.all([
       listIngresosVigentes(spreadsheetId),
       listGastosFijosDelMes(spreadsheetId),
       listGastosDelMes(spreadsheetId),
+      listDeudas(spreadsheetId, "YoDebo"),
+      listDeudas(spreadsheetId, "MeDeben"),
+      listTodosLosEventos(spreadsheetId),
     ]);
 
     const totalIngresos = sumIngresosActivos(ingresos);
@@ -66,6 +80,24 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
     statIngresos.textContent = formatMoney(totalIngresos);
     statGastos.textContent = formatMoney(totalGastos);
     statBalance.textContent = formatMoney(totalIngresos - totalGastos);
+
+    const eventosPorDeuda = agruparEventosPorDeuda(eventosDeudas);
+    const vencidas = deudasYoDebo.filter((d) => estadoAlerta(d, eventosPorDeuda.get(d.id) ?? []) === "vencida").length;
+    const proximas = deudasYoDebo.filter((d) => estadoAlerta(d, eventosPorDeuda.get(d.id) ?? []) === "proxima").length;
+    const vencidasMeDeben = deudasMeDeben.filter(
+      (d) => estadoAlerta(d, eventosPorDeuda.get(d.id) ?? []) === "vencida",
+    ).length;
+
+    if (vencidas > 0 || proximas > 0 || vencidasMeDeben > 0) {
+      deudasAlertaCard.hidden = false;
+      const partes: string[] = [];
+      if (vencidas > 0) partes.push(`${vencidas} deuda${vencidas === 1 ? "" : "s"} tuya${vencidas === 1 ? "" : "s"} con pago vencido`);
+      if (proximas > 0) partes.push(`${proximas} con pago próximo a vencer`);
+      if (vencidasMeDeben > 0)
+        partes.push(`${vencidasMeDeben} persona${vencidasMeDeben === 1 ? "" : "s"} que te debe con pago vencido`);
+      deudasAlertaTexto.innerHTML = `⚠️ ${partes.join(" · ")}.`;
+      deudasAlertaDestino = vencidas > 0 || proximas > 0 ? "deudas" : "me-deben";
+    }
 
     if (ingresos.length === 0) {
       ctaCard.hidden = false;

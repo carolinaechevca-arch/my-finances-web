@@ -955,3 +955,85 @@
 .combo__option--add .combo__label {
   color: var(--color-primary);
 }
+
+/* --- Deudas / Me Deben --- */
+.deuda-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.deuda-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.deuda-card__header > div:first-child {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.deuda-card__contraparte {
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.deuda-card__actions {
+  display: flex;
+  gap: 4px;
+}
+
+.progress-bar {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--color-bg);
+  overflow: hidden;
+  margin-bottom: 14px;
+}
+
+.progress-bar__fill {
+  height: 100%;
+  background: var(--color-primary);
+  border-radius: 999px;
+}
+
+.deuda-card__stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+}
+
+.deuda-card__stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.deuda-card__stat-label {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.deuda-card__stat-value {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.deuda-card__stat-value--total {
+  color: var(--color-primary);
+}
+
+.deuda-card__footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
+}

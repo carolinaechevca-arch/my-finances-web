@@ -206,3 +206,94 @@ export function showCompletarGastoDialog(
     dialog.showModal();
   });
 }
+
+/**
+ * Cuando ya existe una deuda activa con la misma contraparte: pregunta si
+ * sumar el monto nuevo a esa deuda o crear una separada.
+ */
+export function showMergeChoice(nombre: string, montoRestante: number): Promise<"fusionar" | "separada" | null> {
+  return new Promise((resolve) => {
+    const dialog = createDialog();
+    dialog.innerHTML = `
+      <div class="modal__form">
+        <h2 class="modal__title">Ya existe una deuda con ${nombre}</h2>
+        <p class="modal__message">Ya tienes una deuda activa con <strong>${nombre}</strong> por ${formatMoney(montoRestante)}. ¿Quieres sumar este nuevo monto a la deuda existente, o crear una deuda separada?</p>
+        <div class="modal__actions">
+          <button type="button" class="btn-secondary" data-action="cancel">Cancelar</button>
+          <button type="button" class="btn-secondary" data-action="separada">Crear separada</button>
+          <button type="button" class="btn" data-action="fusionar">Sumar a la existente</button>
+        </div>
+      </div>
+    `;
+
+    const cleanup = (result: "fusionar" | "separada" | null) => {
+      dialog.close();
+      dialog.remove();
+      resolve(result);
+    };
+
+    dialog.querySelector('[data-action="cancel"]')!.addEventListener("click", () => cleanup(null));
+    dialog.querySelector('[data-action="separada"]')!.addEventListener("click", () => cleanup("separada"));
+    dialog.querySelector('[data-action="fusionar"]')!.addEventListener("click", () => cleanup("fusionar"));
+    dialog.addEventListener("cancel", () => cleanup(null));
+
+    dialog.showModal();
+  });
+}
+
+/** Modal para registrar un abono (o un monto agregado): fecha, monto y nota opcional. */
+export function showAbonoDialog(
+  titulo: string,
+  montoSugerido?: number,
+): Promise<{ fecha: string; monto: number; nota: string } | null> {
+  return new Promise((resolve) => {
+    const dialog = createDialog();
+    dialog.innerHTML = `
+      <div class="modal__form">
+        <h2 class="modal__title">${titulo}</h2>
+        <div class="field">
+          <label for="abono-fecha">Fecha</label>
+          <input id="abono-fecha" type="date" value="${todayISO()}" />
+        </div>
+        <div class="field">
+          <label for="abono-monto">Monto</label>
+          <input id="abono-monto" type="number" min="0" step="0.01" ${montoSugerido ? `value="${montoSugerido}"` : ""} />
+        </div>
+        <div class="field">
+          <label for="abono-nota">Nota (opcional)</label>
+          <input id="abono-nota" type="text" />
+        </div>
+        <p class="empty-state" id="abono-error" hidden></p>
+        <div class="modal__actions">
+          <button type="button" class="btn-secondary" data-action="cancel">Cancelar</button>
+          <button type="button" class="btn" data-action="confirm">Guardar</button>
+        </div>
+      </div>
+    `;
+
+    const fechaInput = dialog.querySelector<HTMLInputElement>("#abono-fecha")!;
+    const montoInput = dialog.querySelector<HTMLInputElement>("#abono-monto")!;
+    const notaInput = dialog.querySelector<HTMLInputElement>("#abono-nota")!;
+    const error = dialog.querySelector<HTMLParagraphElement>("#abono-error")!;
+
+    const cleanup = (result: { fecha: string; monto: number; nota: string } | null) => {
+      dialog.close();
+      dialog.remove();
+      resolve(result);
+    };
+
+    dialog.querySelector('[data-action="cancel"]')!.addEventListener("click", () => cleanup(null));
+    dialog.querySelector('[data-action="confirm"]')!.addEventListener("click", () => {
+      const monto = Number(montoInput.value);
+      if (!monto || monto <= 0 || !fechaInput.value) {
+        error.hidden = false;
+        error.textContent = "Ingresa una fecha y un monto válido.";
+        return;
+      }
+      cleanup({ fecha: fechaInput.value, monto, nota: notaInput.value.trim() });
+    });
+    dialog.addEventListener("cancel", () => cleanup(null));
+
+    dialog.showModal();
+  });
+}
