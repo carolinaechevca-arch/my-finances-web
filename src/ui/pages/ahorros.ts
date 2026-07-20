@@ -1,0 +1,562 @@
+import editIcon from "../../icon/edit.svg?raw";
+import trashIcon from "../../icon/trash-x.svg?raw";
+import { ensureSpreadsheet } from "../../api/spreadsheet-bootstrap";
+import { listGastosFijosDelMes, sumGastosFijosTotal } from "../../domain/gastos";
+import { formatMoney, todayISO } from "../../domain/format";
+import {
+  buscarGastoPorId,
+  deshacerAhorrando,
+  marcarComoPagado as marcarGastoComoPagado,
+} from "../../domain/gastos-y-compras";
+import {
+  ICONOS_META,
+  actualizarMeta,
+  agruparMovimientosPorMeta,
+  calcularAcumulado,
+  calcularProgresoPct,
+  crearMeta,
+  eliminarMeta,
+  listMetas,
+  listTodosLosMovimientos,
+  mesesHasta,
+  montoSugeridoFondoEmergencia,
+  procesarAportesAutomaticos,
+  proyeccionConAporte,
+  registrarAporte,
+  registrarRetiro,
+  setEstadoMeta,
+  type FrecuenciaAporte,
+  type Meta,
+  type MetaCambios,
+  type MovimientoMeta,
+} from "../../domain/metas";
+import { showAbonoDialog, showAlert, showConfirm, showRetiroDialog } from "../components/dialogs";
+
+type SortOrder = "progreso" | "fecha-limite";
+
+export async function renderAhorros(container: HTMLElement): Promise<void> {
+  container.innerHTML = `
+    <div class="page-title-row">
+      <h1 class="page-title">🐷 Ahorros y Metas</h1>
+    </div>
+    <div class="card stat-card stat-card--primary" style="max-width:280px;margin-bottom:20px">
+      <div class="stat-card__value" id="ah-total">—</div>
+      <div class="stat-card__label">Total acumulado</div>
+    </div>
+
+    <div class="card" style="margin-bottom:20px">
+      <h2 style="margin-top:0">Agregar meta</h2>
+      <form id="meta-form" class="form">
+        <div class="field"><label for="mt-nombre">Nombre</label><input id="mt-nombre" type="text" placeholder="Ej. Vacaciones" required /></div>
+        <div class="field">
+          <label for="mt-icono">Ícono</label>
+          <select id="mt-icono">${ICONOS_META.map((i) => `<option value="${i.icono}">${i.icono} ${i.label}</option>`).join("")}</select>
+        </div>
+        <div class="field"><label for="mt-monto">Monto objetivo</label><input id="mt-monto" type="number" min="0" step="0.01" required /></div>
+        <div class="field"><label for="mt-fecha-limite">Fecha límite (opcional)</label><input id="mt-fecha-limite" type="date" /></div>
+        <div class="field"><label for="mt-tasa">¿Genera rendimiento? Tasa anual (%)</label><input id="mt-tasa" type="number" min="0" step="0.01" value="0" /></div>
+        <div class="field field--inline">
+          <label for="mt-emergencia"><input type="checkbox" id="mt-emergencia" /> Es tu fondo de emergencia</label>
+        </div>
+        <div class="field field--inline">
+          <label for="mt-auto-activo"><input type="checkbox" id="mt-auto-activo" /> Aporte automático</label>
+        </div>
+        <div class="field" id="mt-auto-monto-field" hidden><label for="mt-auto-monto">Monto por periodo</label><input id="mt-auto-monto" type="number" min="0" step="0.01" /></div>
+        <div class="field" id="mt-auto-frecuencia-field" hidden>
+          <label for="mt-auto-frecuencia">Frecuencia</label>
+          <select id="mt-auto-frecuencia">
+            <option value="Mensual">Mensual</option>
+            <option value="Quincenal">Quincenal</option>
+            <option value="Semanal">Semanal</option>
+          </select>
+        </div>
+        <button type="submit" class="btn">Guardar meta</button>
+      </form>
+      <div class="card" id="mt-emergencia-sugerencia" hidden style="margin-top:14px;background:var(--color-bg)">
+        <p class="empty-state" id="mt-emergencia-texto" style="margin:0 0 10px"></p>
+        <input type="range" id="mt-emergencia-slider" min="3" max="6" step="1" value="3" style="width:100%" />
+        <div style="display:flex;justify-content:space-between;margin-top:6px">
+          <span class="empty-state">3 meses</span>
+          <span class="empty-state">6 meses</span>
+        </div>
+        <button type="button" class="btn-secondary" id="mt-emergencia-usar" style="margin-top:10px">Usar este monto</button>
+      </div>
+      <p class="empty-state" id="meta-form-error" hidden></p>
+    </div>
+
+    <div class="table-toolbar" style="margin-bottom:0">
+      <span></span>
+      <div class="field field--inline">
+        <label for="ah-orden">Ordenar por</label>
+        <select id="ah-orden">
+          <option value="progreso">Más cerca de cumplirse</option>
+          <option value="fecha-limite">Fecha límite más próxima</option>
+        </select>
+      </div>
+    </div>
+
+    <div id="ah-activas-list" class="deuda-list" style="margin-top:14px"><p class="empty-state">Cargando…</p></div>
+
+    <details class="card" id="ah-cumplidas-card" style="margin-top:20px">
+      <summary style="cursor:pointer;font-weight:700">Cumplidas</summary>
+      <div id="ah-cumplidas-list" class="deuda-list" style="margin-top:14px"></div>
+    </details>
+
+    <dialog id="edit-modal" class="modal">
+      <form class="modal__form" id="edit-form">
+        <h2 class="modal__title">Editar meta</h2>
+        <div class="field"><label for="edit-nombre">Nombre</label><input id="edit-nombre" type="text" required /></div>
+        <div class="field">
+          <label for="edit-icono">Ícono</label>
+          <select id="edit-icono">${ICONOS_META.map((i) => `<option value="${i.icono}">${i.icono} ${i.label}</option>`).join("")}</select>
+        </div>
+        <div class="field"><label for="edit-monto">Monto objetivo</label><input id="edit-monto" type="number" min="0" step="0.01" required /></div>
+        <div class="field"><label for="edit-fecha-limite">Fecha límite</label><input id="edit-fecha-limite" type="date" /></div>
+        <div class="field"><label for="edit-tasa">Tasa de rendimiento anual (%)</label><input id="edit-tasa" type="number" min="0" step="0.01" /></div>
+        <div class="field field--inline">
+          <label for="edit-auto-activo"><input type="checkbox" id="edit-auto-activo" /> Aporte automático</label>
+        </div>
+        <div class="field" id="edit-auto-monto-field" hidden><label for="edit-auto-monto">Monto por periodo</label><input id="edit-auto-monto" type="number" min="0" step="0.01" /></div>
+        <div class="field" id="edit-auto-frecuencia-field" hidden>
+          <label for="edit-auto-frecuencia">Frecuencia</label>
+          <select id="edit-auto-frecuencia">
+            <option value="Mensual">Mensual</option>
+            <option value="Quincenal">Quincenal</option>
+            <option value="Semanal">Semanal</option>
+          </select>
+        </div>
+        <p class="empty-state" id="edit-modal-error" hidden></p>
+        <div class="modal__actions">
+          <button type="button" class="btn-secondary" id="edit-modal-cancel">Cancelar</button>
+          <button type="submit" class="btn">Guardar cambios</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="historial-modal" class="modal">
+      <div class="modal__form">
+        <h2 class="modal__title" id="historial-titulo">Historial</h2>
+        <div id="historial-list"></div>
+        <div class="modal__actions">
+          <button type="button" class="btn-secondary" id="historial-modal-close">Cerrar</button>
+        </div>
+      </div>
+    </dialog>
+  `;
+
+  const totalEl = container.querySelector<HTMLDivElement>("#ah-total")!;
+  const activasListEl = container.querySelector<HTMLDivElement>("#ah-activas-list")!;
+  const cumplidasListEl = container.querySelector<HTMLDivElement>("#ah-cumplidas-list")!;
+  const cumplidasCard = container.querySelector<HTMLDetailsElement>("#ah-cumplidas-card")!;
+  const ordenSelect = container.querySelector<HTMLSelectElement>("#ah-orden")!;
+
+  const form = container.querySelector<HTMLFormElement>("#meta-form")!;
+  const formError = container.querySelector<HTMLParagraphElement>("#meta-form-error")!;
+  const submitBtn = form.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+  const nombreInput = container.querySelector<HTMLInputElement>("#mt-nombre")!;
+  const iconoSelect = container.querySelector<HTMLSelectElement>("#mt-icono")!;
+  const montoInput = container.querySelector<HTMLInputElement>("#mt-monto")!;
+  const fechaLimiteInput = container.querySelector<HTMLInputElement>("#mt-fecha-limite")!;
+  const tasaInput = container.querySelector<HTMLInputElement>("#mt-tasa")!;
+  const emergenciaCheck = container.querySelector<HTMLInputElement>("#mt-emergencia")!;
+  const autoActivoCheck = container.querySelector<HTMLInputElement>("#mt-auto-activo")!;
+  const autoMontoField = container.querySelector<HTMLDivElement>("#mt-auto-monto-field")!;
+  const autoMontoInput = container.querySelector<HTMLInputElement>("#mt-auto-monto")!;
+  const autoFrecuenciaField = container.querySelector<HTMLDivElement>("#mt-auto-frecuencia-field")!;
+  const autoFrecuenciaSelect = container.querySelector<HTMLSelectElement>("#mt-auto-frecuencia")!;
+
+  const emergenciaSugerencia = container.querySelector<HTMLDivElement>("#mt-emergencia-sugerencia")!;
+  const emergenciaTexto = container.querySelector<HTMLParagraphElement>("#mt-emergencia-texto")!;
+  const emergenciaSlider = container.querySelector<HTMLInputElement>("#mt-emergencia-slider")!;
+  const emergenciaUsarBtn = container.querySelector<HTMLButtonElement>("#mt-emergencia-usar")!;
+
+  const editModal = container.querySelector<HTMLDialogElement>("#edit-modal")!;
+  const editForm = container.querySelector<HTMLFormElement>("#edit-form")!;
+  const editModalError = container.querySelector<HTMLParagraphElement>("#edit-modal-error")!;
+  const editModalCancel = container.querySelector<HTMLButtonElement>("#edit-modal-cancel")!;
+  const editNombreInput = container.querySelector<HTMLInputElement>("#edit-nombre")!;
+  const editIconoSelect = container.querySelector<HTMLSelectElement>("#edit-icono")!;
+  const editMontoInput = container.querySelector<HTMLInputElement>("#edit-monto")!;
+  const editFechaLimiteInput = container.querySelector<HTMLInputElement>("#edit-fecha-limite")!;
+  const editTasaInput = container.querySelector<HTMLInputElement>("#edit-tasa")!;
+  const editAutoActivoCheck = container.querySelector<HTMLInputElement>("#edit-auto-activo")!;
+  const editAutoMontoField = container.querySelector<HTMLDivElement>("#edit-auto-monto-field")!;
+  const editAutoMontoInput = container.querySelector<HTMLInputElement>("#edit-auto-monto")!;
+  const editAutoFrecuenciaField = container.querySelector<HTMLDivElement>("#edit-auto-frecuencia-field")!;
+  const editAutoFrecuenciaSelect = container.querySelector<HTMLSelectElement>("#edit-auto-frecuencia")!;
+
+  const historialModal = container.querySelector<HTMLDialogElement>("#historial-modal")!;
+  const historialTitulo = container.querySelector<HTMLHeadingElement>("#historial-titulo")!;
+  const historialListEl = container.querySelector<HTMLDivElement>("#historial-list")!;
+  const historialModalClose = container.querySelector<HTMLButtonElement>("#historial-modal-close")!;
+
+  let spreadsheetId = "";
+  let metas: Meta[] = [];
+  let movimientosPorMeta = new Map<string, MovimientoMeta[]>();
+  let totalGastosFijos = 0;
+  let sortOrder: SortOrder = "progreso";
+  let busy = false;
+  let editingMeta: Meta | null = null;
+
+  autoActivoCheck.addEventListener("change", () => {
+    autoMontoField.hidden = !autoActivoCheck.checked;
+    autoFrecuenciaField.hidden = !autoActivoCheck.checked;
+  });
+  editAutoActivoCheck.addEventListener("change", () => {
+    editAutoMontoField.hidden = !editAutoActivoCheck.checked;
+    editAutoFrecuenciaField.hidden = !editAutoActivoCheck.checked;
+  });
+
+  function actualizarSugerenciaEmergencia(): void {
+    const meses = Number(emergenciaSlider.value);
+    const sugerido = montoSugeridoFondoEmergencia(totalGastosFijos, meses);
+    emergenciaTexto.textContent = `Con tus gastos fijos actuales de ${formatMoney(totalGastosFijos)}, un fondo de emergencia recomendado para ${meses} meses sería ${formatMoney(sugerido)}.`;
+  }
+
+  emergenciaCheck.addEventListener("change", () => {
+    emergenciaSugerencia.hidden = !emergenciaCheck.checked;
+    iconoSelect.value = "🚨";
+    if (emergenciaCheck.checked) actualizarSugerenciaEmergencia();
+  });
+  emergenciaSlider.addEventListener("input", actualizarSugerenciaEmergencia);
+  emergenciaUsarBtn.addEventListener("click", () => {
+    montoInput.value = String(montoSugeridoFondoEmergencia(totalGastosFijos, Number(emergenciaSlider.value)));
+  });
+
+  historialModalClose.addEventListener("click", () => historialModal.close());
+
+  function openHistorialModal(meta: Meta): void {
+    historialTitulo.textContent = `Historial — ${meta.icono} ${meta.nombre}`;
+    const movimientos = [...(movimientosPorMeta.get(meta.id) ?? [])].sort((a, b) => a.fecha.localeCompare(b.fecha));
+    if (movimientos.length === 0) {
+      historialListEl.innerHTML = `<p class="empty-state">Aún no hay movimientos registrados.</p>`;
+    } else {
+      let acumulado = 0;
+      historialListEl.innerHTML = movimientos
+        .map((m) => {
+          const esRetiro = m.tipo === "Retiro";
+          acumulado += esRetiro ? -m.monto : m.monto;
+          const tipoLabel = m.tipo === "AporteAutomatico" ? "Aporte automático" : m.tipo === "Retiro" ? "Retiro" : "Aporte manual";
+          return `
+            <div class="record-row">
+              <div class="record-row__main">
+                <span class="record-row__title">${tipoLabel} — ${m.fecha}</span>
+                <span class="record-row__subtitle">${m.nota || "—"} · Acumulado después: ${formatMoney(acumulado)}</span>
+              </div>
+              <div class="record-row__amount" style="color:${esRetiro ? "var(--color-danger)" : "var(--color-success)"}">${esRetiro ? "-" : "+"}${formatMoney(m.monto)}</div>
+            </div>
+          `;
+        })
+        .join("");
+    }
+    historialModal.showModal();
+  }
+
+  function proyeccionTexto(meta: Meta): string {
+    if (!meta.aporteAutoActivo || meta.aporteAutoMonto <= 0) return "";
+    const acumulado = calcularAcumulado(movimientosPorMeta.get(meta.id) ?? []);
+    const meses = mesesHasta(meta.fechaLimite);
+    const proyeccion = proyeccionConAporte(acumulado, meta.aporteAutoMonto, meta.aporteAutoFrecuencia, meta.tasaRendimiento, meses);
+    const horizonte = meta.fechaLimite ? `para tu fecha límite` : `en ${meses} meses`;
+    return `Si sigues aportando ${formatMoney(meta.aporteAutoMonto)} ${meta.aporteAutoFrecuencia.toLowerCase()}, ${horizonte} tendrás aproximadamente ${formatMoney(proyeccion)}.`;
+  }
+
+  function renderMetaCard(meta: Meta): HTMLDivElement {
+    const movimientos = movimientosPorMeta.get(meta.id) ?? [];
+    const acumulado = calcularAcumulado(movimientos);
+    const progreso = calcularProgresoPct(meta, movimientos);
+    const cumplida = meta.estado === "Cumplida";
+    const pausada = meta.estado === "Pausada";
+    const card = document.createElement("div");
+    card.className = `card deuda-card${meta.esFondoEmergencia ? " meta-card--emergencia" : ""}`;
+    card.innerHTML = `
+      <div class="deuda-card__header">
+        <div>
+          <span class="deuda-card__contraparte">${meta.icono} ${meta.nombre}</span>
+          ${meta.esFondoEmergencia ? `<span class="badge badge--vencido">Fondo de emergencia</span>` : ""}
+          ${meta.aporteAutoActivo && !cumplida ? `<span class="badge">Aporte automático ${meta.aporteAutoFrecuencia.toLowerCase()}</span>` : ""}
+          ${meta.compraVinculadaId ? `<span class="badge">Vinculada a una compra</span>` : ""}
+          ${cumplida ? `<span class="badge badge--fijo">Cumplida</span>` : pausada ? `<span class="badge badge--neutral">Pausada</span>` : ""}
+        </div>
+        <div class="deuda-card__actions">
+          <button type="button" class="icon-btn icon-btn--edit" data-action="edit" aria-label="Editar" title="Editar">${editIcon}</button>
+          <button type="button" class="icon-btn icon-btn--delete" data-action="delete" aria-label="Eliminar" title="Eliminar">${trashIcon}</button>
+        </div>
+      </div>
+      <div class="progress-bar"><div class="progress-bar__fill" style="width:${progreso}%"></div></div>
+      <div class="deuda-card__stats">
+        <div class="deuda-card__stat"><span class="deuda-card__stat-label">Acumulado</span><span class="deuda-card__stat-value deuda-card__stat-value--total">${formatMoney(acumulado)}</span></div>
+        <div class="deuda-card__stat"><span class="deuda-card__stat-label">Objetivo</span><span class="deuda-card__stat-value">${formatMoney(meta.montoObjetivo)}</span></div>
+        <div class="deuda-card__stat"><span class="deuda-card__stat-label">Progreso</span><span class="deuda-card__stat-value">${progreso.toFixed(0)}%</span></div>
+      </div>
+      ${meta.fechaLimite ? `<p class="empty-state" style="margin:10px 0 0">Fecha límite: ${meta.fechaLimite}</p>` : ""}
+      ${!cumplida ? `<p class="empty-state" style="margin:4px 0 0">${proyeccionTexto(meta)}</p>` : ""}
+      <div class="deuda-card__footer">
+        ${!cumplida ? `<button type="button" class="btn" data-action="aportar">Aportar</button>` : ""}
+        ${!cumplida && acumulado > 0 ? `<button type="button" class="btn-secondary" data-action="retirar">Retirar</button>` : ""}
+        <button type="button" class="btn-secondary" data-action="historial">Ver historial</button>
+        ${meta.compraVinculadaId && !cumplida && progreso >= 100 ? `<button type="button" class="btn" data-action="marcar-comprada">Marcar compra como pagada</button>` : ""}
+        ${meta.compraVinculadaId && !cumplida ? `<button type="button" class="btn-secondary" data-action="deshacer-conversion">Deshacer conversión</button>` : ""}
+        ${!cumplida ? `<button type="button" class="btn-secondary" data-action="${pausada ? "reanudar" : "pausar"}">${pausada ? "Reanudar" : "Pausar"}</button>` : ""}
+        ${!cumplida ? `<button type="button" class="btn-secondary" data-action="cumplida">Marcar cumplida</button>` : `<button type="button" class="btn-secondary" data-action="reabrir">Reabrir</button>`}
+      </div>
+    `;
+
+    card.querySelector('[data-action="edit"]')!.addEventListener("click", () => openEditModal(meta));
+    card.querySelector('[data-action="delete"]')!.addEventListener("click", async () => {
+      const ok = await showConfirm(`¿Eliminar la meta "${meta.nombre}"? Se borrará también su historial.`, {
+        title: "Eliminar meta",
+        confirmLabel: "Eliminar",
+        danger: true,
+      });
+      if (!ok) return;
+      void runAction(() => eliminarMeta(spreadsheetId, meta));
+    });
+    card.querySelector('[data-action="historial"]')!.addEventListener("click", () => openHistorialModal(meta));
+
+    card.querySelector('[data-action="aportar"]')?.addEventListener("click", async () => {
+      const resultado = await showAbonoDialog(`Aportar — ${meta.nombre}`, meta.aporteAutoMonto || undefined);
+      if (!resultado) return;
+      void runAction(() => registrarAporte(spreadsheetId, meta, resultado.fecha, resultado.monto, resultado.nota, "AporteManual"));
+    });
+
+    card.querySelector('[data-action="retirar"]')?.addEventListener("click", async () => {
+      const resultado = await showRetiroDialog(`Retirar — ${meta.nombre}`, acumulado);
+      if (!resultado) return;
+      void runAction(() => registrarRetiro(spreadsheetId, meta, movimientosPorMeta.get(meta.id) ?? [], resultado.fecha, resultado.monto, resultado.motivo));
+    });
+
+    card.querySelector('[data-action="cumplida"]')?.addEventListener("click", async () => {
+      const ok = await showConfirm(`¿Marcar la meta "${meta.nombre}" como cumplida?`, { title: "Marcar cumplida", confirmLabel: "Marcar cumplida" });
+      if (!ok) return;
+      void runAction(() => setEstadoMeta(spreadsheetId, meta, "Cumplida"));
+    });
+    card.querySelector('[data-action="reabrir"]')?.addEventListener("click", () => void runAction(() => setEstadoMeta(spreadsheetId, meta, "Activa")));
+    card.querySelector('[data-action="pausar"]')?.addEventListener("click", () => void runAction(() => setEstadoMeta(spreadsheetId, meta, "Pausada")));
+    card.querySelector('[data-action="reanudar"]')?.addEventListener("click", () => void runAction(() => setEstadoMeta(spreadsheetId, meta, "Activa")));
+
+    card.querySelector('[data-action="marcar-comprada"]')?.addEventListener("click", async () => {
+      if (!meta.compraVinculadaId) return;
+      const ok = await showConfirm(
+        `¿Marcar la compra "${meta.nombre}" como pagada por ${formatMoney(acumulado)} (lo que ahorraste)?`,
+        { title: "Marcar compra como pagada", confirmLabel: "Marcar pagada" },
+      );
+      if (!ok) return;
+      void runAction(async () => {
+        const gasto = await buscarGastoPorId(spreadsheetId, meta.compraVinculadaId);
+        if (gasto) {
+          const gastoActualizado = await marcarGastoComoPagado(spreadsheetId, gasto, { monto: acumulado, fecha: todayISO() });
+          const quiere = await showConfirm("¿Deseas anexar la factura de esta compra?", {
+            title: "Factura",
+            confirmLabel: "Sí, más tarde en Gastos y Compras",
+            cancelLabel: "No, gracias",
+          });
+          void quiere; // el flujo de subida vive en Gastos y Compras; aquí solo dejamos el gasto listo para adjuntarla ahí.
+          void gastoActualizado;
+        }
+        await setEstadoMeta(spreadsheetId, meta, "Cumplida");
+      });
+    });
+
+    card.querySelector('[data-action="deshacer-conversion"]')?.addEventListener("click", async () => {
+      if (!meta.compraVinculadaId) return;
+      const tieneMovimientos = (movimientosPorMeta.get(meta.id) ?? []).length > 0;
+      const ok = await showConfirm(
+        tieneMovimientos
+          ? "Esta meta ya tiene aportes registrados. Si deshaces la conversión, se eliminará la meta junto con su historial de aportes. ¿Continuar?"
+          : "¿Deshacer la conversión? La compra vuelve a Pendiente de pago normal.",
+        { title: "Deshacer conversión", confirmLabel: "Deshacer", danger: true },
+      );
+      if (!ok) return;
+      void runAction(async () => {
+        const gasto = await buscarGastoPorId(spreadsheetId, meta.compraVinculadaId);
+        if (gasto) await deshacerAhorrando(spreadsheetId, gasto);
+        await eliminarMeta(spreadsheetId, meta);
+      });
+    });
+
+    return card;
+  }
+
+  function renderList(): void {
+    const activasTodas = metas.filter((m) => m.estado !== "Cumplida");
+    const cumplidas = metas.filter((m) => m.estado === "Cumplida");
+
+    totalEl.textContent = formatMoney(
+      metas.reduce((s, m) => s + calcularAcumulado(movimientosPorMeta.get(m.id) ?? []), 0),
+    );
+
+    const emergencia = activasTodas.filter((m) => m.esFondoEmergencia);
+    const resto = activasTodas.filter((m) => !m.esFondoEmergencia);
+    resto.sort((a, b) => {
+      if (sortOrder === "fecha-limite") {
+        if (!a.fechaLimite) return 1;
+        if (!b.fechaLimite) return -1;
+        return a.fechaLimite.localeCompare(b.fechaLimite);
+      }
+      const progA = calcularProgresoPct(a, movimientosPorMeta.get(a.id) ?? []);
+      const progB = calcularProgresoPct(b, movimientosPorMeta.get(b.id) ?? []);
+      return progB - progA;
+    });
+    const ordenadas = [...emergencia, ...resto];
+
+    activasListEl.innerHTML = "";
+    if (ordenadas.length === 0) {
+      activasListEl.innerHTML = `<div class="card"><p class="empty-state">No tienes metas activas todavía. Crea la primera arriba.</p></div>`;
+    } else {
+      for (const meta of ordenadas) activasListEl.appendChild(renderMetaCard(meta));
+    }
+
+    cumplidasListEl.innerHTML = "";
+    if (cumplidas.length === 0) {
+      cumplidasListEl.innerHTML = `<p class="empty-state">Aún no tienes metas cumplidas.</p>`;
+    } else {
+      for (const meta of cumplidas) cumplidasListEl.appendChild(renderMetaCard(meta));
+    }
+    cumplidasCard.hidden = false;
+  }
+
+  async function runAction(action: () => Promise<void>): Promise<void> {
+    if (busy) return;
+    busy = true;
+    try {
+      await action();
+      await reload();
+    } catch (err) {
+      await showAlert(err instanceof Error ? err.message : "Ocurrió un error.", "Error");
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function reload(): Promise<void> {
+    const [metasList, movimientos] = await Promise.all([listMetas(spreadsheetId), listTodosLosMovimientos(spreadsheetId)]);
+    metas = metasList;
+    movimientosPorMeta = agruparMovimientosPorMeta(movimientos);
+
+    const huboAutomaticos = await procesarAportesAutomaticos(spreadsheetId, metas);
+    if (huboAutomaticos) {
+      const [metasList2, movimientos2] = await Promise.all([listMetas(spreadsheetId), listTodosLosMovimientos(spreadsheetId)]);
+      metas = metasList2;
+      movimientosPorMeta = agruparMovimientosPorMeta(movimientos2);
+    }
+
+    renderList();
+  }
+
+  function openEditModal(meta: Meta): void {
+    editingMeta = meta;
+    editNombreInput.value = meta.nombre;
+    editIconoSelect.value = meta.icono;
+    editMontoInput.value = String(meta.montoObjetivo);
+    editFechaLimiteInput.value = meta.fechaLimite;
+    editTasaInput.value = String(meta.tasaRendimiento);
+    editAutoActivoCheck.checked = meta.aporteAutoActivo;
+    editAutoMontoField.hidden = !meta.aporteAutoActivo;
+    editAutoFrecuenciaField.hidden = !meta.aporteAutoActivo;
+    editAutoMontoInput.value = String(meta.aporteAutoMonto || "");
+    editAutoFrecuenciaSelect.value = meta.aporteAutoFrecuencia;
+    editModalError.hidden = true;
+
+    const controller = new AbortController();
+    const { signal } = controller;
+
+    editModal.addEventListener("cancel", () => controller.abort(), { signal });
+    editModalCancel.addEventListener("click", () => { controller.abort(); editModal.close(); }, { signal });
+
+    editForm.addEventListener(
+      "submit",
+      async (e) => {
+        e.preventDefault();
+        const nombre = editNombreInput.value.trim();
+        const monto = Number(editMontoInput.value);
+        if (!nombre || !monto || monto <= 0) {
+          editModalError.hidden = false;
+          editModalError.textContent = "Completa el nombre y un monto objetivo válido.";
+          return;
+        }
+        if (!editingMeta) return;
+        const confirmBtn = editForm.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+        confirmBtn.disabled = true;
+        try {
+          const cambios: MetaCambios = {
+            nombre,
+            montoObjetivo: monto,
+            fechaLimite: editFechaLimiteInput.value,
+            icono: editIconoSelect.value,
+            aporteAutoActivo: editAutoActivoCheck.checked,
+            aporteAutoMonto: Number(editAutoMontoInput.value) || 0,
+            aporteAutoFrecuencia: editAutoFrecuenciaSelect.value as FrecuenciaAporte,
+            tasaRendimiento: Number(editTasaInput.value) || 0,
+          };
+          await actualizarMeta(spreadsheetId, editingMeta, cambios);
+          controller.abort();
+          editModal.close();
+          await reload();
+        } catch (err) {
+          editModalError.hidden = false;
+          editModalError.textContent = err instanceof Error ? err.message : "No se pudo guardar el cambio.";
+        } finally {
+          confirmBtn.disabled = false;
+        }
+      },
+      { signal },
+    );
+
+    editModal.showModal();
+  }
+
+  ordenSelect.addEventListener("change", () => {
+    sortOrder = ordenSelect.value as SortOrder;
+    renderList();
+  });
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    formError.hidden = true;
+
+    const nombre = nombreInput.value.trim();
+    const monto = Number(montoInput.value);
+    if (!nombre || !monto || monto <= 0) {
+      formError.hidden = false;
+      formError.textContent = "Completa el nombre y un monto objetivo válido.";
+      return;
+    }
+
+    submitBtn.disabled = true;
+    try {
+      await crearMeta(spreadsheetId, {
+        nombre,
+        montoObjetivo: monto,
+        fechaLimite: fechaLimiteInput.value,
+        icono: iconoSelect.value,
+        esFondoEmergencia: emergenciaCheck.checked,
+        aporteAutoActivo: autoActivoCheck.checked,
+        aporteAutoMonto: Number(autoMontoInput.value) || 0,
+        aporteAutoFrecuencia: autoFrecuenciaSelect.value as FrecuenciaAporte,
+        tasaRendimiento: Number(tasaInput.value) || 0,
+        compraVinculadaId: "",
+      });
+      form.reset();
+      emergenciaSugerencia.hidden = true;
+      autoMontoField.hidden = true;
+      autoFrecuenciaField.hidden = true;
+      await reload();
+    } catch (err) {
+      formError.hidden = false;
+      formError.textContent = err instanceof Error ? err.message : "No se pudo guardar la meta.";
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
+
+  try {
+    const ensured = await ensureSpreadsheet();
+    spreadsheetId = ensured.spreadsheetId;
+    const gastosFijos = await listGastosFijosDelMes(spreadsheetId);
+    totalGastosFijos = sumGastosFijosTotal(gastosFijos);
+    await reload();
+  } catch (err) {
+    activasListEl.innerHTML = `<p class="empty-state">${err instanceof Error ? err.message : "No se pudo cargar la información."}</p>`;
+  }
+}

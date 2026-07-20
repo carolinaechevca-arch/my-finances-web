@@ -1,6 +1,7 @@
 import businessplanIcon from "../icon/businessplan.svg?raw";
 import cashBanknotePlusIcon from "../icon/cash-banknote-plus.svg?raw";
 import cashMinusIcon from "../icon/cash-minus.svg?raw";
+import fileTimeIcon from "../icon/file-time.svg?raw";
 import financeIcon from "../icon/finance.svg?raw";
 import homeDollarIcon from "../icon/home-dollar.svg?raw";
 import menuIcon from "../icon/menu-2.svg?raw";
@@ -23,8 +24,7 @@ export const NAV_SECTIONS: NavSection[] = [
   { id: "deudas", label: "Deudas", icon: `<span class="nav-icon nav-icon--white">${pigMoneyIcon}</span>` },
   { id: "me-deben", label: "Me Deben", icon: `<span class="nav-icon nav-icon--white">${businessplanIcon}</span>` },
   { id: "ahorros", label: "Ahorros y Metas", icon: "🐷" },
-  { id: "presupuestos", label: "Presupuestos", icon: "📊" },
-  { id: "exportar", label: "Exportar", icon: "📤" },
+  { id: "historico", label: "Histórico", icon: `<span class="nav-icon nav-icon--white">${fileTimeIcon}</span>` },
 ];
 
 export interface AppShell {

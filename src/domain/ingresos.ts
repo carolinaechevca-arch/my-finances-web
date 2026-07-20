@@ -1,10 +1,15 @@
-import { INGRESOS_FIJOS_SHEET, TIPOS_INGRESO_SHEET } from "../api/spreadsheet-bootstrap";
+import {
+  HISTORIAL_INGRESOS_FIJOS_SHEET,
+  INGRESOS_FIJOS_SHEET,
+  TIPOS_INGRESO_SHEET,
+} from "../api/spreadsheet-bootstrap";
 import { appendRecord, deleteRecord, listRecords, updateRecord, type SheetRow } from "../api/records";
-import { monthKey } from "./format";
+import { monthKey, todayISO } from "./format";
 
 export type Recurrencia = "Fijo" | "UnicoMes";
 
 export interface IngresoFijo {
+  id: string;
   row: number;
   tipo: string;
   monto: number;
@@ -17,9 +22,18 @@ export interface IngresoFijo {
 }
 
 function parseIngreso(r: SheetRow): IngresoFijo {
-  const [tipo = "", monto = "0", notas = "", recurrencia = "Fijo", mes = "", activo = "TRUE", fechaCreacion = ""] =
-    r.values;
+  const [
+    tipo = "",
+    monto = "0",
+    notas = "",
+    recurrencia = "Fijo",
+    mes = "",
+    activo = "TRUE",
+    fechaCreacion = "",
+    id = "",
+  ] = r.values;
   return {
+    id,
     row: r.row,
     tipo,
     monto: Number(monto) || 0,
@@ -29,6 +43,41 @@ function parseIngreso(r: SheetRow): IngresoFijo {
     activo: activo.toUpperCase() !== "FALSE",
     fechaCreacion,
   };
+}
+
+/**
+ * Cambio de monto o de estado activo/inactivo de un ingreso "Fijo",
+ * registrado para poder reconstruir cuánto aplicaba en un mes pasado (ver
+ * domain/historico.ts). Los ingresos "UnicoMes" no lo necesitan: ya están
+ * atados a un mes específico.
+ */
+export interface CambioIngreso {
+  row: number;
+  idIngreso: string;
+  fecha: string;
+  montoAnterior: number;
+  montoNuevo: number;
+  activoAnterior: boolean;
+  activoNuevo: boolean;
+}
+
+function parseCambioIngreso(r: SheetRow): CambioIngreso {
+  const [idIngreso = "", fecha = "", montoAnterior = "0", montoNuevo = "0", activoAnterior = "", activoNuevo = ""] =
+    r.values;
+  return {
+    row: r.row,
+    idIngreso,
+    fecha,
+    montoAnterior: Number(montoAnterior) || 0,
+    montoNuevo: Number(montoNuevo) || 0,
+    activoAnterior: activoAnterior.toUpperCase() !== "FALSE",
+    activoNuevo: activoNuevo.toUpperCase() !== "FALSE",
+  };
+}
+
+export async function listHistorialIngresos(spreadsheetId: string): Promise<CambioIngreso[]> {
+  const rows = await listRecords(spreadsheetId, HISTORIAL_INGRESOS_FIJOS_SHEET, 6);
+  return rows.map(parseCambioIngreso);
 }
 
 export async function listTiposIngreso(spreadsheetId: string): Promise<string[]> {
@@ -69,9 +118,37 @@ export async function eliminarTipoIngreso(spreadsheetId: string, nombre: string)
  * como histórico, pero ya no se lista ni se suma como vigente.
  */
 export async function listIngresosVigentes(spreadsheetId: string, date: Date = new Date()): Promise<IngresoFijo[]> {
-  const rows = await listRecords(spreadsheetId, INGRESOS_FIJOS_SHEET, 7);
+  const todos = await listTodosLosIngresos(spreadsheetId);
   const mes = monthKey(date);
-  return rows.map(parseIngreso).filter((i) => i.recurrencia === "Fijo" || i.mes === mes);
+  return todos.filter((i) => i.recurrencia === "Fijo" || i.mes === mes);
+}
+
+/** Todos los ingresos registrados alguna vez, sin filtrar por mes vigente — para reconstrucción histórica. */
+export async function listTodosLosIngresos(spreadsheetId: string): Promise<IngresoFijo[]> {
+  const rows = await listRecords(spreadsheetId, INGRESOS_FIJOS_SHEET, 8);
+  return rows.map(parseIngreso);
+}
+
+/**
+ * Reconstruye el monto y el estado activo/inactivo de un ingreso "Fijo" tal
+ * como aplicaban en una fecha pasada, a partir de su historial de cambios.
+ * Si nunca se registró un cambio, se asume que el valor actual siempre
+ * aplicó (es la mejor aproximación posible sin historial previo a esta
+ * función).
+ */
+export function estadoIngresoEnFecha(
+  ingreso: IngresoFijo,
+  cambios: CambioIngreso[],
+  fecha: string,
+): { monto: number; activo: boolean } {
+  const propios = cambios.filter((c) => c.idIngreso === ingreso.id).sort((a, b) => a.fecha.localeCompare(b.fecha));
+  if (propios.length === 0) return { monto: ingreso.monto, activo: ingreso.activo };
+
+  const aplicable = [...propios].reverse().find((c) => c.fecha <= fecha);
+  if (aplicable) return { monto: aplicable.montoNuevo, activo: aplicable.activoNuevo };
+
+  const primero = propios[0];
+  return { monto: primero.montoAnterior, activo: primero.activoAnterior };
 }
 
 export async function crearIngreso(
@@ -89,10 +166,14 @@ export async function crearIngreso(
     recurrencia === "UnicoMes" ? monthKey() : "",
     "TRUE",
     new Date().toISOString().slice(0, 10),
+    crypto.randomUUID(),
   ]);
 }
 
 export async function setIngresoActivo(spreadsheetId: string, ingreso: IngresoFijo, activo: boolean): Promise<void> {
+  if (ingreso.recurrencia === "Fijo" && activo !== ingreso.activo) {
+    await registrarCambioIngreso(spreadsheetId, ingreso, ingreso.monto, activo);
+  }
   await updateRecord(spreadsheetId, INGRESOS_FIJOS_SHEET, ingreso.row, [
     ingreso.tipo,
     ingreso.monto,
@@ -101,6 +182,24 @@ export async function setIngresoActivo(spreadsheetId: string, ingreso: IngresoFi
     ingreso.mes,
     activo ? "TRUE" : "FALSE",
     ingreso.fechaCreacion,
+    ingreso.id,
+  ]);
+}
+
+/** Registra en HistorialIngresosFijos un cambio de monto y/o de estado activo, para reconstruir meses pasados. */
+async function registrarCambioIngreso(
+  spreadsheetId: string,
+  ingreso: IngresoFijo,
+  montoNuevo: number,
+  activoNuevo: boolean,
+): Promise<void> {
+  await appendRecord(spreadsheetId, HISTORIAL_INGRESOS_FIJOS_SHEET, [
+    ingreso.id,
+    todayISO(),
+    ingreso.monto,
+    montoNuevo,
+    ingreso.activo ? "TRUE" : "FALSE",
+    activoNuevo ? "TRUE" : "FALSE",
   ]);
 }
 
@@ -120,6 +219,9 @@ export async function actualizarIngreso(
   ingreso: IngresoFijo,
   cambios: IngresoCambios,
 ): Promise<void> {
+  if (ingreso.recurrencia === "Fijo" && cambios.recurrencia === "Fijo" && cambios.monto !== ingreso.monto) {
+    await registrarCambioIngreso(spreadsheetId, ingreso, cambios.monto, ingreso.activo);
+  }
   await updateRecord(spreadsheetId, INGRESOS_FIJOS_SHEET, ingreso.row, [
     cambios.tipo,
     cambios.monto,
@@ -128,6 +230,7 @@ export async function actualizarIngreso(
     cambios.recurrencia === "UnicoMes" ? ingreso.mes || monthKey() : "",
     ingreso.activo ? "TRUE" : "FALSE",
     ingreso.fechaCreacion,
+    ingreso.id,
   ]);
 }
 

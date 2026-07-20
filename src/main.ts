@@ -9,6 +9,8 @@ import { renderGastosFijos } from "./ui/pages/gastos-fijos";
 import { renderGastosPersonales } from "./ui/pages/gastos-personales";
 import { renderDeudas } from "./ui/pages/deudas";
 import { renderMeDeben } from "./ui/pages/me-deben";
+import { renderAhorros } from "./ui/pages/ahorros";
+import { renderHistorico } from "./ui/pages/historico";
 import { initTheme } from "./ui/theme-toggle";
 
 initTheme();
@@ -46,6 +48,12 @@ function showApp(user: AuthUser): void {
         break;
       case "me-deben":
         void renderMeDeben(shell.contentEl);
+        break;
+      case "ahorros":
+        void renderAhorros(shell.contentEl);
+        break;
+      case "historico":
+        void renderHistorico(shell.contentEl);
         break;
       default:
         renderPlaceholder(shell.contentEl, sectionId);

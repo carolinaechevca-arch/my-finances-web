@@ -11,17 +11,30 @@ import {
   crearGasto,
   eliminarCategoria,
   eliminarGasto,
+  listAhorrando,
   listCategorias,
   listGastosDelMes,
   listPendientes,
+  marcarComoAhorrando,
   marcarComoPagado,
   sumGastos,
   type EstadoGasto,
   type GastoYCompra,
 } from "../../domain/gastos-y-compras";
 import { formatMonthLabel, formatMoney, parseDateInput, todayISO } from "../../domain/format";
-import { showAlert, showCompletarGastoDialog, showConfirm } from "../components/dialogs";
+import { crearMeta } from "../../domain/metas";
+import { showAlert, showCompletarGastoDialog, showConfirm, showConvertirMetaDialog } from "../components/dialogs";
 import { createOptionCombo, type OptionCombo } from "../components/tipo-combo";
+
+function iconoSugeridoPorCategoria(categoria: string): string {
+  const c = categoria.toLowerCase();
+  if (c.includes("viaje") || c.includes("vacacion")) return "✈️";
+  if (c.includes("carro") || c.includes("auto") || c.includes("vehic") || c.includes("moto")) return "🚗";
+  if (c.includes("hogar") || c.includes("casa") || c.includes("arriendo")) return "🏠";
+  if (c.includes("tech") || c.includes("tecnolog") || c.includes("electro") || c.includes("computador")) return "💻";
+  if (c.includes("educa") || c.includes("estudio") || c.includes("curso")) return "🎓";
+  return "📦";
+}
 
 export async function renderGastosPersonales(container: HTMLElement): Promise<void> {
   container.innerHTML = `
@@ -66,6 +79,12 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
       <h2 style="margin-top:0">Pendientes por pagar</h2>
       <p class="empty-state" style="margin-top:-8px;margin-bottom:14px">Compras planeadas que aún no se han hecho. Se mantienen aquí mes a mes hasta que las marques como realizadas.</p>
       <div id="pendientes-list"><p class="empty-state">Cargando…</p></div>
+    </div>
+
+    <div class="card" id="ahorrando-card" style="margin-bottom:20px" hidden>
+      <h2 style="margin-top:0">Ahorrando para estas compras</h2>
+      <p class="empty-state" style="margin-top:-8px;margin-bottom:14px">Ya no cuentan como pendientes: se están gestionando como metas de ahorro. Aporta y márcalas como pagadas desde Ahorros y Metas.</p>
+      <div id="ahorrando-list"></div>
     </div>
 
     <div class="card">
@@ -127,6 +146,8 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
   const totalMesEl = container.querySelector<HTMLDivElement>("#gc-total-mes")!;
   const pendientesTotalEl = container.querySelector<HTMLDivElement>("#gc-pendientes-total")!;
   const pendientesListEl = container.querySelector<HTMLDivElement>("#pendientes-list")!;
+  const ahorrandoCard = container.querySelector<HTMLDivElement>("#ahorrando-card")!;
+  const ahorrandoListEl = container.querySelector<HTMLDivElement>("#ahorrando-list")!;
   const listEl = container.querySelector<HTMLDivElement>("#gc-list")!;
   const filtroCategoriaSelect = container.querySelector<HTMLSelectElement>("#gc-filtro-categoria")!;
 
@@ -159,6 +180,7 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
   let categorias: string[] = [];
   let gastosDelMes: GastoYCompra[] = [];
   let pendientes: GastoYCompra[] = [];
+  let ahorrando: GastoYCompra[] = [];
   let filtroCategoria = "";
   let busy = false;
   let formCategoriaValue = "";
@@ -230,7 +252,7 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
   }
 
   async function handleDeleteCategoria(categoria: string): Promise<void> {
-    const enUso = [...gastosDelMes, ...pendientes].some((g) => g.categoria === categoria);
+    const enUso = [...gastosDelMes, ...pendientes, ...ahorrando].some((g) => g.categoria === categoria);
     if (enUso) {
       await showAlert(
         `No puedes eliminar "${categoria}" porque tienes gastos con esta categoría. Edítalos o elimínalos primero.`,
@@ -408,6 +430,7 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
         </div>
         <div class="record-row__amount">${formatMoney(gasto.monto)}</div>
         <button type="button" class="btn-secondary" data-action="completar">Marcar como realizado</button>
+        <button type="button" class="btn-secondary" data-action="convertir">Convertir en meta de ahorro</button>
         <button type="button" class="icon-btn icon-btn--delete" data-action="eliminar" aria-label="Eliminar" title="Eliminar">${trashIcon}</button>
       `;
       item.querySelector('[data-action="completar"]')!.addEventListener("click", async () => {
@@ -416,6 +439,25 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
         await runAction(async () => {
           const actualizado = await marcarComoPagado(spreadsheetId, gasto, resultado);
           await attachFacturaFlow(actualizado, true);
+        });
+      });
+      item.querySelector('[data-action="convertir"]')!.addEventListener("click", async () => {
+        const nombre = await showConvertirMetaDialog(gasto.nombre, gasto.monto);
+        if (!nombre) return;
+        void runAction(async () => {
+          await crearMeta(spreadsheetId, {
+            nombre,
+            montoObjetivo: gasto.monto,
+            fechaLimite: "",
+            icono: iconoSugeridoPorCategoria(gasto.categoria),
+            esFondoEmergencia: false,
+            aporteAutoActivo: false,
+            aporteAutoMonto: 0,
+            aporteAutoFrecuencia: "Mensual",
+            tasaRendimiento: 0,
+            compraVinculadaId: gasto.id,
+          });
+          await marcarComoAhorrando(spreadsheetId, gasto);
         });
       });
       item.querySelector('[data-action="eliminar"]')!.addEventListener("click", async () => {
@@ -428,6 +470,26 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
         void runAction(() => eliminarGasto(spreadsheetId, gasto));
       });
       pendientesListEl.appendChild(item);
+    }
+  }
+
+  function renderAhorrando(): void {
+    ahorrandoCard.hidden = ahorrando.length === 0;
+    if (ahorrando.length === 0) {
+      ahorrandoListEl.innerHTML = "";
+      return;
+    }
+    ahorrandoListEl.innerHTML = "";
+    for (const gasto of ahorrando) {
+      const item = document.createElement("div");
+      item.className = "record-row";
+      item.innerHTML = `
+        <div class="record-row__main">
+          <span class="record-row__title">${gasto.nombre} <span class="badge">Ahorrando</span></span>
+          <span class="record-row__subtitle">Objetivo: ${formatMoney(gasto.monto)} · aporta, marca como pagada o deshaz la conversión desde Ahorros y Metas</span>
+        </div>
+      `;
+      ahorrandoListEl.appendChild(item);
     }
   }
 
@@ -515,11 +577,13 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
   }
 
   async function reload(): Promise<void> {
-    [gastosDelMes, pendientes] = await Promise.all([
+    [gastosDelMes, pendientes, ahorrando] = await Promise.all([
       listGastosDelMes(spreadsheetId),
       listPendientes(spreadsheetId),
+      listAhorrando(spreadsheetId),
     ]);
     renderPendientes();
+    renderAhorrando();
     renderHistorial();
   }
 

@@ -28,10 +28,16 @@ function parseGastoFijo(r: SheetRow): GastoFijo {
   };
 }
 
-export async function listGastosFijosDelMes(spreadsheetId: string, date: Date = new Date()): Promise<GastoFijo[]> {
+/** Todos los gastos fijos registrados alguna vez, de cualquier mes — para el Histórico. */
+export async function listTodosLosGastosFijos(spreadsheetId: string): Promise<GastoFijo[]> {
   const rows = await listRecords(spreadsheetId, GASTOS_FIJOS_SHEET, 7);
+  return rows.map(parseGastoFijo);
+}
+
+export async function listGastosFijosDelMes(spreadsheetId: string, date: Date = new Date()): Promise<GastoFijo[]> {
+  const todos = await listTodosLosGastosFijos(spreadsheetId);
   const mes = monthKey(date);
-  return rows.map(parseGastoFijo).filter((g) => g.mes === mes);
+  return todos.filter((g) => g.mes === mes);
 }
 
 export async function crearGastoFijo(
@@ -181,4 +187,15 @@ export function diferenciasPago(fijos: GastoFijo[]): DiferenciaPago[] {
 
 export function sumDiferenciasPago(fijos: GastoFijo[]): number {
   return diferenciasPago(fijos).reduce((s, d) => s + d.diferencia, 0);
+}
+
+/** "vencida" si ya pasó el día de pago sin marcarlo pagado; "proxima" si faltan 5 días o menos. */
+export function estadoAlertaGastoFijo(gasto: GastoFijo, hoy: Date = new Date()): "vencida" | "proxima" | null {
+  if (gasto.estado === "Pagado") return null;
+  const dia = Number(gasto.diaPago);
+  if (!dia) return null;
+  const hoyDia = hoy.getDate();
+  if (hoyDia > dia) return "vencida";
+  if (dia - hoyDia <= 5) return "proxima";
+  return null;
 }

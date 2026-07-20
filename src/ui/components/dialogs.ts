@@ -297,3 +297,117 @@ export function showAbonoDialog(
     dialog.showModal();
   });
 }
+
+/** Modal para retirar de una meta: fecha, monto (con tope) y motivo obligatorio. */
+export function showRetiroDialog(
+  titulo: string,
+  maxMonto: number,
+): Promise<{ fecha: string; monto: number; motivo: string } | null> {
+  return new Promise((resolve) => {
+    const dialog = createDialog();
+    dialog.innerHTML = `
+      <div class="modal__form">
+        <h2 class="modal__title">${titulo}</h2>
+        <p class="modal__message">Tienes ${formatMoney(maxMonto)} acumulados en esta meta.</p>
+        <div class="field">
+          <label for="retiro-fecha">Fecha</label>
+          <input id="retiro-fecha" type="date" value="${todayISO()}" />
+        </div>
+        <div class="field">
+          <label for="retiro-monto">Monto a retirar</label>
+          <input id="retiro-monto" type="number" min="0" max="${maxMonto}" step="0.01" />
+        </div>
+        <div class="field">
+          <label for="retiro-motivo">Motivo</label>
+          <input id="retiro-motivo" type="text" placeholder="Ej. Compré los tiquetes" required />
+        </div>
+        <p class="empty-state" id="retiro-error" hidden></p>
+        <div class="modal__actions">
+          <button type="button" class="btn-secondary" data-action="cancel">Cancelar</button>
+          <button type="button" class="btn-danger" data-action="confirm">Retirar</button>
+        </div>
+      </div>
+    `;
+
+    const fechaInput = dialog.querySelector<HTMLInputElement>("#retiro-fecha")!;
+    const montoInput = dialog.querySelector<HTMLInputElement>("#retiro-monto")!;
+    const motivoInput = dialog.querySelector<HTMLInputElement>("#retiro-motivo")!;
+    const error = dialog.querySelector<HTMLParagraphElement>("#retiro-error")!;
+
+    const cleanup = (result: { fecha: string; monto: number; motivo: string } | null) => {
+      dialog.close();
+      dialog.remove();
+      resolve(result);
+    };
+
+    dialog.querySelector('[data-action="cancel"]')!.addEventListener("click", () => cleanup(null));
+    dialog.querySelector('[data-action="confirm"]')!.addEventListener("click", () => {
+      const monto = Number(montoInput.value);
+      const motivo = motivoInput.value.trim();
+      if (!monto || monto <= 0 || !fechaInput.value) {
+        error.hidden = false;
+        error.textContent = "Ingresa una fecha y un monto válido.";
+        return;
+      }
+      if (monto > maxMonto) {
+        error.hidden = false;
+        error.textContent = `No puedes retirar más de ${formatMoney(maxMonto)}.`;
+        return;
+      }
+      if (!motivo) {
+        error.hidden = false;
+        error.textContent = "El motivo es obligatorio.";
+        return;
+      }
+      cleanup({ fecha: fechaInput.value, monto, motivo });
+    });
+    dialog.addEventListener("cancel", () => cleanup(null));
+
+    dialog.showModal();
+  });
+}
+
+/** Modal para confirmar/editar el nombre al convertir una compra pendiente en meta de ahorro. */
+export function showConvertirMetaDialog(nombreSugerido: string, montoObjetivo: number): Promise<string | null> {
+  return new Promise((resolve) => {
+    const dialog = createDialog();
+    dialog.innerHTML = `
+      <div class="modal__form">
+        <h2 class="modal__title">Convertir en meta de ahorro</h2>
+        <p class="modal__message">Se creará una meta por <strong>${formatMoney(montoObjetivo)}</strong>. Puedes ajustar el nombre:</p>
+        <div class="field">
+          <label for="convertir-nombre">Nombre de la meta</label>
+          <input id="convertir-nombre" type="text" value="${nombreSugerido}" required />
+        </div>
+        <p class="empty-state" id="convertir-error" hidden></p>
+        <div class="modal__actions">
+          <button type="button" class="btn-secondary" data-action="cancel">Cancelar</button>
+          <button type="button" class="btn" data-action="confirm">Crear meta</button>
+        </div>
+      </div>
+    `;
+
+    const nombreInput = dialog.querySelector<HTMLInputElement>("#convertir-nombre")!;
+    const error = dialog.querySelector<HTMLParagraphElement>("#convertir-error")!;
+
+    const cleanup = (result: string | null) => {
+      dialog.close();
+      dialog.remove();
+      resolve(result);
+    };
+
+    dialog.querySelector('[data-action="cancel"]')!.addEventListener("click", () => cleanup(null));
+    dialog.querySelector('[data-action="confirm"]')!.addEventListener("click", () => {
+      const nombre = nombreInput.value.trim();
+      if (!nombre) {
+        error.hidden = false;
+        error.textContent = "Escribe un nombre.";
+        return;
+      }
+      cleanup(nombre);
+    });
+    dialog.addEventListener("cancel", () => cleanup(null));
+
+    dialog.showModal();
+  });
+}

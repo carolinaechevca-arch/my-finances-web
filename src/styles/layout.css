@@ -1046,3 +1046,70 @@
   gap: 10px;
   margin-top: 14px;
 }
+
+/* --- Ahorros y Metas --- */
+.meta-card--emergencia {
+  border: 2px solid var(--color-danger);
+  background: color-mix(in srgb, var(--color-danger) 6%, var(--color-surface));
+}
+
+/* --- Histórico: selector de mes y gráficos --- */
+.mes-nav {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.mes-nav select {
+  flex: 1;
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+}
+
+.chart-svg {
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.chart-axis {
+  stroke: var(--color-border);
+  stroke-width: 1;
+}
+
+.chart-label {
+  font-size: 10px;
+  fill: var(--color-text-muted);
+}
+
+.chart-line {
+  stroke-width: 2;
+}
+
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 8px;
+}
+
+.chart-legend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.chart-legend__swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  display: inline-block;
+}
