@@ -19,12 +19,14 @@ export const CATEGORIAS_GASTOS_Y_COMPRAS_SHEET = "CategoriasGastosYCompras";
 /** Deudas propias (YoDebo) y de terceros (MeDeben) unificadas, distinguidas por la columna Direccion. */
 export const DEUDAS_SHEET = "Deudas";
 export const ABONOS_DEUDAS_SHEET = "AbonosDeudas";
-/** Tipos de deuda (tarjeta, préstamo, etc.), compartidos entre Deudas y Me Deben. */
+/** Tipos de deuda (tarjeta, préstamo, etc.) — una lista independiente por Direccion (YoDebo/MeDeben). */
 export const TIPOS_DEUDA_SHEET = "TiposDeuda";
-/** Contrapartes (acreedores/deudores) conocidas, compartidas entre Deudas y Me Deben. */
+/** Contrapartes (acreedores/deudores) conocidas — una lista independiente por Direccion (YoDebo/MeDeben). */
 export const CONTRAPARTES_SHEET = "Contrapartes";
 export const METAS_SHEET = "Metas";
 export const MOVIMIENTOS_METAS_SHEET = "MovimientosMetas";
+/** Tipos de meta de ahorro (viaje, tecnología, etc.), manejables igual que las categorías de gastos. */
+export const TIPOS_METAS_SHEET = "TiposMetas";
 
 /** Tipos de ingreso fijo con los que arranca toda cuenta nueva; el usuario puede agregar más. */
 const DEFAULT_TIPOS_INGRESO = ["Nómina", "Trabajo independiente", "Regalo", "Otro"];
@@ -93,14 +95,12 @@ export const SHEET_DEFINITIONS: SheetDefinition[] = [
       "Nombre",
       "MontoObjetivo",
       "FechaLimite",
-      "Icono",
+      "Tipo",
       "Estado",
-      "EsFondoEmergencia",
       "AporteAutoActivo",
       "AporteAutoMonto",
       "AporteAutoFrecuencia",
       "AporteAutoUltimaFecha",
-      "TasaRendimiento",
       "CompraVinculadaId",
       "FechaCreacion",
     ],
@@ -109,11 +109,12 @@ export const SHEET_DEFINITIONS: SheetDefinition[] = [
     name: MOVIMIENTOS_METAS_SHEET,
     headers: ["IdMeta", "Fecha", "Tipo", "Monto", "Nota"],
   },
+  { name: TIPOS_METAS_SHEET, headers: ["Nombre"] },
   { name: "PresupuestosCategoria", headers: ["Categoria", "LimiteMensual"] },
   { name: CATEGORIAS_SHEET, headers: ["Nombre"] },
   { name: CATEGORIAS_GASTOS_Y_COMPRAS_SHEET, headers: ["Nombre"] },
-  { name: TIPOS_DEUDA_SHEET, headers: ["Nombre"] },
-  { name: CONTRAPARTES_SHEET, headers: ["Nombre"] },
+  { name: TIPOS_DEUDA_SHEET, headers: ["Nombre", "Direccion"] },
+  { name: CONTRAPARTES_SHEET, headers: ["Nombre", "Direccion"] },
 ];
 
 let ensurePromise: Promise<{ spreadsheetId: string; created: boolean }> | null = null;
@@ -150,6 +151,7 @@ async function ensureSpreadsheetInternal(): Promise<{ spreadsheetId: string; cre
     await ensureGastosYComprasIds(existingId);
     await ensureDeudasHeaders(existingId);
     await ensureMetasHeaders(existingId);
+    await ensureDireccionEnListasDeuda(existingId);
     await ensureDefaultTipos(existingId);
     await ensureDefaultTiposDeuda(existingId);
     return { spreadsheetId: existingId, created: false };
@@ -310,12 +312,37 @@ async function ensureDefaultTipos(spreadsheetId: string): Promise<void> {
   );
 }
 
+/**
+ * TiposDeuda y Contrapartes pasaron de ser compartidas entre Deudas y Me
+ * Deben a tener una lista independiente por Direccion. Agrega la columna
+ * "Direccion" al encabezado si falta, y a las filas viejas que no la tenían
+ * les asigna "YoDebo" (su uso original) sin tocar el nombre.
+ */
+async function ensureDireccionEnListasDeuda(spreadsheetId: string): Promise<void> {
+  for (const sheet of [TIPOS_DEUDA_SHEET, CONTRAPARTES_SHEET]) {
+    const def = SHEET_DEFINITIONS.find((s) => s.name === sheet)!;
+    const [headerRow = []] = await getValues(spreadsheetId, `${sheet}!A1:Z1`);
+    if (headerRow.length < def.headers.length) {
+      await updateValues(spreadsheetId, `${sheet}!A1`, [def.headers]);
+    }
+
+    const rows = await listRecords(spreadsheetId, sheet, 2);
+    for (const row of rows) {
+      const [nombre = "", direccion = ""] = row.values;
+      if (direccion) continue;
+      await updateRecord(spreadsheetId, sheet, row.row, [nombre, "YoDebo"]);
+    }
+  }
+}
+
 async function ensureDefaultTiposDeuda(spreadsheetId: string): Promise<void> {
-  const rows = await listRecords(spreadsheetId, TIPOS_DEUDA_SHEET, 1);
-  if (rows.length > 0) return;
-  await appendRecords(
-    spreadsheetId,
-    TIPOS_DEUDA_SHEET,
-    DEFAULT_TIPOS_DEUDA.map((nombre) => [nombre]),
-  );
+  for (const direccion of ["YoDebo", "MeDeben"]) {
+    const rows = await listRecords(spreadsheetId, TIPOS_DEUDA_SHEET, 2);
+    if (rows.some((r) => r.values[1] === direccion)) continue;
+    await appendRecords(
+      spreadsheetId,
+      TIPOS_DEUDA_SHEET,
+      DEFAULT_TIPOS_DEUDA.map((nombre) => [nombre, direccion]),
+    );
+  }
 }

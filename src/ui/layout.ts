@@ -4,6 +4,7 @@ import cashMinusIcon from "../icon/cash-minus.svg?raw";
 import fileTimeIcon from "../icon/file-time.svg?raw";
 import financeIcon from "../icon/finance.svg?raw";
 import homeDollarIcon from "../icon/home-dollar.svg?raw";
+import logoutIcon from "../icon/logout.svg?raw";
 import menuIcon from "../icon/menu-2.svg?raw";
 import moneybagPlusIcon from "../icon/moneybag-plus.svg?raw";
 import pigMoneyIcon from "../icon/pig-money.svg?raw";
@@ -90,7 +91,7 @@ export function renderAppShell(
   const logoutBtn = document.createElement("button");
   logoutBtn.type = "button";
   logoutBtn.className = "sidebar__link";
-  logoutBtn.innerHTML = `<span aria-hidden="true">🚪</span><span>Cerrar sesión (${user.name.split(" ")[0]})</span>`;
+  logoutBtn.innerHTML = `<span class="nav-icon nav-icon--white">${logoutIcon}</span><span>Cerrar sesión (${user.name.split(" ")[0]})</span>`;
   logoutBtn.addEventListener("click", () => {
     sidebar.classList.remove("is-open");
     onLogout();

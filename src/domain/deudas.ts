@@ -338,13 +338,14 @@ export function estadoAlerta(
   return null;
 }
 
-async function listNombres(spreadsheetId: string, sheet: string): Promise<string[]> {
-  const rows = await listRecords(spreadsheetId, sheet, 1);
+/** Listas independientes por Direccion: los tipos/contrapartes de Deudas no se mezclan con los de Me Deben. */
+async function listNombres(spreadsheetId: string, sheet: string, direccion: Direccion): Promise<string[]> {
+  const rows = await listRecords(spreadsheetId, sheet, 2);
   const seen = new Set<string>();
   const nombres: string[] = [];
   for (const r of rows) {
-    const nombre = r.values[0];
-    if (nombre && !seen.has(nombre)) {
+    const [nombre = "", dir = ""] = r.values;
+    if (nombre && dir === direccion && !seen.has(nombre)) {
       seen.add(nombre);
       nombres.push(nombre);
     }
@@ -352,10 +353,10 @@ async function listNombres(spreadsheetId: string, sheet: string): Promise<string
   return nombres;
 }
 
-async function eliminarNombre(spreadsheetId: string, sheet: string, nombre: string): Promise<void> {
-  const rows = await listRecords(spreadsheetId, sheet, 1);
+async function eliminarNombre(spreadsheetId: string, sheet: string, direccion: Direccion, nombre: string): Promise<void> {
+  const rows = await listRecords(spreadsheetId, sheet, 2);
   const matching = rows
-    .filter((r) => r.values[0] === nombre)
+    .filter((r) => r.values[0] === nombre && r.values[1] === direccion)
     .map((r) => r.row)
     .sort((a, b) => b - a);
   for (const row of matching) {
@@ -363,15 +364,16 @@ async function eliminarNombre(spreadsheetId: string, sheet: string, nombre: stri
   }
 }
 
-export const listTiposDeuda = (spreadsheetId: string): Promise<string[]> => listNombres(spreadsheetId, TIPOS_DEUDA_SHEET);
-export const crearTipoDeuda = (spreadsheetId: string, nombre: string): Promise<void> =>
-  appendRecord(spreadsheetId, TIPOS_DEUDA_SHEET, [nombre]).then(() => undefined);
-export const eliminarTipoDeuda = (spreadsheetId: string, nombre: string): Promise<void> =>
-  eliminarNombre(spreadsheetId, TIPOS_DEUDA_SHEET, nombre);
+export const listTiposDeuda = (spreadsheetId: string, direccion: Direccion): Promise<string[]> =>
+  listNombres(spreadsheetId, TIPOS_DEUDA_SHEET, direccion);
+export const crearTipoDeuda = (spreadsheetId: string, direccion: Direccion, nombre: string): Promise<void> =>
+  appendRecord(spreadsheetId, TIPOS_DEUDA_SHEET, [nombre, direccion]).then(() => undefined);
+export const eliminarTipoDeuda = (spreadsheetId: string, direccion: Direccion, nombre: string): Promise<void> =>
+  eliminarNombre(spreadsheetId, TIPOS_DEUDA_SHEET, direccion, nombre);
 
-export const listContrapartesGuardadas = (spreadsheetId: string): Promise<string[]> =>
-  listNombres(spreadsheetId, CONTRAPARTES_SHEET);
-export const crearContraparte = (spreadsheetId: string, nombre: string): Promise<void> =>
-  appendRecord(spreadsheetId, CONTRAPARTES_SHEET, [nombre]).then(() => undefined);
-export const eliminarContraparte = (spreadsheetId: string, nombre: string): Promise<void> =>
-  eliminarNombre(spreadsheetId, CONTRAPARTES_SHEET, nombre);
+export const listContrapartesGuardadas = (spreadsheetId: string, direccion: Direccion): Promise<string[]> =>
+  listNombres(spreadsheetId, CONTRAPARTES_SHEET, direccion);
+export const crearContraparte = (spreadsheetId: string, direccion: Direccion, nombre: string): Promise<void> =>
+  appendRecord(spreadsheetId, CONTRAPARTES_SHEET, [nombre, direccion]).then(() => undefined);
+export const eliminarContraparte = (spreadsheetId: string, direccion: Direccion, nombre: string): Promise<void> =>
+  eliminarNombre(spreadsheetId, CONTRAPARTES_SHEET, direccion, nombre);

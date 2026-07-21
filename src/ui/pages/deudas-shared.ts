@@ -241,7 +241,7 @@ export async function renderDeudasModulo(container: HTMLElement, config: ModuloD
         confirmBtn.disabled = true;
         try {
           if (!tiposDeuda.includes(nombre)) {
-            await crearTipoDeuda(spreadsheetId, nombre);
+            await crearTipoDeuda(spreadsheetId, config.direccion, nombre);
             tiposDeuda.push(nombre);
           }
           controller.abort();
@@ -285,7 +285,7 @@ export async function renderDeudasModulo(container: HTMLElement, config: ModuloD
         confirmBtn.disabled = true;
         try {
           if (!contrapartesGuardadas.includes(nombre)) {
-            await crearContraparte(spreadsheetId, nombre);
+            await crearContraparte(spreadsheetId, config.direccion, nombre);
             contrapartesGuardadas.push(nombre);
           }
           controller.abort();
@@ -315,7 +315,7 @@ export async function renderDeudasModulo(container: HTMLElement, config: ModuloD
     const ok = await showConfirm(`¿Eliminar el tipo "${nombre}"?`, { title: "Eliminar tipo", confirmLabel: "Eliminar", danger: true });
     if (!ok) return;
     try {
-      await eliminarTipoDeuda(spreadsheetId, nombre);
+      await eliminarTipoDeuda(spreadsheetId, config.direccion, nombre);
       tiposDeuda = tiposDeuda.filter((t) => t !== nombre);
       if (formTipoValue === nombre) formTipoValue = tiposDisponibles()[0] ?? "";
       if (editTipoValue === nombre) editTipoValue = tiposDisponibles()[0] ?? "";
@@ -334,7 +334,7 @@ export async function renderDeudasModulo(container: HTMLElement, config: ModuloD
     const ok = await showConfirm(`¿Eliminar "${nombre}" de la lista?`, { title: "Eliminar", confirmLabel: "Eliminar", danger: true });
     if (!ok) return;
     try {
-      await eliminarContraparte(spreadsheetId, nombre);
+      await eliminarContraparte(spreadsheetId, config.direccion, nombre);
       contrapartesGuardadas = contrapartesGuardadas.filter((c) => c !== nombre);
       if (formContraparteValue === nombre) formContraparteValue = "";
       if (editContraparteValue === nombre) editContraparteValue = "";
@@ -686,8 +686,8 @@ export async function renderDeudasModulo(container: HTMLElement, config: ModuloD
     const ensured = await ensureSpreadsheet();
     spreadsheetId = ensured.spreadsheetId;
     const [tipos, contrapartes] = await Promise.all([
-      listTiposDeuda(spreadsheetId),
-      listContrapartesGuardadas(spreadsheetId),
+      listTiposDeuda(spreadsheetId, config.direccion),
+      listContrapartesGuardadas(spreadsheetId, config.direccion),
     ]);
     tiposDeuda = tipos;
     contrapartesGuardadas = contrapartes;

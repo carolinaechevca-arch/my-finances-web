@@ -1,7 +1,7 @@
 import editIcon from "../../icon/edit.svg?raw";
+import moneybagPlusIcon from "../../icon/moneybag-plus.svg?raw";
 import trashIcon from "../../icon/trash-x.svg?raw";
 import { ensureSpreadsheet } from "../../api/spreadsheet-bootstrap";
-import { listGastosFijosDelMes, sumGastosFijosTotal } from "../../domain/gastos";
 import { formatMoney, todayISO } from "../../domain/format";
 import {
   buscarGastoPorId,
@@ -9,17 +9,18 @@ import {
   marcarComoPagado as marcarGastoComoPagado,
 } from "../../domain/gastos-y-compras";
 import {
-  ICONOS_META,
   actualizarMeta,
   agruparMovimientosPorMeta,
   calcularAcumulado,
   calcularProgresoPct,
   crearMeta,
+  crearTipoMeta,
   eliminarMeta,
+  eliminarTipoMeta,
   listMetas,
+  listTiposMeta,
   listTodosLosMovimientos,
   mesesHasta,
-  montoSugeridoFondoEmergencia,
   procesarAportesAutomaticos,
   proyeccionConAporte,
   registrarAporte,
@@ -31,13 +32,14 @@ import {
   type MovimientoMeta,
 } from "../../domain/metas";
 import { showAbonoDialog, showAlert, showConfirm, showRetiroDialog } from "../components/dialogs";
+import { createOptionCombo, type OptionCombo } from "../components/tipo-combo";
 
 type SortOrder = "progreso" | "fecha-limite";
 
 export async function renderAhorros(container: HTMLElement): Promise<void> {
   container.innerHTML = `
     <div class="page-title-row">
-      <h1 class="page-title">🐷 Ahorros y Metas</h1>
+      <h1 class="page-title">${moneybagPlusIcon} Ahorros y Metas</h1>
     </div>
     <div class="card stat-card stat-card--primary" style="max-width:280px;margin-bottom:20px">
       <div class="stat-card__value" id="ah-total">—</div>
@@ -49,15 +51,11 @@ export async function renderAhorros(container: HTMLElement): Promise<void> {
       <form id="meta-form" class="form">
         <div class="field"><label for="mt-nombre">Nombre</label><input id="mt-nombre" type="text" placeholder="Ej. Vacaciones" required /></div>
         <div class="field">
-          <label for="mt-icono">Ícono</label>
-          <select id="mt-icono">${ICONOS_META.map((i) => `<option value="${i.icono}">${i.icono} ${i.label}</option>`).join("")}</select>
+          <label>Tipo</label>
+          <div id="mt-tipo-mount"></div>
         </div>
         <div class="field"><label for="mt-monto">Monto objetivo</label><input id="mt-monto" type="number" min="0" step="0.01" required /></div>
         <div class="field"><label for="mt-fecha-limite">Fecha límite (opcional)</label><input id="mt-fecha-limite" type="date" /></div>
-        <div class="field"><label for="mt-tasa">¿Genera rendimiento? Tasa anual (%)</label><input id="mt-tasa" type="number" min="0" step="0.01" value="0" /></div>
-        <div class="field field--inline">
-          <label for="mt-emergencia"><input type="checkbox" id="mt-emergencia" /> Es tu fondo de emergencia</label>
-        </div>
         <div class="field field--inline">
           <label for="mt-auto-activo"><input type="checkbox" id="mt-auto-activo" /> Aporte automático</label>
         </div>
@@ -72,15 +70,6 @@ export async function renderAhorros(container: HTMLElement): Promise<void> {
         </div>
         <button type="submit" class="btn">Guardar meta</button>
       </form>
-      <div class="card" id="mt-emergencia-sugerencia" hidden style="margin-top:14px;background:var(--color-bg)">
-        <p class="empty-state" id="mt-emergencia-texto" style="margin:0 0 10px"></p>
-        <input type="range" id="mt-emergencia-slider" min="3" max="6" step="1" value="3" style="width:100%" />
-        <div style="display:flex;justify-content:space-between;margin-top:6px">
-          <span class="empty-state">3 meses</span>
-          <span class="empty-state">6 meses</span>
-        </div>
-        <button type="button" class="btn-secondary" id="mt-emergencia-usar" style="margin-top:10px">Usar este monto</button>
-      </div>
       <p class="empty-state" id="meta-form-error" hidden></p>
     </div>
 
@@ -107,12 +96,11 @@ export async function renderAhorros(container: HTMLElement): Promise<void> {
         <h2 class="modal__title">Editar meta</h2>
         <div class="field"><label for="edit-nombre">Nombre</label><input id="edit-nombre" type="text" required /></div>
         <div class="field">
-          <label for="edit-icono">Ícono</label>
-          <select id="edit-icono">${ICONOS_META.map((i) => `<option value="${i.icono}">${i.icono} ${i.label}</option>`).join("")}</select>
+          <label>Tipo</label>
+          <div id="edit-tipo-mount"></div>
         </div>
         <div class="field"><label for="edit-monto">Monto objetivo</label><input id="edit-monto" type="number" min="0" step="0.01" required /></div>
         <div class="field"><label for="edit-fecha-limite">Fecha límite</label><input id="edit-fecha-limite" type="date" /></div>
-        <div class="field"><label for="edit-tasa">Tasa de rendimiento anual (%)</label><input id="edit-tasa" type="number" min="0" step="0.01" /></div>
         <div class="field field--inline">
           <label for="edit-auto-activo"><input type="checkbox" id="edit-auto-activo" /> Aporte automático</label>
         </div>
@@ -129,6 +117,21 @@ export async function renderAhorros(container: HTMLElement): Promise<void> {
         <div class="modal__actions">
           <button type="button" class="btn-secondary" id="edit-modal-cancel">Cancelar</button>
           <button type="submit" class="btn">Guardar cambios</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="tipo-modal" class="modal">
+      <form class="modal__form" id="tipo-form">
+        <h2 class="modal__title">Nuevo tipo de meta</h2>
+        <div class="field">
+          <label for="tipo-modal-input">Nombre</label>
+          <input id="tipo-modal-input" type="text" placeholder="Ej. Viaje" required />
+        </div>
+        <p class="empty-state" id="tipo-modal-error" hidden></p>
+        <div class="modal__actions">
+          <button type="button" class="btn-secondary" id="tipo-modal-cancel">Cancelar</button>
+          <button type="submit" class="btn">Agregar</button>
         </div>
       </form>
     </dialog>
@@ -154,36 +157,32 @@ export async function renderAhorros(container: HTMLElement): Promise<void> {
   const formError = container.querySelector<HTMLParagraphElement>("#meta-form-error")!;
   const submitBtn = form.querySelector<HTMLButtonElement>('button[type="submit"]')!;
   const nombreInput = container.querySelector<HTMLInputElement>("#mt-nombre")!;
-  const iconoSelect = container.querySelector<HTMLSelectElement>("#mt-icono")!;
   const montoInput = container.querySelector<HTMLInputElement>("#mt-monto")!;
   const fechaLimiteInput = container.querySelector<HTMLInputElement>("#mt-fecha-limite")!;
-  const tasaInput = container.querySelector<HTMLInputElement>("#mt-tasa")!;
-  const emergenciaCheck = container.querySelector<HTMLInputElement>("#mt-emergencia")!;
   const autoActivoCheck = container.querySelector<HTMLInputElement>("#mt-auto-activo")!;
   const autoMontoField = container.querySelector<HTMLDivElement>("#mt-auto-monto-field")!;
   const autoMontoInput = container.querySelector<HTMLInputElement>("#mt-auto-monto")!;
   const autoFrecuenciaField = container.querySelector<HTMLDivElement>("#mt-auto-frecuencia-field")!;
   const autoFrecuenciaSelect = container.querySelector<HTMLSelectElement>("#mt-auto-frecuencia")!;
 
-  const emergenciaSugerencia = container.querySelector<HTMLDivElement>("#mt-emergencia-sugerencia")!;
-  const emergenciaTexto = container.querySelector<HTMLParagraphElement>("#mt-emergencia-texto")!;
-  const emergenciaSlider = container.querySelector<HTMLInputElement>("#mt-emergencia-slider")!;
-  const emergenciaUsarBtn = container.querySelector<HTMLButtonElement>("#mt-emergencia-usar")!;
-
   const editModal = container.querySelector<HTMLDialogElement>("#edit-modal")!;
   const editForm = container.querySelector<HTMLFormElement>("#edit-form")!;
   const editModalError = container.querySelector<HTMLParagraphElement>("#edit-modal-error")!;
   const editModalCancel = container.querySelector<HTMLButtonElement>("#edit-modal-cancel")!;
   const editNombreInput = container.querySelector<HTMLInputElement>("#edit-nombre")!;
-  const editIconoSelect = container.querySelector<HTMLSelectElement>("#edit-icono")!;
   const editMontoInput = container.querySelector<HTMLInputElement>("#edit-monto")!;
   const editFechaLimiteInput = container.querySelector<HTMLInputElement>("#edit-fecha-limite")!;
-  const editTasaInput = container.querySelector<HTMLInputElement>("#edit-tasa")!;
   const editAutoActivoCheck = container.querySelector<HTMLInputElement>("#edit-auto-activo")!;
   const editAutoMontoField = container.querySelector<HTMLDivElement>("#edit-auto-monto-field")!;
   const editAutoMontoInput = container.querySelector<HTMLInputElement>("#edit-auto-monto")!;
   const editAutoFrecuenciaField = container.querySelector<HTMLDivElement>("#edit-auto-frecuencia-field")!;
   const editAutoFrecuenciaSelect = container.querySelector<HTMLSelectElement>("#edit-auto-frecuencia")!;
+
+  const tipoModal = container.querySelector<HTMLDialogElement>("#tipo-modal")!;
+  const tipoForm = container.querySelector<HTMLFormElement>("#tipo-form")!;
+  const tipoModalInput = container.querySelector<HTMLInputElement>("#tipo-modal-input")!;
+  const tipoModalError = container.querySelector<HTMLParagraphElement>("#tipo-modal-error")!;
+  const tipoModalCancel = container.querySelector<HTMLButtonElement>("#tipo-modal-cancel")!;
 
   const historialModal = container.querySelector<HTMLDialogElement>("#historial-modal")!;
   const historialTitulo = container.querySelector<HTMLHeadingElement>("#historial-titulo")!;
@@ -193,7 +192,9 @@ export async function renderAhorros(container: HTMLElement): Promise<void> {
   let spreadsheetId = "";
   let metas: Meta[] = [];
   let movimientosPorMeta = new Map<string, MovimientoMeta[]>();
-  let totalGastosFijos = 0;
+  let tiposMeta: string[] = [];
+  let formTipoValue = "";
+  let editTipoValue = "";
   let sortOrder: SortOrder = "progreso";
   let busy = false;
   let editingMeta: Meta | null = null;
@@ -207,26 +208,109 @@ export async function renderAhorros(container: HTMLElement): Promise<void> {
     editAutoFrecuenciaField.hidden = !editAutoActivoCheck.checked;
   });
 
-  function actualizarSugerenciaEmergencia(): void {
-    const meses = Number(emergenciaSlider.value);
-    const sugerido = montoSugeridoFondoEmergencia(totalGastosFijos, meses);
-    emergenciaTexto.textContent = `Con tus gastos fijos actuales de ${formatMoney(totalGastosFijos)}, un fondo de emergencia recomendado para ${meses} meses sería ${formatMoney(sugerido)}.`;
+  function refreshCombos(): void {
+    tipoCombo.refresh();
+    editTipoCombo.refresh();
   }
 
-  emergenciaCheck.addEventListener("change", () => {
-    emergenciaSugerencia.hidden = !emergenciaCheck.checked;
-    iconoSelect.value = "🚨";
-    if (emergenciaCheck.checked) actualizarSugerenciaEmergencia();
+  function openTipoModal(onDone: (nombre: string) => void): void {
+    tipoModalInput.value = "";
+    tipoModalError.hidden = true;
+    const controller = new AbortController();
+    const { signal } = controller;
+
+    tipoModal.addEventListener("cancel", () => controller.abort(), { signal });
+    tipoModalCancel.addEventListener("click", () => { controller.abort(); tipoModal.close(); }, { signal });
+
+    tipoForm.addEventListener(
+      "submit",
+      async (e) => {
+        e.preventDefault();
+        const nombre = tipoModalInput.value.trim();
+        if (!nombre) {
+          tipoModalError.hidden = false;
+          tipoModalError.textContent = "Escribe un nombre.";
+          return;
+        }
+        const confirmBtn = tipoForm.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+        confirmBtn.disabled = true;
+        try {
+          if (!tiposMeta.includes(nombre)) {
+            await crearTipoMeta(spreadsheetId, nombre);
+            tiposMeta.push(nombre);
+          }
+          controller.abort();
+          tipoModal.close();
+          onDone(nombre);
+          refreshCombos();
+        } catch (err) {
+          tipoModalError.hidden = false;
+          tipoModalError.textContent = err instanceof Error ? err.message : "No se pudo crear el tipo.";
+        } finally {
+          confirmBtn.disabled = false;
+        }
+      },
+      { signal },
+    );
+
+    tipoModal.showModal();
+    tipoModalInput.focus();
+  }
+
+  async function handleDeleteTipo(nombre: string): Promise<void> {
+    const enUso = metas.some((m) => m.tipo === nombre);
+    if (enUso) {
+      await showAlert(
+        `No puedes eliminar "${nombre}" porque tienes metas con este tipo. Edítalas primero.`,
+        "No se puede eliminar",
+      );
+      return;
+    }
+    const ok = await showConfirm(`¿Eliminar el tipo "${nombre}"? Podrás volver a crearlo cuando quieras.`, {
+      title: "Eliminar tipo",
+      confirmLabel: "Eliminar",
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await eliminarTipoMeta(spreadsheetId, nombre);
+      tiposMeta = tiposMeta.filter((t) => t !== nombre);
+      if (formTipoValue === nombre) formTipoValue = tiposMeta[0] ?? "";
+      if (editTipoValue === nombre) editTipoValue = tiposMeta[0] ?? "";
+      refreshCombos();
+    } catch (err) {
+      await showAlert(err instanceof Error ? err.message : "No se pudo eliminar el tipo.", "Error");
+    }
+  }
+
+  const tipoCombo: OptionCombo = createOptionCombo({
+    getOptions: () => tiposMeta,
+    getValue: () => formTipoValue,
+    onSelect: (tipo) => { formTipoValue = tipo; tipoCombo.refresh(); },
+    onRequestNuevo: () => openTipoModal((nombre) => { formTipoValue = nombre; }),
+    onRequestDelete: (tipo) => void handleDeleteTipo(tipo),
+    placeholder: "Selecciona un tipo",
+    addLabel: "+ Nuevo tipo…",
+    deleteLabel: "Eliminar tipo",
   });
-  emergenciaSlider.addEventListener("input", actualizarSugerenciaEmergencia);
-  emergenciaUsarBtn.addEventListener("click", () => {
-    montoInput.value = String(montoSugeridoFondoEmergencia(totalGastosFijos, Number(emergenciaSlider.value)));
+  container.querySelector("#mt-tipo-mount")!.appendChild(tipoCombo.el);
+
+  const editTipoCombo: OptionCombo = createOptionCombo({
+    getOptions: () => tiposMeta,
+    getValue: () => editTipoValue,
+    onSelect: (tipo) => { editTipoValue = tipo; editTipoCombo.refresh(); },
+    onRequestNuevo: () => openTipoModal((nombre) => { editTipoValue = nombre; }),
+    onRequestDelete: (tipo) => void handleDeleteTipo(tipo),
+    placeholder: "Selecciona un tipo",
+    addLabel: "+ Nuevo tipo…",
+    deleteLabel: "Eliminar tipo",
   });
+  container.querySelector("#edit-tipo-mount")!.appendChild(editTipoCombo.el);
 
   historialModalClose.addEventListener("click", () => historialModal.close());
 
   function openHistorialModal(meta: Meta): void {
-    historialTitulo.textContent = `Historial — ${meta.icono} ${meta.nombre}`;
+    historialTitulo.textContent = `Historial — ${meta.nombre}`;
     const movimientos = [...(movimientosPorMeta.get(meta.id) ?? [])].sort((a, b) => a.fecha.localeCompare(b.fecha));
     if (movimientos.length === 0) {
       historialListEl.innerHTML = `<p class="empty-state">Aún no hay movimientos registrados.</p>`;
@@ -256,7 +340,7 @@ export async function renderAhorros(container: HTMLElement): Promise<void> {
     if (!meta.aporteAutoActivo || meta.aporteAutoMonto <= 0) return "";
     const acumulado = calcularAcumulado(movimientosPorMeta.get(meta.id) ?? []);
     const meses = mesesHasta(meta.fechaLimite);
-    const proyeccion = proyeccionConAporte(acumulado, meta.aporteAutoMonto, meta.aporteAutoFrecuencia, meta.tasaRendimiento, meses);
+    const proyeccion = proyeccionConAporte(acumulado, meta.aporteAutoMonto, meta.aporteAutoFrecuencia, meses);
     const horizonte = meta.fechaLimite ? `para tu fecha límite` : `en ${meses} meses`;
     return `Si sigues aportando ${formatMoney(meta.aporteAutoMonto)} ${meta.aporteAutoFrecuencia.toLowerCase()}, ${horizonte} tendrás aproximadamente ${formatMoney(proyeccion)}.`;
   }
@@ -268,12 +352,12 @@ export async function renderAhorros(container: HTMLElement): Promise<void> {
     const cumplida = meta.estado === "Cumplida";
     const pausada = meta.estado === "Pausada";
     const card = document.createElement("div");
-    card.className = `card deuda-card${meta.esFondoEmergencia ? " meta-card--emergencia" : ""}`;
+    card.className = "card deuda-card";
     card.innerHTML = `
       <div class="deuda-card__header">
         <div>
-          <span class="deuda-card__contraparte">${meta.icono} ${meta.nombre}</span>
-          ${meta.esFondoEmergencia ? `<span class="badge badge--vencido">Fondo de emergencia</span>` : ""}
+          <span class="deuda-card__contraparte">${meta.nombre}</span>
+          ${meta.tipo ? `<span class="badge">${meta.tipo}</span>` : ""}
           ${meta.aporteAutoActivo && !cumplida ? `<span class="badge">Aporte automático ${meta.aporteAutoFrecuencia.toLowerCase()}</span>` : ""}
           ${meta.compraVinculadaId ? `<span class="badge">Vinculada a una compra</span>` : ""}
           ${cumplida ? `<span class="badge badge--fijo">Cumplida</span>` : pausada ? `<span class="badge badge--neutral">Pausada</span>` : ""}
@@ -386,9 +470,7 @@ export async function renderAhorros(container: HTMLElement): Promise<void> {
       metas.reduce((s, m) => s + calcularAcumulado(movimientosPorMeta.get(m.id) ?? []), 0),
     );
 
-    const emergencia = activasTodas.filter((m) => m.esFondoEmergencia);
-    const resto = activasTodas.filter((m) => !m.esFondoEmergencia);
-    resto.sort((a, b) => {
+    const ordenadas = [...activasTodas].sort((a, b) => {
       if (sortOrder === "fecha-limite") {
         if (!a.fechaLimite) return 1;
         if (!b.fechaLimite) return -1;
@@ -398,7 +480,6 @@ export async function renderAhorros(container: HTMLElement): Promise<void> {
       const progB = calcularProgresoPct(b, movimientosPorMeta.get(b.id) ?? []);
       return progB - progA;
     });
-    const ordenadas = [...emergencia, ...resto];
 
     activasListEl.innerHTML = "";
     if (ordenadas.length === 0) {
@@ -447,10 +528,10 @@ export async function renderAhorros(container: HTMLElement): Promise<void> {
   function openEditModal(meta: Meta): void {
     editingMeta = meta;
     editNombreInput.value = meta.nombre;
-    editIconoSelect.value = meta.icono;
+    editTipoValue = meta.tipo;
+    editTipoCombo.refresh();
     editMontoInput.value = String(meta.montoObjetivo);
     editFechaLimiteInput.value = meta.fechaLimite;
-    editTasaInput.value = String(meta.tasaRendimiento);
     editAutoActivoCheck.checked = meta.aporteAutoActivo;
     editAutoMontoField.hidden = !meta.aporteAutoActivo;
     editAutoFrecuenciaField.hidden = !meta.aporteAutoActivo;
@@ -483,11 +564,10 @@ export async function renderAhorros(container: HTMLElement): Promise<void> {
             nombre,
             montoObjetivo: monto,
             fechaLimite: editFechaLimiteInput.value,
-            icono: editIconoSelect.value,
+            tipo: editTipoValue,
             aporteAutoActivo: editAutoActivoCheck.checked,
             aporteAutoMonto: Number(editAutoMontoInput.value) || 0,
             aporteAutoFrecuencia: editAutoFrecuenciaSelect.value as FrecuenciaAporte,
-            tasaRendimiento: Number(editTasaInput.value) || 0,
           };
           await actualizarMeta(spreadsheetId, editingMeta, cambios);
           controller.abort();
@@ -522,6 +602,11 @@ export async function renderAhorros(container: HTMLElement): Promise<void> {
       formError.textContent = "Completa el nombre y un monto objetivo válido.";
       return;
     }
+    if (!formTipoValue) {
+      formError.hidden = false;
+      formError.textContent = "Elige o crea un tipo.";
+      return;
+    }
 
     submitBtn.disabled = true;
     try {
@@ -529,16 +614,13 @@ export async function renderAhorros(container: HTMLElement): Promise<void> {
         nombre,
         montoObjetivo: monto,
         fechaLimite: fechaLimiteInput.value,
-        icono: iconoSelect.value,
-        esFondoEmergencia: emergenciaCheck.checked,
+        tipo: formTipoValue,
         aporteAutoActivo: autoActivoCheck.checked,
         aporteAutoMonto: Number(autoMontoInput.value) || 0,
         aporteAutoFrecuencia: autoFrecuenciaSelect.value as FrecuenciaAporte,
-        tasaRendimiento: Number(tasaInput.value) || 0,
         compraVinculadaId: "",
       });
       form.reset();
-      emergenciaSugerencia.hidden = true;
       autoMontoField.hidden = true;
       autoFrecuenciaField.hidden = true;
       await reload();
@@ -553,8 +635,9 @@ export async function renderAhorros(container: HTMLElement): Promise<void> {
   try {
     const ensured = await ensureSpreadsheet();
     spreadsheetId = ensured.spreadsheetId;
-    const gastosFijos = await listGastosFijosDelMes(spreadsheetId);
-    totalGastosFijos = sumGastosFijosTotal(gastosFijos);
+    tiposMeta = await listTiposMeta(spreadsheetId);
+    formTipoValue = tiposMeta[0] ?? "";
+    refreshCombos();
     await reload();
   } catch (err) {
     activasListEl.innerHTML = `<p class="empty-state">${err instanceof Error ? err.message : "No se pudo cargar la información."}</p>`;

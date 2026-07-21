@@ -1047,11 +1047,6 @@
   margin-top: 14px;
 }
 
-/* --- Ahorros y Metas --- */
-.meta-card--emergencia {
-  border: 2px solid var(--color-danger);
-  background: color-mix(in srgb, var(--color-danger) 6%, var(--color-surface));
-}
 
 /* --- Histórico: selector de mes y gráficos --- */
 .mes-nav {

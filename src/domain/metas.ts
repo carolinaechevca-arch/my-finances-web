@@ -1,4 +1,4 @@
-import { METAS_SHEET, MOVIMIENTOS_METAS_SHEET } from "../api/spreadsheet-bootstrap";
+import { METAS_SHEET, MOVIMIENTOS_METAS_SHEET, TIPOS_METAS_SHEET } from "../api/spreadsheet-bootstrap";
 import { appendRecord, deleteRecord, listRecords, updateRecord, type SheetRow } from "../api/records";
 import { parseDateInput, todayISO } from "./format";
 
@@ -6,30 +6,18 @@ export type EstadoMeta = "Activa" | "Cumplida" | "Pausada";
 export type FrecuenciaAporte = "Mensual" | "Quincenal" | "Semanal";
 export type TipoMovimiento = "AporteManual" | "AporteAutomatico" | "Retiro";
 
-export const ICONOS_META = [
-  { icono: "✈️", label: "Viaje" },
-  { icono: "🚗", label: "Vehículo" },
-  { icono: "🏠", label: "Hogar" },
-  { icono: "💻", label: "Tecnología" },
-  { icono: "🎓", label: "Educación" },
-  { icono: "🚨", label: "Emergencia" },
-  { icono: "📦", label: "Otro" },
-];
-
 export interface Meta {
   id: string;
   row: number;
   nombre: string;
   montoObjetivo: number;
   fechaLimite: string;
-  icono: string;
+  tipo: string;
   estado: EstadoMeta;
-  esFondoEmergencia: boolean;
   aporteAutoActivo: boolean;
   aporteAutoMonto: number;
   aporteAutoFrecuencia: FrecuenciaAporte;
   aporteAutoUltimaFecha: string;
-  tasaRendimiento: number;
   compraVinculadaId: string;
   fechaCreacion: string;
 }
@@ -49,14 +37,12 @@ function parseMeta(r: SheetRow): Meta {
     nombre = "",
     montoObjetivo = "0",
     fechaLimite = "",
-    icono = "",
+    tipo = "",
     estado = "",
-    esFondoEmergencia = "",
     aporteAutoActivo = "",
     aporteAutoMonto = "0",
     aporteAutoFrecuencia = "",
     aporteAutoUltimaFecha = "",
-    tasaRendimiento = "0",
     compraVinculadaId = "",
     fechaCreacion = "",
   ] = r.values;
@@ -66,15 +52,13 @@ function parseMeta(r: SheetRow): Meta {
     nombre,
     montoObjetivo: Number(montoObjetivo) || 0,
     fechaLimite,
-    icono: icono || "📦",
+    tipo,
     estado: estado === "Cumplida" || estado === "Pausada" ? estado : "Activa",
-    esFondoEmergencia: esFondoEmergencia.toUpperCase() === "TRUE",
     aporteAutoActivo: aporteAutoActivo.toUpperCase() === "TRUE",
     aporteAutoMonto: Number(aporteAutoMonto) || 0,
     aporteAutoFrecuencia:
       aporteAutoFrecuencia === "Quincenal" || aporteAutoFrecuencia === "Semanal" ? aporteAutoFrecuencia : "Mensual",
     aporteAutoUltimaFecha,
-    tasaRendimiento: Number(tasaRendimiento) || 0,
     compraVinculadaId,
     fechaCreacion,
   };
@@ -93,7 +77,7 @@ function parseMovimiento(r: SheetRow): MovimientoMeta {
 }
 
 export async function listMetas(spreadsheetId: string): Promise<Meta[]> {
-  const rows = await listRecords(spreadsheetId, METAS_SHEET, 14);
+  const rows = await listRecords(spreadsheetId, METAS_SHEET, 12);
   return rows.map(parseMeta);
 }
 
@@ -126,12 +110,10 @@ export interface NuevaMeta {
   nombre: string;
   montoObjetivo: number;
   fechaLimite: string;
-  icono: string;
-  esFondoEmergencia: boolean;
+  tipo: string;
   aporteAutoActivo: boolean;
   aporteAutoMonto: number;
   aporteAutoFrecuencia: FrecuenciaAporte;
-  tasaRendimiento: number;
   compraVinculadaId: string;
 }
 
@@ -143,14 +125,12 @@ export async function crearMeta(spreadsheetId: string, meta: NuevaMeta): Promise
     meta.nombre,
     meta.montoObjetivo,
     meta.fechaLimite,
-    meta.icono,
+    meta.tipo,
     "Activa",
-    meta.esFondoEmergencia ? "TRUE" : "FALSE",
     meta.aporteAutoActivo ? "TRUE" : "FALSE",
     meta.aporteAutoMonto,
     meta.aporteAutoFrecuencia,
     "",
-    meta.tasaRendimiento,
     meta.compraVinculadaId,
     fechaCreacion,
   ]);
@@ -163,14 +143,12 @@ function serializeMeta(meta: Meta): unknown[] {
     meta.nombre,
     meta.montoObjetivo,
     meta.fechaLimite,
-    meta.icono,
+    meta.tipo,
     meta.estado,
-    meta.esFondoEmergencia ? "TRUE" : "FALSE",
     meta.aporteAutoActivo ? "TRUE" : "FALSE",
     meta.aporteAutoMonto,
     meta.aporteAutoFrecuencia,
     meta.aporteAutoUltimaFecha,
-    meta.tasaRendimiento,
     meta.compraVinculadaId,
     meta.fechaCreacion,
   ];
@@ -180,11 +158,10 @@ export interface MetaCambios {
   nombre: string;
   montoObjetivo: number;
   fechaLimite: string;
-  icono: string;
+  tipo: string;
   aporteAutoActivo: boolean;
   aporteAutoMonto: number;
   aporteAutoFrecuencia: FrecuenciaAporte;
-  tasaRendimiento: number;
 }
 
 export async function actualizarMeta(spreadsheetId: string, meta: Meta, cambios: MetaCambios): Promise<void> {
@@ -293,29 +270,16 @@ export async function procesarAportesAutomaticos(spreadsheetId: string, metas: M
   return huboCambios;
 }
 
-export function montoSugeridoFondoEmergencia(totalGastosFijos: number, meses: number): number {
-  return totalGastosFijos * meses;
-}
-
-/**
- * Proyección simple con el aporte automático configurado: interés
- * compuesto mensual si hay tasa, lineal si es 0%.
- */
+/** Proyección simple y lineal con el aporte automático configurado (sin rendimiento). */
 export function proyeccionConAporte(
   acumuladoActual: number,
   aporteMonto: number,
   frecuencia: FrecuenciaAporte,
-  tasaAnualPct: number,
   meses: number,
 ): number {
-  const tasaMensual = tasaAnualPct / 100 / 12;
   const aportesPorMes = frecuencia === "Mensual" ? 1 : frecuencia === "Quincenal" ? 2 : 4.33;
   const aporteMensualEquivalente = aporteMonto * aportesPorMes;
-  let saldo = acumuladoActual;
-  for (let i = 0; i < meses; i++) {
-    saldo += saldo * tasaMensual + aporteMensualEquivalente;
-  }
-  return saldo;
+  return acumuladoActual + aporteMensualEquivalente * meses;
 }
 
 /** Meses entre hoy y una fecha límite (redondeado hacia arriba, mínimo 1). */
@@ -325,4 +289,35 @@ export function mesesHasta(fechaLimite: string): number {
   const limite = parseDateInput(fechaLimite);
   const dias = (limite.getTime() - hoy.getTime()) / (1000 * 60 * 60 * 24);
   return Math.max(1, Math.round(dias / 30));
+}
+
+/** Tipos de meta manejables por el usuario, misma mecánica que las categorías de gastos. */
+export async function listTiposMeta(spreadsheetId: string): Promise<string[]> {
+  const rows = await listRecords(spreadsheetId, TIPOS_METAS_SHEET, 1);
+  const seen = new Set<string>();
+  const tipos: string[] = [];
+  for (const r of rows) {
+    const nombre = r.values[0];
+    if (nombre && !seen.has(nombre)) {
+      seen.add(nombre);
+      tipos.push(nombre);
+    }
+  }
+  return tipos;
+}
+
+export async function crearTipoMeta(spreadsheetId: string, nombre: string): Promise<void> {
+  await appendRecord(spreadsheetId, TIPOS_METAS_SHEET, [nombre]);
+}
+
+/** Borra todas las filas con ese nombre (por si quedaron duplicadas). */
+export async function eliminarTipoMeta(spreadsheetId: string, nombre: string): Promise<void> {
+  const rows = await listRecords(spreadsheetId, TIPOS_METAS_SHEET, 1);
+  const matching = rows
+    .filter((r) => r.values[0] === nombre)
+    .map((r) => r.row)
+    .sort((a, b) => b - a);
+  for (const row of matching) {
+    await deleteRecord(spreadsheetId, TIPOS_METAS_SHEET, row);
+  }
 }

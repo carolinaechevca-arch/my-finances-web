@@ -26,16 +26,6 @@ import { crearMeta } from "../../domain/metas";
 import { showAlert, showCompletarGastoDialog, showConfirm, showConvertirMetaDialog } from "../components/dialogs";
 import { createOptionCombo, type OptionCombo } from "../components/tipo-combo";
 
-function iconoSugeridoPorCategoria(categoria: string): string {
-  const c = categoria.toLowerCase();
-  if (c.includes("viaje") || c.includes("vacacion")) return "✈️";
-  if (c.includes("carro") || c.includes("auto") || c.includes("vehic") || c.includes("moto")) return "🚗";
-  if (c.includes("hogar") || c.includes("casa") || c.includes("arriendo")) return "🏠";
-  if (c.includes("tech") || c.includes("tecnolog") || c.includes("electro") || c.includes("computador")) return "💻";
-  if (c.includes("educa") || c.includes("estudio") || c.includes("curso")) return "🎓";
-  return "📦";
-}
-
 export async function renderGastosPersonales(container: HTMLElement): Promise<void> {
   container.innerHTML = `
     <div class="page-title-row">
@@ -449,12 +439,10 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
             nombre,
             montoObjetivo: gasto.monto,
             fechaLimite: "",
-            icono: iconoSugeridoPorCategoria(gasto.categoria),
-            esFondoEmergencia: false,
+            tipo: gasto.categoria,
             aporteAutoActivo: false,
             aporteAutoMonto: 0,
             aporteAutoFrecuencia: "Mensual",
-            tasaRendimiento: 0,
             compraVinculadaId: gasto.id,
           });
           await marcarComoAhorrando(spreadsheetId, gasto);

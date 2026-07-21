@@ -380,20 +380,20 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
     const metasVivas = metas.filter((m) => m.estado === "Activa");
     if (metasVivas.length > 0) {
       metasResumenCard.hidden = false;
-      const emergencia = metasVivas.filter((m) => m.esFondoEmergencia);
-      const resto = [...metasVivas.filter((m) => !m.esFondoEmergencia)].sort(
-        (a, b) =>
-          calcularProgresoPct(b, movimientosPorMeta.get(b.id) ?? []) -
-          calcularProgresoPct(a, movimientosPorMeta.get(a.id) ?? []),
-      );
-      const destacadas = [...emergencia, ...resto].slice(0, 3);
+      const destacadas = [...metasVivas]
+        .sort(
+          (a, b) =>
+            calcularProgresoPct(b, movimientosPorMeta.get(b.id) ?? []) -
+            calcularProgresoPct(a, movimientosPorMeta.get(a.id) ?? []),
+        )
+        .slice(0, 3);
       metasResumenList.innerHTML = destacadas
         .map((m) => {
           const progreso = calcularProgresoPct(m, movimientosPorMeta.get(m.id) ?? []);
           return `
             <div style="margin-bottom:12px">
               <div style="display:flex;justify-content:space-between;margin-bottom:4px">
-                <span>${m.icono} ${m.nombre}</span>
+                <span>${m.nombre}</span>
                 <span class="empty-state">${progreso.toFixed(0)}%</span>
               </div>
               <div class="progress-bar"><div class="progress-bar__fill" style="width:${progreso}%"></div></div>
