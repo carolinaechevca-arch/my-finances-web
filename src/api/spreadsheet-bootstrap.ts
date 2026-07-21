@@ -46,7 +46,7 @@ export const SHEET_DEFINITIONS: SheetDefinition[] = [
   { name: TIPOS_INGRESO_SHEET, headers: ["Nombre"] },
   {
     name: INGRESOS_FIJOS_SHEET,
-    headers: ["Tipo", "Monto", "Notas", "Recurrencia", "Mes", "Activo", "FechaCreacion", "Id", "Frecuencia"],
+    headers: ["Tipo", "Monto", "Notas", "Recurrencia", "Mes", "Activo", "FechaCreacion", "Id", "Frecuencia", "DiaPago"],
   },
   {
     name: HISTORIAL_INGRESOS_FIJOS_SHEET,

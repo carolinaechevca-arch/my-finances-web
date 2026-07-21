@@ -6,6 +6,7 @@ import { formatMoney, formatMonthLabel } from "../../domain/format";
 import { listGastosFijosDelMes, sumGastosFijosTotal } from "../../domain/gastos";
 import { listGastosDelMes, sumGastos as sumGastosYCompras } from "../../domain/gastos-y-compras";
 import {
+  DIAS_SEMANA,
   actualizarIngreso,
   crearIngreso,
   crearTipoIngreso,
@@ -14,6 +15,7 @@ import {
   listIngresosVigentes,
   listTiposIngreso,
   montoMensualEquivalente,
+  ocurrenciasEnMes,
   setIngresoActivo,
   sumIngresosActivos,
   sumIngresosFijosRecurrentes,
@@ -79,6 +81,12 @@ export async function renderIngresos(container: HTMLElement): Promise<void> {
             <option value="Quincenal">Quincenal</option>
             <option value="Semanal">Semanal</option>
           </select>
+        </div>
+        <div class="field" id="ingreso-dia-q1-field" hidden><label for="ingreso-dia-q1">Día de pago 1</label><input id="ingreso-dia-q1" type="number" min="1" max="31" /></div>
+        <div class="field" id="ingreso-dia-q2-field" hidden><label for="ingreso-dia-q2">Día de pago 2</label><input id="ingreso-dia-q2" type="number" min="1" max="31" /></div>
+        <div class="field" id="ingreso-dia-semana-field" hidden>
+          <label for="ingreso-dia-semana">¿Qué día de la semana?</label>
+          <select id="ingreso-dia-semana">${DIAS_SEMANA.map((d) => `<option value="${d}">${d}</option>`).join("")}</select>
         </div>
         <div class="field">
           <label for="ingreso-monto">Monto por pago</label>
@@ -146,6 +154,12 @@ export async function renderIngresos(container: HTMLElement): Promise<void> {
             <option value="Semanal">Semanal</option>
           </select>
         </div>
+        <div class="field" id="edit-dia-q1-field" hidden><label for="edit-dia-q1">Día de pago 1</label><input id="edit-dia-q1" type="number" min="1" max="31" /></div>
+        <div class="field" id="edit-dia-q2-field" hidden><label for="edit-dia-q2">Día de pago 2</label><input id="edit-dia-q2" type="number" min="1" max="31" /></div>
+        <div class="field" id="edit-dia-semana-field" hidden>
+          <label for="edit-dia-semana">¿Qué día de la semana?</label>
+          <select id="edit-dia-semana">${DIAS_SEMANA.map((d) => `<option value="${d}">${d}</option>`).join("")}</select>
+        </div>
         <div class="field">
           <label for="edit-monto">Monto por pago</label>
           <input id="edit-monto" type="number" min="0" step="0.01" required />
@@ -169,6 +183,12 @@ export async function renderIngresos(container: HTMLElement): Promise<void> {
   const recurrenciaSelect = container.querySelector<HTMLSelectElement>("#ingreso-recurrencia")!;
   const frecuenciaField = container.querySelector<HTMLDivElement>("#ingreso-frecuencia-field")!;
   const frecuenciaSelect = container.querySelector<HTMLSelectElement>("#ingreso-frecuencia")!;
+  const diaQ1Field = container.querySelector<HTMLDivElement>("#ingreso-dia-q1-field")!;
+  const diaQ1Input = container.querySelector<HTMLInputElement>("#ingreso-dia-q1")!;
+  const diaQ2Field = container.querySelector<HTMLDivElement>("#ingreso-dia-q2-field")!;
+  const diaQ2Input = container.querySelector<HTMLInputElement>("#ingreso-dia-q2")!;
+  const diaSemanaField = container.querySelector<HTMLDivElement>("#ingreso-dia-semana-field")!;
+  const diaSemanaSelect = container.querySelector<HTMLSelectElement>("#ingreso-dia-semana")!;
   const montoInput = container.querySelector<HTMLInputElement>("#ingreso-monto")!;
   const notasInput = container.querySelector<HTMLInputElement>("#ingreso-notas")!;
   const form = container.querySelector<HTMLFormElement>("#ingreso-form")!;
@@ -189,6 +209,12 @@ export async function renderIngresos(container: HTMLElement): Promise<void> {
   const editRecurrenciaSelect = container.querySelector<HTMLSelectElement>("#edit-recurrencia")!;
   const editFrecuenciaField = container.querySelector<HTMLDivElement>("#edit-frecuencia-field")!;
   const editFrecuenciaSelect = container.querySelector<HTMLSelectElement>("#edit-frecuencia")!;
+  const editDiaQ1Field = container.querySelector<HTMLDivElement>("#edit-dia-q1-field")!;
+  const editDiaQ1Input = container.querySelector<HTMLInputElement>("#edit-dia-q1")!;
+  const editDiaQ2Field = container.querySelector<HTMLDivElement>("#edit-dia-q2-field")!;
+  const editDiaQ2Input = container.querySelector<HTMLInputElement>("#edit-dia-q2")!;
+  const editDiaSemanaField = container.querySelector<HTMLDivElement>("#edit-dia-semana-field")!;
+  const editDiaSemanaSelect = container.querySelector<HTMLSelectElement>("#edit-dia-semana")!;
   const editMontoInput = container.querySelector<HTMLInputElement>("#edit-monto")!;
   const editNotasInput = container.querySelector<HTMLInputElement>("#edit-notas")!;
   const editModalError = container.querySelector<HTMLParagraphElement>("#edit-modal-error")!;
@@ -209,10 +235,27 @@ export async function renderIngresos(container: HTMLElement): Promise<void> {
     editTipoCombo.refresh();
   }
 
+  function diaPagoActual(): string {
+    if (frecuenciaSelect.value === "Quincenal") {
+      const d1 = diaQ1Input.value.trim();
+      const d2 = diaQ2Input.value.trim();
+      return d1 && d2 ? `${d1},${d2}` : "";
+    }
+    if (frecuenciaSelect.value === "Semanal") return diaSemanaSelect.value;
+    return "";
+  }
+
   function actualizarVisibilidadFrecuencia(): void {
     const esUnicoMes = recurrenciaSelect.value === "UnicoMes";
     frecuenciaField.hidden = esUnicoMes;
     montoInput.previousElementSibling!.textContent = esUnicoMes ? "Monto" : "Monto por pago";
+
+    const esQuincenal = !esUnicoMes && frecuenciaSelect.value === "Quincenal";
+    const esSemanal = !esUnicoMes && frecuenciaSelect.value === "Semanal";
+    diaQ1Field.hidden = !esQuincenal;
+    diaQ2Field.hidden = !esQuincenal;
+    diaSemanaField.hidden = !esSemanal;
+
     actualizarEquivalenteMensual();
   }
 
@@ -226,22 +269,31 @@ export async function renderIngresos(container: HTMLElement): Promise<void> {
       recurrencia: "Fijo",
       monto,
       frecuencia: frecuenciaSelect.value as FrecuenciaIngreso,
+      diaPago: diaPagoActual(),
     } as IngresoFijo);
     formEquivalente.hidden = false;
     formEquivalente.textContent = `≈ ${formatMoney(equivalente)} al mes.`;
   }
 
   recurrenciaSelect.addEventListener("change", actualizarVisibilidadFrecuencia);
-  frecuenciaSelect.addEventListener("change", actualizarEquivalenteMensual);
+  frecuenciaSelect.addEventListener("change", actualizarVisibilidadFrecuencia);
   montoInput.addEventListener("input", actualizarEquivalenteMensual);
+  diaSemanaSelect.addEventListener("change", actualizarEquivalenteMensual);
   actualizarVisibilidadFrecuencia();
 
   function actualizarVisibilidadFrecuenciaEdit(): void {
     const esUnicoMes = editRecurrenciaSelect.value === "UnicoMes";
     editFrecuenciaField.hidden = esUnicoMes;
     editMontoInput.previousElementSibling!.textContent = esUnicoMes ? "Monto" : "Monto por pago";
+
+    const esQuincenal = !esUnicoMes && editFrecuenciaSelect.value === "Quincenal";
+    const esSemanal = !esUnicoMes && editFrecuenciaSelect.value === "Semanal";
+    editDiaQ1Field.hidden = !esQuincenal;
+    editDiaQ2Field.hidden = !esQuincenal;
+    editDiaSemanaField.hidden = !esSemanal;
   }
   editRecurrenciaSelect.addEventListener("change", actualizarVisibilidadFrecuenciaEdit);
+  editFrecuenciaSelect.addEventListener("change", actualizarVisibilidadFrecuenciaEdit);
 
   /** Abre el modal para crear un tipo nuevo; al confirmar, lo selecciona con onDone. */
   function openTipoModal(onDone: (nombre: string) => void): void {
@@ -364,6 +416,15 @@ export async function renderIngresos(container: HTMLElement): Promise<void> {
     editTipoCombo.refresh();
     editRecurrenciaSelect.value = ingreso.recurrencia;
     editFrecuenciaSelect.value = ingreso.frecuencia;
+    if (ingreso.frecuencia === "Quincenal") {
+      const [d1 = "", d2 = ""] = ingreso.diaPago.split(",");
+      editDiaQ1Input.value = d1;
+      editDiaQ2Input.value = d2;
+    } else {
+      editDiaQ1Input.value = "";
+      editDiaQ2Input.value = "";
+      editDiaSemanaSelect.value = ingreso.frecuencia === "Semanal" ? ingreso.diaPago : DIAS_SEMANA[0];
+    }
     actualizarVisibilidadFrecuenciaEdit();
     editMontoInput.value = String(ingreso.monto);
     editNotasInput.value = ingreso.notas;
@@ -396,12 +457,21 @@ export async function renderIngresos(container: HTMLElement): Promise<void> {
         const confirmBtn = editForm.querySelector<HTMLButtonElement>('button[type="submit"]')!;
         confirmBtn.disabled = true;
         try {
+          const editDiaPago =
+            editFrecuenciaSelect.value === "Quincenal"
+              ? editDiaQ1Input.value.trim() && editDiaQ2Input.value.trim()
+                ? `${editDiaQ1Input.value.trim()},${editDiaQ2Input.value.trim()}`
+                : ""
+              : editFrecuenciaSelect.value === "Semanal"
+                ? editDiaSemanaSelect.value
+                : "";
           await actualizarIngreso(spreadsheetId, editingIngreso, {
             tipo: editTipoValue,
             monto,
             notas: editNotasInput.value.trim(),
             recurrencia: editRecurrenciaSelect.value === "UnicoMes" ? "UnicoMes" : "Fijo",
             frecuencia: editFrecuenciaSelect.value as FrecuenciaIngreso,
+            diaPago: editDiaPago,
           });
           controller.abort();
           editModal.close();
@@ -431,19 +501,21 @@ export async function renderIngresos(container: HTMLElement): Promise<void> {
     }
 
     const ordered = sortIngresos(currentIngresos, sortOrder);
+    const hoy = new Date();
     const rows = ordered
       .map((ingreso) => {
         const esFijo = ingreso.recurrencia === "Fijo";
         const estadoCell = esFijo
           ? `<button type="button" class="btn-toggle ${ingreso.activo ? "" : "is-off"}" data-row="${ingreso.row}" data-action="toggle">${ingreso.activo ? "Activo" : "Pausado"}</button>`
           : `<span class="badge badge--neutral">Puntual</span>`;
+        const veces = esFijo && ingreso.frecuencia !== "Mensual" ? ocurrenciasEnMes(ingreso, hoy) : 0;
         return `
           <tr data-row="${ingreso.row}">
             <td data-label="Tipo">${ingreso.tipo}</td>
             <td data-label="Recurrencia"><span class="badge ${esFijo ? "badge--fijo" : "badge--unico"}">${esFijo ? (ingreso.frecuencia === "Mensual" ? "Fijo" : `Fijo · ${ingreso.frecuencia}`) : "Solo este mes"}</span></td>
             <td data-label="Notas" class="text-muted">${ingreso.notas || "—"}</td>
             <td data-label="Estado">${estadoCell}</td>
-            <td data-label="Monto" class="text-right amount-cell">${formatMoney(ingreso.monto)}</td>
+            <td data-label="Monto" class="text-right amount-cell">${formatMoney(ingreso.monto)}${veces > 0 ? `<div class="empty-state" style="font-size:11px">× ${veces} este mes</div>` : ""}</td>
             <td class="actions-cell">
               <button type="button" class="icon-btn icon-btn--edit" data-row="${ingreso.row}" data-action="edit" aria-label="Editar" title="Editar">${editIcon}</button>
               <button type="button" class="icon-btn icon-btn--delete" data-row="${ingreso.row}" data-action="delete" aria-label="Eliminar" title="Eliminar">${trashIcon}</button>
@@ -543,11 +615,15 @@ export async function renderIngresos(container: HTMLElement): Promise<void> {
         notasInput.value.trim(),
         recurrenciaSelect.value === "UnicoMes" ? "UnicoMes" : "Fijo",
         frecuenciaSelect.value as FrecuenciaIngreso,
+        diaPagoActual(),
       );
       montoInput.value = "";
       notasInput.value = "";
       recurrenciaSelect.value = "Fijo";
       frecuenciaSelect.value = "Mensual";
+      diaQ1Input.value = "";
+      diaQ2Input.value = "";
+      diaSemanaSelect.value = DIAS_SEMANA[0];
       actualizarVisibilidadFrecuencia();
       await reload();
     } catch (err) {

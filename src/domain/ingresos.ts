@@ -10,8 +10,8 @@ export type Recurrencia = "Fijo" | "UnicoMes";
 /** Cada cuánto se recibe un ingreso "Fijo" — solo aplica a esa recurrencia, no a "UnicoMes". */
 export type FrecuenciaIngreso = "Mensual" | "Quincenal" | "Semanal";
 
-/** Cuántas veces al mes cae cada frecuencia, para calcular el equivalente mensual de un ingreso. */
-export const OCURRENCIAS_POR_MES: Record<FrecuenciaIngreso, number> = { Mensual: 1, Quincenal: 2, Semanal: 4.33 };
+/** Nombres de día de la semana en el mismo orden que Date.getDay() (0 = Domingo). */
+export const DIAS_SEMANA = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"] as const;
 
 export interface IngresoFijo {
   id: string;
@@ -26,6 +26,12 @@ export interface IngresoFijo {
   activo: boolean;
   fechaCreacion: string;
   frecuencia: FrecuenciaIngreso;
+  /**
+   * Solo informativo (no afecta el cálculo): "15,30" para Quincenal (los dos
+   * días del mes en que te pagan), o el nombre del día para Semanal (ej.
+   * "Viernes", uno de DIAS_SEMANA). Vacío para Mensual/UnicoMes.
+   */
+  diaPago: string;
 }
 
 function parseIngreso(r: SheetRow): IngresoFijo {
@@ -39,6 +45,7 @@ function parseIngreso(r: SheetRow): IngresoFijo {
     fechaCreacion = "",
     id = "",
     frecuencia = "",
+    diaPago = "",
   ] = r.values;
   return {
     id,
@@ -51,13 +58,39 @@ function parseIngreso(r: SheetRow): IngresoFijo {
     activo: activo.toUpperCase() !== "FALSE",
     fechaCreacion,
     frecuencia: frecuencia === "Quincenal" || frecuencia === "Semanal" ? frecuencia : "Mensual",
+    diaPago,
   };
 }
 
-/** Cuánto equivale por mes: el monto tal cual si es mensual/puntual, o multiplicado por sus pagos al mes si es quincenal/semanal. */
-export function montoMensualEquivalente(ingreso: IngresoFijo): number {
+/** Cuántas veces cae ese día de la semana (0=Domingo...6=Sábado) dentro del mes de `date`. Normalmente 4, a veces 5. */
+export function ocurrenciasDiaSemanaEnMes(diaSemana: number, date: Date): number {
+  const year = date.getFullYear();
+  const month = date.getMonth();
+  const diasEnMes = new Date(year, month + 1, 0).getDate();
+  let ocurrencias = 0;
+  for (let dia = 1; dia <= diasEnMes; dia++) {
+    if (new Date(year, month, dia).getDay() === diaSemana) ocurrencias++;
+  }
+  return ocurrencias;
+}
+
+/** Cuántas veces cae el pago de este ingreso dentro del mes de `date` (Mensual=1, Quincenal=2, Semanal=4 o 5 según el calendario real de ese mes). */
+export function ocurrenciasEnMes(ingreso: IngresoFijo, date: Date): number {
+  if (ingreso.frecuencia === "Mensual") return 1;
+  if (ingreso.frecuencia === "Quincenal") return 2;
+  const diaSemana = DIAS_SEMANA.indexOf(ingreso.diaPago as (typeof DIAS_SEMANA)[number]);
+  if (diaSemana === -1) return 4; // no configuró el día: aproximación razonable
+  return ocurrenciasDiaSemanaEnMes(diaSemana, date);
+}
+
+/**
+ * Cuánto equivale por mes: el monto tal cual si es mensual/puntual, o
+ * multiplicado por sus pagos dentro del mes de `date` si es quincenal o
+ * semanal (para semanal, varía según el calendario real de ese mes).
+ */
+export function montoMensualEquivalente(ingreso: IngresoFijo, date: Date = new Date()): number {
   if (ingreso.recurrencia === "UnicoMes") return ingreso.monto;
-  return ingreso.monto * OCURRENCIAS_POR_MES[ingreso.frecuencia];
+  return ingreso.monto * ocurrenciasEnMes(ingreso, date);
 }
 
 /**
@@ -140,7 +173,7 @@ export async function listIngresosVigentes(spreadsheetId: string, date: Date = n
 
 /** Todos los ingresos registrados alguna vez, sin filtrar por mes vigente — para reconstrucción histórica. */
 export async function listTodosLosIngresos(spreadsheetId: string): Promise<IngresoFijo[]> {
-  const rows = await listRecords(spreadsheetId, INGRESOS_FIJOS_SHEET, 9);
+  const rows = await listRecords(spreadsheetId, INGRESOS_FIJOS_SHEET, 10);
   return rows.map(parseIngreso);
 }
 
@@ -173,6 +206,7 @@ export async function crearIngreso(
   notas: string,
   recurrencia: Recurrencia,
   frecuencia: FrecuenciaIngreso = "Mensual",
+  diaPago = "",
 ): Promise<void> {
   await appendRecord(spreadsheetId, INGRESOS_FIJOS_SHEET, [
     tipo,
@@ -184,6 +218,7 @@ export async function crearIngreso(
     new Date().toISOString().slice(0, 10),
     crypto.randomUUID(),
     frecuencia,
+    diaPago,
   ]);
 }
 
@@ -201,6 +236,7 @@ export async function setIngresoActivo(spreadsheetId: string, ingreso: IngresoFi
     ingreso.fechaCreacion,
     ingreso.id,
     ingreso.frecuencia,
+    ingreso.diaPago,
   ]);
 }
 
@@ -231,6 +267,7 @@ export interface IngresoCambios {
   notas: string;
   recurrencia: Recurrencia;
   frecuencia: FrecuenciaIngreso;
+  diaPago: string;
 }
 
 export async function actualizarIngreso(
@@ -251,6 +288,7 @@ export async function actualizarIngreso(
     ingreso.fechaCreacion,
     ingreso.id,
     cambios.recurrencia === "Fijo" ? cambios.frecuencia : ingreso.frecuencia,
+    cambios.recurrencia === "Fijo" ? cambios.diaPago : ingreso.diaPago,
   ]);
 }
 

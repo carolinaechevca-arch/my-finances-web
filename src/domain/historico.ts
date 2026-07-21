@@ -7,7 +7,7 @@ import {
   type Direccion,
   type EventoAbono,
 } from "./deudas";
-import { addMonthsToKey, endOfMonthISO, monthKey } from "./format";
+import { addMonthsToKey, endOfMonthISO, monthKey, parseDateInput } from "./format";
 import {
   listTodosLosGastosFijos,
   sumGastosFijosPagado,
@@ -17,10 +17,10 @@ import {
 } from "./gastos";
 import { listTodosLosGastos, sumGastos, type GastoYCompra } from "./gastos-y-compras";
 import {
-  OCURRENCIAS_POR_MES,
   estadoIngresoEnFecha,
   listHistorialIngresos,
   listTodosLosIngresos,
+  ocurrenciasEnMes,
   type CambioIngreso,
   type IngresoFijo,
 } from "./ingresos";
@@ -80,11 +80,12 @@ export async function cargarSnapshotHistorico(spreadsheetId: string): Promise<Hi
 
 function sumIngresosEnMes(snap: HistoricoSnapshot, mes: string): number {
   const finMes = endOfMonthISO(mes);
+  const fechaDelMes = parseDateInput(finMes);
   return snap.ingresos.reduce((s, i) => {
     if (i.recurrencia === "UnicoMes") return i.mes === mes && i.activo ? s + i.monto : s;
     if (i.fechaCreacion && i.fechaCreacion > finMes) return s;
     const estado = estadoIngresoEnFecha(i, snap.cambiosIngresos, finMes);
-    return estado.activo ? s + estado.monto * OCURRENCIAS_POR_MES[i.frecuencia] : s;
+    return estado.activo ? s + estado.monto * ocurrenciasEnMes(i, fechaDelMes) : s;
   }, 0);
 }
 
