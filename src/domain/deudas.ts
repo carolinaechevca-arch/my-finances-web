@@ -11,8 +11,8 @@ export interface Deuda {
   direccion: Direccion;
   contraparte: string;
   tipo: string;
-  /** Monto total real de la deuda (puede diferir de montoCuota × numCuotas por redondeo). */
-  montoDeuda: number;
+  /** Lo que te prestaron o el valor de compra antes de intereses. */
+  montoOriginal: number;
   montoCuota: number;
   numCuotas: number;
   diaPago: string;
@@ -36,7 +36,7 @@ function parseDeuda(r: SheetRow): Deuda {
     direccion = "",
     contraparte = "",
     tipo = "",
-    montoDeuda = "0",
+    montoOriginal = "0",
     montoCuota = "0",
     numCuotas = "0",
     diaPago = "",
@@ -50,7 +50,7 @@ function parseDeuda(r: SheetRow): Deuda {
     direccion: direccion === "MeDeben" ? "MeDeben" : "YoDebo",
     contraparte,
     tipo,
-    montoDeuda: Number(montoDeuda) || 0,
+    montoOriginal: Number(montoOriginal) || 0,
     montoCuota: Number(montoCuota) || 0,
     numCuotas: Number(numCuotas) || 0,
     diaPago,
@@ -94,59 +94,88 @@ export function agruparEventosPorDeuda(eventos: EventoAbono[]): Map<string, Even
 }
 
 export interface EstadoCalculado {
+  /** número de cuotas × valor de la cuota, más cualquier monto fusionado de otra deuda. */
+  totalAPagar: number;
+  /** totalAPagar - montoOriginal, nunca negativo (0 si es un préstamo sin interés). */
+  interesTotal: number;
   saldoPendiente: number;
   totalAbonado: number;
+  /** Redondeado hacia abajo: cuántas cuotas completas cubre lo ya abonado. */
+  cuotasPagadas: number;
   /** Redondeado hacia arriba: cuántas cuotas del tamaño actual harían falta para cubrir el saldo. */
   cuotasRestantes: number;
   progresoPct: number;
 }
 
 /**
- * Sin interés: el monto de la deuda solo baja con abonos y solo sube con un
- * "monto agregado" (fusión de otra deuda). Si un abono es mayor o menor que
- * la cuota, el saldo (y por lo tanto las cuotas restantes, que se derivan de
- * él) se ajusta automáticamente — no hay un contador de cuotas que llevar
- * aparte.
+ * Sin interés explícito: el "total a pagar" es número de cuotas × valor de
+ * la cuota (más cualquier "monto agregado" por fusión). Cuotas pagadas y
+ * restantes se derivan solo del monto abonado — si un abono es mayor o
+ * menor que la cuota, el saldo (y por lo tanto las cuotas) se ajusta solo,
+ * sin necesitar un contador manual aparte.
  */
 export function calcularEstadoDeuda(deuda: Deuda, eventos: EventoAbono[]): EstadoCalculado {
-  let monto = deuda.montoDeuda;
+  let totalAPagar = deuda.montoCuota * deuda.numCuotas;
   let totalAbonado = 0;
 
   for (const evento of eventos) {
     if (evento.tipo === "MontoAgregado") {
-      monto += evento.monto;
+      totalAPagar += evento.monto;
     } else {
       totalAbonado += evento.monto;
     }
   }
 
-  const saldoPendiente = Math.max(0, monto - totalAbonado);
+  const saldoPendiente = Math.max(0, totalAPagar - totalAbonado);
+  const cuotasPagadas = deuda.montoCuota > 0 ? Math.floor(totalAbonado / deuda.montoCuota) : 0;
   const cuotasRestantes = deuda.montoCuota > 0 ? Math.ceil(saldoPendiente / deuda.montoCuota) : 0;
-  const totalConLoAbonado = totalAbonado + saldoPendiente;
-  const progresoPct = totalConLoAbonado > 0 ? Math.min(100, (totalAbonado / totalConLoAbonado) * 100) : 0;
+  const interesTotal = Math.max(0, totalAPagar - deuda.montoOriginal);
+  const progresoPct = totalAPagar > 0 ? Math.min(100, (totalAbonado / totalAPagar) * 100) : 0;
 
-  return { saldoPendiente, totalAbonado, cuotasRestantes, progresoPct };
+  return { totalAPagar, interesTotal, saldoPendiente, totalAbonado, cuotasPagadas, cuotasRestantes, progresoPct };
 }
 
 export interface EventoConSaldo {
   evento: EventoAbono;
   saldoPendienteDespues: number;
+  /** Ej. "Cuota 3 de 12", "Cuotas 3-4 de 12", "Abono parcial — cuota 3 de 12", o "Monto agregado". */
+  cuotaLabel: string;
 }
 
-/** Historial cronológico con el saldo pendiente que queda después de cada evento (para auditar). */
+/** Historial cronológico con el saldo y la(s) cuota(s) que cubrió cada evento (para auditar). */
 export function historialConSaldos(deuda: Deuda, eventos: EventoAbono[]): EventoConSaldo[] {
   const ordenados = [...eventos].sort((a, b) => a.fecha.localeCompare(b.fecha));
-  let monto = deuda.montoDeuda;
+  let totalAPagar = deuda.montoCuota * deuda.numCuotas;
   let totalAbonado = 0;
   const resultado: EventoConSaldo[] = [];
 
   for (const evento of ordenados) {
     if (evento.tipo === "MontoAgregado") {
-      monto += evento.monto;
-    } else {
-      totalAbonado += evento.monto;
+      totalAPagar += evento.monto;
+      resultado.push({
+        evento,
+        saldoPendienteDespues: Math.max(0, totalAPagar - totalAbonado),
+        cuotaLabel: "Monto agregado",
+      });
+      continue;
     }
-    resultado.push({ evento, saldoPendienteDespues: Math.max(0, monto - totalAbonado) });
+
+    const cuotasAntes = deuda.montoCuota > 0 ? Math.floor(totalAbonado / deuda.montoCuota) : 0;
+    totalAbonado += evento.monto;
+    const cuotasDespues = deuda.montoCuota > 0 ? Math.floor(totalAbonado / deuda.montoCuota) : 0;
+
+    let cuotaLabel: string;
+    if (deuda.montoCuota <= 0) {
+      cuotaLabel = "Abono";
+    } else if (cuotasDespues === cuotasAntes) {
+      cuotaLabel = `Abono parcial — cuota ${cuotasAntes + 1} de ${deuda.numCuotas}`;
+    } else if (cuotasDespues === cuotasAntes + 1) {
+      cuotaLabel = `Cuota ${cuotasDespues} de ${deuda.numCuotas}`;
+    } else {
+      cuotaLabel = `Cuotas ${cuotasAntes + 1}-${cuotasDespues} de ${deuda.numCuotas}`;
+    }
+
+    resultado.push({ evento, saldoPendienteDespues: Math.max(0, totalAPagar - totalAbonado), cuotaLabel });
   }
 
   return resultado;
@@ -156,7 +185,7 @@ export interface NuevaDeuda {
   direccion: Direccion;
   contraparte: string;
   tipo: string;
-  montoDeuda: number;
+  montoOriginal: number;
   montoCuota: number;
   numCuotas: number;
   diaPago: string;
@@ -171,7 +200,7 @@ export async function crearDeuda(spreadsheetId: string, deuda: NuevaDeuda): Prom
     deuda.direccion,
     deuda.contraparte,
     deuda.tipo,
-    deuda.montoDeuda,
+    deuda.montoOriginal,
     deuda.montoCuota,
     deuda.numCuotas,
     deuda.diaPago,
@@ -188,7 +217,7 @@ export async function actualizarDeuda(spreadsheetId: string, deuda: Deuda, cambi
     cambios.direccion,
     cambios.contraparte,
     cambios.tipo,
-    cambios.montoDeuda,
+    cambios.montoOriginal,
     cambios.montoCuota,
     cambios.numCuotas,
     cambios.diaPago,
@@ -208,7 +237,7 @@ async function setEstadoDeuda(spreadsheetId: string, deuda: Deuda, estado: Estad
     deuda.direccion,
     deuda.contraparte,
     deuda.tipo,
-    deuda.montoDeuda,
+    deuda.montoOriginal,
     deuda.montoCuota,
     deuda.numCuotas,
     deuda.diaPago,
@@ -284,16 +313,10 @@ export function sumCuotasMensualesActivas(deudas: Deuda[], eventosPorDeuda: Map<
     .reduce((s, d) => s + d.montoCuota, 0);
 }
 
-/** Estima en cuántos meses se termina de pagar, con el promedio de abonos o la cuota si no hay historial. */
+/** Meses restantes asumiendo una cuota por mes (la cadencia normal de tarjetas/préstamos por cuotas). */
 export function estimarMesesRestantes(deuda: Deuda, eventos: EventoAbono[]): number | null {
-  const estado = calcularEstadoDeuda(deuda, eventos);
-  if (estado.saldoPendiente <= 0) return 0;
-
-  const abonos = eventos.filter((e) => e.tipo === "Abono");
-  const promedioAbono = abonos.length > 0 ? abonos.reduce((s, e) => s + e.monto, 0) / abonos.length : deuda.montoCuota;
-  if (!promedioAbono || promedioAbono <= 0) return null;
-
-  return Math.ceil(estado.saldoPendiente / promedioAbono);
+  if (deuda.montoCuota <= 0) return null;
+  return calcularEstadoDeuda(deuda, eventos).cuotasRestantes;
 }
 
 /** "vencida" si ya pasó el día de pago sin abono este mes; "proxima" si faltan 5 días o menos. */

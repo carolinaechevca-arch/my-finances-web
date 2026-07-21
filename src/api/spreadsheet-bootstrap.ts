@@ -73,7 +73,7 @@ export const SHEET_DEFINITIONS: SheetDefinition[] = [
       "Direccion",
       "Contraparte",
       "Tipo",
-      "MontoDeuda",
+      "MontoOriginal",
       "MontoCuota",
       "NumCuotas",
       "DiaPago",
