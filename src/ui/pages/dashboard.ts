@@ -35,10 +35,7 @@ import {
   calcularProgresoPct,
   listMetas,
   listTodosLosMovimientos,
-  type FrecuenciaAporte,
 } from "../../domain/metas";
-
-const APORTES_POR_MES: Record<FrecuenciaAporte, number> = { Mensual: 1, Quincenal: 2, Semanal: 4.33 };
 
 function hace(fecha: string): string {
   const dias = Math.round((parseDateInput(todayISO()).getTime() - parseDateInput(fecha).getTime()) / 86400000);
@@ -63,11 +60,10 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
       <span class="month-badge">${formatMonthLabel()}</span>
     </div>
 
-    <div class="card stat-card stat-card--primary" id="balance-card" style="margin-bottom:8px">
+    <div class="card stat-card stat-card--primary" id="balance-card" style="margin-bottom:20px">
       <div class="stat-card__value" id="stat-balance">—</div>
       <div class="stat-card__label">Disponible este mes</div>
     </div>
-    <p class="empty-state" id="balance-nota" style="margin-top:0;margin-bottom:20px"></p>
 
     <div class="card" id="alertas-card" style="margin-bottom:20px">
       <h2 style="margin-top:0">Alertas</h2>
@@ -135,7 +131,6 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
   const status = container.querySelector<HTMLParagraphElement>("#sheet-status")!;
   const sheetCard = container.querySelector<HTMLDivElement>("#sheet-link-card")!;
   const statBalance = container.querySelector<HTMLDivElement>("#stat-balance")!;
-  const balanceNota = container.querySelector<HTMLParagraphElement>("#balance-nota")!;
   const ctaCard = container.querySelector<HTMLDivElement>("#ingresos-cta-card")!;
   const ctaBtn = container.querySelector<HTMLButtonElement>("#ingresos-cta-btn")!;
   ctaBtn.addEventListener("click", () => onNavigate("ingresos"));
@@ -217,16 +212,6 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
     const totalCuotasDeudas = sumCuotasMensualesActivas(deudasYoDebo, eventosPorDeuda);
     const disponible = totalIngresos - totalGastosFijos - totalGastosVariables - totalCuotasDeudas;
     statBalance.textContent = formatMoney(disponible);
-
-    const metasActivas = metas.filter((m) => m.estado === "Activa" && m.aporteAutoActivo && m.aporteAutoMonto > 0);
-    const comprometidoMetas = metasActivas.reduce(
-      (s, m) => s + m.aporteAutoMonto * APORTES_POR_MES[m.aporteAutoFrecuencia],
-      0,
-    );
-    balanceNota.textContent =
-      comprometidoMetas > 0
-        ? `De eso, ${formatMoney(comprometidoMetas)} ya están comprometidos este mes en aportes automáticos a tus metas de ahorro.`
-        : "";
 
     // --- B. Alertas activas ---
     const hoy = new Date();

@@ -1,9 +1,8 @@
 import { METAS_SHEET, MOVIMIENTOS_METAS_SHEET, TIPOS_METAS_SHEET } from "../api/spreadsheet-bootstrap";
 import { appendRecord, deleteRecord, listRecords, updateRecord, type SheetRow } from "../api/records";
-import { parseDateInput, todayISO } from "./format";
+import { todayISO } from "./format";
 
 export type EstadoMeta = "Activa" | "Cumplida" | "Pausada";
-export type FrecuenciaAporte = "Mensual" | "Quincenal" | "Semanal";
 export type TipoMovimiento = "AporteManual" | "AporteAutomatico" | "Retiro";
 
 export interface Meta {
@@ -14,10 +13,6 @@ export interface Meta {
   fechaLimite: string;
   tipo: string;
   estado: EstadoMeta;
-  aporteAutoActivo: boolean;
-  aporteAutoMonto: number;
-  aporteAutoFrecuencia: FrecuenciaAporte;
-  aporteAutoUltimaFecha: string;
   compraVinculadaId: string;
   fechaCreacion: string;
 }
@@ -32,20 +27,8 @@ export interface MovimientoMeta {
 }
 
 function parseMeta(r: SheetRow): Meta {
-  const [
-    id = "",
-    nombre = "",
-    montoObjetivo = "0",
-    fechaLimite = "",
-    tipo = "",
-    estado = "",
-    aporteAutoActivo = "",
-    aporteAutoMonto = "0",
-    aporteAutoFrecuencia = "",
-    aporteAutoUltimaFecha = "",
-    compraVinculadaId = "",
-    fechaCreacion = "",
-  ] = r.values;
+  const [id = "", nombre = "", montoObjetivo = "0", fechaLimite = "", tipo = "", estado = "", compraVinculadaId = "", fechaCreacion = ""] =
+    r.values;
   return {
     id,
     row: r.row,
@@ -54,16 +37,12 @@ function parseMeta(r: SheetRow): Meta {
     fechaLimite,
     tipo,
     estado: estado === "Cumplida" || estado === "Pausada" ? estado : "Activa",
-    aporteAutoActivo: aporteAutoActivo.toUpperCase() === "TRUE",
-    aporteAutoMonto: Number(aporteAutoMonto) || 0,
-    aporteAutoFrecuencia:
-      aporteAutoFrecuencia === "Quincenal" || aporteAutoFrecuencia === "Semanal" ? aporteAutoFrecuencia : "Mensual",
-    aporteAutoUltimaFecha,
     compraVinculadaId,
     fechaCreacion,
   };
 }
 
+/** "AporteAutomatico" ya no se genera (se quitó el aporte automático), pero se sigue leyendo por si hay movimientos históricos con ese tipo. */
 function parseMovimiento(r: SheetRow): MovimientoMeta {
   const [idMeta = "", fecha = "", tipo = "", monto = "0", nota = ""] = r.values;
   return {
@@ -77,7 +56,7 @@ function parseMovimiento(r: SheetRow): MovimientoMeta {
 }
 
 export async function listMetas(spreadsheetId: string): Promise<Meta[]> {
-  const rows = await listRecords(spreadsheetId, METAS_SHEET, 12);
+  const rows = await listRecords(spreadsheetId, METAS_SHEET, 8);
   return rows.map(parseMeta);
 }
 
@@ -96,7 +75,7 @@ export function agruparMovimientosPorMeta(movimientos: MovimientoMeta[]): Map<st
   return map;
 }
 
-/** Acumulado actual = aportes (manuales + automáticos) menos retiros. */
+/** Acumulado actual = aportes menos retiros. */
 export function calcularAcumulado(movimientos: MovimientoMeta[]): number {
   return movimientos.reduce((s, m) => s + (m.tipo === "Retiro" ? -m.monto : m.monto), 0);
 }
@@ -111,9 +90,6 @@ export interface NuevaMeta {
   montoObjetivo: number;
   fechaLimite: string;
   tipo: string;
-  aporteAutoActivo: boolean;
-  aporteAutoMonto: number;
-  aporteAutoFrecuencia: FrecuenciaAporte;
   compraVinculadaId: string;
 }
 
@@ -127,14 +103,10 @@ export async function crearMeta(spreadsheetId: string, meta: NuevaMeta): Promise
     meta.fechaLimite,
     meta.tipo,
     "Activa",
-    meta.aporteAutoActivo ? "TRUE" : "FALSE",
-    meta.aporteAutoMonto,
-    meta.aporteAutoFrecuencia,
-    "",
     meta.compraVinculadaId,
     fechaCreacion,
   ]);
-  return { id, row, ...meta, estado: "Activa", aporteAutoUltimaFecha: "", fechaCreacion };
+  return { id, row, ...meta, estado: "Activa", fechaCreacion };
 }
 
 function serializeMeta(meta: Meta): unknown[] {
@@ -145,10 +117,6 @@ function serializeMeta(meta: Meta): unknown[] {
     meta.fechaLimite,
     meta.tipo,
     meta.estado,
-    meta.aporteAutoActivo ? "TRUE" : "FALSE",
-    meta.aporteAutoMonto,
-    meta.aporteAutoFrecuencia,
-    meta.aporteAutoUltimaFecha,
     meta.compraVinculadaId,
     meta.fechaCreacion,
   ];
@@ -159,9 +127,6 @@ export interface MetaCambios {
   montoObjetivo: number;
   fechaLimite: string;
   tipo: string;
-  aporteAutoActivo: boolean;
-  aporteAutoMonto: number;
-  aporteAutoFrecuencia: FrecuenciaAporte;
 }
 
 export async function actualizarMeta(spreadsheetId: string, meta: Meta, cambios: MetaCambios): Promise<void> {
@@ -187,9 +152,8 @@ export async function registrarAporte(
   fecha: string,
   monto: number,
   nota: string,
-  tipo: "AporteManual" | "AporteAutomatico" = "AporteManual",
 ): Promise<void> {
-  await appendRecord(spreadsheetId, MOVIMIENTOS_METAS_SHEET, [meta.id, fecha, tipo, monto, nota]);
+  await appendRecord(spreadsheetId, MOVIMIENTOS_METAS_SHEET, [meta.id, fecha, "AporteManual", monto, nota]);
 }
 
 export async function registrarRetiro(
@@ -205,90 +169,6 @@ export async function registrarRetiro(
     throw new Error(`No puedes retirar más de lo acumulado (${acumulado}).`);
   }
   await appendRecord(spreadsheetId, MOVIMIENTOS_METAS_SHEET, [meta.id, fecha, "Retiro", monto, motivo]);
-}
-
-function siguienteFecha(fecha: Date, frecuencia: FrecuenciaAporte): Date {
-  const next = new Date(fecha);
-  if (frecuencia === "Mensual") next.setMonth(next.getMonth() + 1);
-  else if (frecuencia === "Quincenal") next.setDate(next.getDate() + 15);
-  else next.setDate(next.getDate() + 7);
-  return next;
-}
-
-function fechaFmt(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
-/**
- * Como la app no tiene backend, un "aporte automático" no puede dispararse
- * solo en la fecha exacta: se pone al día cada vez que el usuario entra a
- * Ahorros y Metas, registrando de una vez los aportes retroactivos que
- * faltaban desde el último (cada uno con la fecha que le correspondía).
- * Devuelve true si registró algo nuevo (para recargar la lista).
- */
-export async function procesarAportesAutomaticos(spreadsheetId: string, metas: Meta[]): Promise<boolean> {
-  const hoy = new Date();
-  let huboCambios = false;
-
-  for (const meta of metas) {
-    if (!meta.aporteAutoActivo || meta.estado !== "Activa" || meta.aporteAutoMonto <= 0) continue;
-
-    const base = meta.aporteAutoUltimaFecha || meta.fechaCreacion;
-    if (!base) continue;
-
-    let cursor = parseDateInput(base);
-    let ultimaFecha = base;
-    let iteraciones = 0;
-
-    while (iteraciones < 60) {
-      const siguiente = siguienteFecha(cursor, meta.aporteAutoFrecuencia);
-      if (siguiente > hoy) break;
-      const fechaStr = fechaFmt(siguiente);
-      await appendRecord(spreadsheetId, MOVIMIENTOS_METAS_SHEET, [
-        meta.id,
-        fechaStr,
-        "AporteAutomatico",
-        meta.aporteAutoMonto,
-        "Aporte automático",
-      ]);
-      cursor = siguiente;
-      ultimaFecha = fechaStr;
-      huboCambios = true;
-      iteraciones++;
-    }
-
-    if (ultimaFecha !== meta.aporteAutoUltimaFecha) {
-      await updateRecord(
-        spreadsheetId,
-        METAS_SHEET,
-        meta.row,
-        serializeMeta({ ...meta, aporteAutoUltimaFecha: ultimaFecha }),
-      );
-    }
-  }
-
-  return huboCambios;
-}
-
-/** Proyección simple y lineal con el aporte automático configurado (sin rendimiento). */
-export function proyeccionConAporte(
-  acumuladoActual: number,
-  aporteMonto: number,
-  frecuencia: FrecuenciaAporte,
-  meses: number,
-): number {
-  const aportesPorMes = frecuencia === "Mensual" ? 1 : frecuencia === "Quincenal" ? 2 : 4.33;
-  const aporteMensualEquivalente = aporteMonto * aportesPorMes;
-  return acumuladoActual + aporteMensualEquivalente * meses;
-}
-
-/** Meses entre hoy y una fecha límite (redondeado hacia arriba, mínimo 1). */
-export function mesesHasta(fechaLimite: string): number {
-  if (!fechaLimite) return 12;
-  const hoy = new Date();
-  const limite = parseDateInput(fechaLimite);
-  const dias = (limite.getTime() - hoy.getTime()) / (1000 * 60 * 60 * 24);
-  return Math.max(1, Math.round(dias / 30));
 }
 
 /** Tipos de meta manejables por el usuario, misma mecánica que las categorías de gastos. */

@@ -440,9 +440,6 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
             montoObjetivo: gasto.monto,
             fechaLimite: "",
             tipo: gasto.categoria,
-            aporteAutoActivo: false,
-            aporteAutoMonto: 0,
-            aporteAutoFrecuencia: "Mensual",
             compraVinculadaId: gasto.id,
           });
           await marcarComoAhorrando(spreadsheetId, gasto);

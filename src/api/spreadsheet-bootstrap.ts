@@ -90,20 +90,7 @@ export const SHEET_DEFINITIONS: SheetDefinition[] = [
   },
   {
     name: METAS_SHEET,
-    headers: [
-      "Id",
-      "Nombre",
-      "MontoObjetivo",
-      "FechaLimite",
-      "Tipo",
-      "Estado",
-      "AporteAutoActivo",
-      "AporteAutoMonto",
-      "AporteAutoFrecuencia",
-      "AporteAutoUltimaFecha",
-      "CompraVinculadaId",
-      "FechaCreacion",
-    ],
+    headers: ["Id", "Nombre", "MontoObjetivo", "FechaLimite", "Tipo", "Estado", "CompraVinculadaId", "FechaCreacion"],
   },
   {
     name: MOVIMIENTOS_METAS_SHEET,

@@ -20,13 +20,9 @@ import {
   listMetas,
   listTiposMeta,
   listTodosLosMovimientos,
-  mesesHasta,
-  procesarAportesAutomaticos,
-  proyeccionConAporte,
   registrarAporte,
   registrarRetiro,
   setEstadoMeta,
-  type FrecuenciaAporte,
   type Meta,
   type MetaCambios,
   type MovimientoMeta,
@@ -56,18 +52,6 @@ export async function renderAhorros(container: HTMLElement): Promise<void> {
         </div>
         <div class="field"><label for="mt-monto">Monto objetivo</label><input id="mt-monto" type="number" min="0" step="0.01" required /></div>
         <div class="field"><label for="mt-fecha-limite">Fecha límite (opcional)</label><input id="mt-fecha-limite" type="date" /></div>
-        <div class="field field--inline">
-          <label for="mt-auto-activo"><input type="checkbox" id="mt-auto-activo" /> Aporte automático</label>
-        </div>
-        <div class="field" id="mt-auto-monto-field" hidden><label for="mt-auto-monto">Monto por periodo</label><input id="mt-auto-monto" type="number" min="0" step="0.01" /></div>
-        <div class="field" id="mt-auto-frecuencia-field" hidden>
-          <label for="mt-auto-frecuencia">Frecuencia</label>
-          <select id="mt-auto-frecuencia">
-            <option value="Mensual">Mensual</option>
-            <option value="Quincenal">Quincenal</option>
-            <option value="Semanal">Semanal</option>
-          </select>
-        </div>
         <button type="submit" class="btn">Guardar meta</button>
       </form>
       <p class="empty-state" id="meta-form-error" hidden></p>
@@ -101,18 +85,6 @@ export async function renderAhorros(container: HTMLElement): Promise<void> {
         </div>
         <div class="field"><label for="edit-monto">Monto objetivo</label><input id="edit-monto" type="number" min="0" step="0.01" required /></div>
         <div class="field"><label for="edit-fecha-limite">Fecha límite</label><input id="edit-fecha-limite" type="date" /></div>
-        <div class="field field--inline">
-          <label for="edit-auto-activo"><input type="checkbox" id="edit-auto-activo" /> Aporte automático</label>
-        </div>
-        <div class="field" id="edit-auto-monto-field" hidden><label for="edit-auto-monto">Monto por periodo</label><input id="edit-auto-monto" type="number" min="0" step="0.01" /></div>
-        <div class="field" id="edit-auto-frecuencia-field" hidden>
-          <label for="edit-auto-frecuencia">Frecuencia</label>
-          <select id="edit-auto-frecuencia">
-            <option value="Mensual">Mensual</option>
-            <option value="Quincenal">Quincenal</option>
-            <option value="Semanal">Semanal</option>
-          </select>
-        </div>
         <p class="empty-state" id="edit-modal-error" hidden></p>
         <div class="modal__actions">
           <button type="button" class="btn-secondary" id="edit-modal-cancel">Cancelar</button>
@@ -159,11 +131,6 @@ export async function renderAhorros(container: HTMLElement): Promise<void> {
   const nombreInput = container.querySelector<HTMLInputElement>("#mt-nombre")!;
   const montoInput = container.querySelector<HTMLInputElement>("#mt-monto")!;
   const fechaLimiteInput = container.querySelector<HTMLInputElement>("#mt-fecha-limite")!;
-  const autoActivoCheck = container.querySelector<HTMLInputElement>("#mt-auto-activo")!;
-  const autoMontoField = container.querySelector<HTMLDivElement>("#mt-auto-monto-field")!;
-  const autoMontoInput = container.querySelector<HTMLInputElement>("#mt-auto-monto")!;
-  const autoFrecuenciaField = container.querySelector<HTMLDivElement>("#mt-auto-frecuencia-field")!;
-  const autoFrecuenciaSelect = container.querySelector<HTMLSelectElement>("#mt-auto-frecuencia")!;
 
   const editModal = container.querySelector<HTMLDialogElement>("#edit-modal")!;
   const editForm = container.querySelector<HTMLFormElement>("#edit-form")!;
@@ -172,11 +139,6 @@ export async function renderAhorros(container: HTMLElement): Promise<void> {
   const editNombreInput = container.querySelector<HTMLInputElement>("#edit-nombre")!;
   const editMontoInput = container.querySelector<HTMLInputElement>("#edit-monto")!;
   const editFechaLimiteInput = container.querySelector<HTMLInputElement>("#edit-fecha-limite")!;
-  const editAutoActivoCheck = container.querySelector<HTMLInputElement>("#edit-auto-activo")!;
-  const editAutoMontoField = container.querySelector<HTMLDivElement>("#edit-auto-monto-field")!;
-  const editAutoMontoInput = container.querySelector<HTMLInputElement>("#edit-auto-monto")!;
-  const editAutoFrecuenciaField = container.querySelector<HTMLDivElement>("#edit-auto-frecuencia-field")!;
-  const editAutoFrecuenciaSelect = container.querySelector<HTMLSelectElement>("#edit-auto-frecuencia")!;
 
   const tipoModal = container.querySelector<HTMLDialogElement>("#tipo-modal")!;
   const tipoForm = container.querySelector<HTMLFormElement>("#tipo-form")!;
@@ -198,15 +160,6 @@ export async function renderAhorros(container: HTMLElement): Promise<void> {
   let sortOrder: SortOrder = "progreso";
   let busy = false;
   let editingMeta: Meta | null = null;
-
-  autoActivoCheck.addEventListener("change", () => {
-    autoMontoField.hidden = !autoActivoCheck.checked;
-    autoFrecuenciaField.hidden = !autoActivoCheck.checked;
-  });
-  editAutoActivoCheck.addEventListener("change", () => {
-    editAutoMontoField.hidden = !editAutoActivoCheck.checked;
-    editAutoFrecuenciaField.hidden = !editAutoActivoCheck.checked;
-  });
 
   function refreshCombos(): void {
     tipoCombo.refresh();
@@ -336,15 +289,6 @@ export async function renderAhorros(container: HTMLElement): Promise<void> {
     historialModal.showModal();
   }
 
-  function proyeccionTexto(meta: Meta): string {
-    if (!meta.aporteAutoActivo || meta.aporteAutoMonto <= 0) return "";
-    const acumulado = calcularAcumulado(movimientosPorMeta.get(meta.id) ?? []);
-    const meses = mesesHasta(meta.fechaLimite);
-    const proyeccion = proyeccionConAporte(acumulado, meta.aporteAutoMonto, meta.aporteAutoFrecuencia, meses);
-    const horizonte = meta.fechaLimite ? `para tu fecha límite` : `en ${meses} meses`;
-    return `Si sigues aportando ${formatMoney(meta.aporteAutoMonto)} ${meta.aporteAutoFrecuencia.toLowerCase()}, ${horizonte} tendrás aproximadamente ${formatMoney(proyeccion)}.`;
-  }
-
   function renderMetaCard(meta: Meta): HTMLDivElement {
     const movimientos = movimientosPorMeta.get(meta.id) ?? [];
     const acumulado = calcularAcumulado(movimientos);
@@ -358,7 +302,6 @@ export async function renderAhorros(container: HTMLElement): Promise<void> {
         <div>
           <span class="deuda-card__contraparte">${meta.nombre}</span>
           ${meta.tipo ? `<span class="badge">${meta.tipo}</span>` : ""}
-          ${meta.aporteAutoActivo && !cumplida ? `<span class="badge">Aporte automático ${meta.aporteAutoFrecuencia.toLowerCase()}</span>` : ""}
           ${meta.compraVinculadaId ? `<span class="badge">Vinculada a una compra</span>` : ""}
           ${cumplida ? `<span class="badge badge--fijo">Cumplida</span>` : pausada ? `<span class="badge badge--neutral">Pausada</span>` : ""}
         </div>
@@ -374,7 +317,6 @@ export async function renderAhorros(container: HTMLElement): Promise<void> {
         <div class="deuda-card__stat"><span class="deuda-card__stat-label">Progreso</span><span class="deuda-card__stat-value">${progreso.toFixed(0)}%</span></div>
       </div>
       ${meta.fechaLimite ? `<p class="empty-state" style="margin:10px 0 0">Fecha límite: ${meta.fechaLimite}</p>` : ""}
-      ${!cumplida ? `<p class="empty-state" style="margin:4px 0 0">${proyeccionTexto(meta)}</p>` : ""}
       <div class="deuda-card__footer">
         ${!cumplida ? `<button type="button" class="btn" data-action="aportar">Aportar</button>` : ""}
         ${!cumplida && acumulado > 0 ? `<button type="button" class="btn-secondary" data-action="retirar">Retirar</button>` : ""}
@@ -399,9 +341,9 @@ export async function renderAhorros(container: HTMLElement): Promise<void> {
     card.querySelector('[data-action="historial"]')!.addEventListener("click", () => openHistorialModal(meta));
 
     card.querySelector('[data-action="aportar"]')?.addEventListener("click", async () => {
-      const resultado = await showAbonoDialog(`Aportar — ${meta.nombre}`, meta.aporteAutoMonto || undefined);
+      const resultado = await showAbonoDialog(`Aportar — ${meta.nombre}`);
       if (!resultado) return;
-      void runAction(() => registrarAporte(spreadsheetId, meta, resultado.fecha, resultado.monto, resultado.nota, "AporteManual"));
+      void runAction(() => registrarAporte(spreadsheetId, meta, resultado.fecha, resultado.monto, resultado.nota));
     });
 
     card.querySelector('[data-action="retirar"]')?.addEventListener("click", async () => {
@@ -514,14 +456,6 @@ export async function renderAhorros(container: HTMLElement): Promise<void> {
     const [metasList, movimientos] = await Promise.all([listMetas(spreadsheetId), listTodosLosMovimientos(spreadsheetId)]);
     metas = metasList;
     movimientosPorMeta = agruparMovimientosPorMeta(movimientos);
-
-    const huboAutomaticos = await procesarAportesAutomaticos(spreadsheetId, metas);
-    if (huboAutomaticos) {
-      const [metasList2, movimientos2] = await Promise.all([listMetas(spreadsheetId), listTodosLosMovimientos(spreadsheetId)]);
-      metas = metasList2;
-      movimientosPorMeta = agruparMovimientosPorMeta(movimientos2);
-    }
-
     renderList();
   }
 
@@ -532,11 +466,6 @@ export async function renderAhorros(container: HTMLElement): Promise<void> {
     editTipoCombo.refresh();
     editMontoInput.value = String(meta.montoObjetivo);
     editFechaLimiteInput.value = meta.fechaLimite;
-    editAutoActivoCheck.checked = meta.aporteAutoActivo;
-    editAutoMontoField.hidden = !meta.aporteAutoActivo;
-    editAutoFrecuenciaField.hidden = !meta.aporteAutoActivo;
-    editAutoMontoInput.value = String(meta.aporteAutoMonto || "");
-    editAutoFrecuenciaSelect.value = meta.aporteAutoFrecuencia;
     editModalError.hidden = true;
 
     const controller = new AbortController();
@@ -565,9 +494,6 @@ export async function renderAhorros(container: HTMLElement): Promise<void> {
             montoObjetivo: monto,
             fechaLimite: editFechaLimiteInput.value,
             tipo: editTipoValue,
-            aporteAutoActivo: editAutoActivoCheck.checked,
-            aporteAutoMonto: Number(editAutoMontoInput.value) || 0,
-            aporteAutoFrecuencia: editAutoFrecuenciaSelect.value as FrecuenciaAporte,
           };
           await actualizarMeta(spreadsheetId, editingMeta, cambios);
           controller.abort();
@@ -615,14 +541,9 @@ export async function renderAhorros(container: HTMLElement): Promise<void> {
         montoObjetivo: monto,
         fechaLimite: fechaLimiteInput.value,
         tipo: formTipoValue,
-        aporteAutoActivo: autoActivoCheck.checked,
-        aporteAutoMonto: Number(autoMontoInput.value) || 0,
-        aporteAutoFrecuencia: autoFrecuenciaSelect.value as FrecuenciaAporte,
         compraVinculadaId: "",
       });
       form.reset();
-      autoMontoField.hidden = true;
-      autoFrecuenciaField.hidden = true;
       await reload();
     } catch (err) {
       formError.hidden = false;
