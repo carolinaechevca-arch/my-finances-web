@@ -1,5 +1,18 @@
+import businessplanIcon from "../../icon/businessplan.svg?raw";
+import calendarMonthIcon from "../../icon/calendar-month.svg?raw";
+import cashIcon from "../../icon/cash.svg?raw";
+import cashMinusIcon from "../../icon/cash-minus.svg?raw";
+import moneybagPlusIcon from "../../icon/moneybag-plus.svg?raw";
+import pigMoneyIcon from "../../icon/pig-money.svg?raw";
 import { ensureSpreadsheet } from "../../api/spreadsheet-bootstrap";
-import { agruparEventosPorDeuda, calcularEstadoDeuda, estadoAlerta, listDeudas, listTodosLosEventos } from "../../domain/deudas";
+import {
+  agruparEventosPorDeuda,
+  calcularEstadoDeuda,
+  estadoAlerta,
+  listDeudas,
+  listTodosLosEventos,
+  sumCuotasMensualesActivas,
+} from "../../domain/deudas";
 import { formatMonthLabel, formatMoney, monthKey, parseDateInput, todayISO } from "../../domain/format";
 import {
   estadoAlertaGastoFijo,
@@ -46,7 +59,7 @@ function mesAnteriorDate(): Date {
 export async function renderDashboard(container: HTMLElement, onNavigate: (sectionId: string) => void): Promise<void> {
   container.innerHTML = `
     <div class="page-title-row">
-      <h1 class="page-title">🏆 Resumen del Mes</h1>
+      <h1 class="page-title">${calendarMonthIcon} Resumen del Mes</h1>
       <span class="month-badge">${formatMonthLabel()}</span>
     </div>
 
@@ -63,7 +76,7 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
 
     <div class="card" id="gastos-fijos-card" style="margin-bottom:20px">
       <div class="table-toolbar">
-        <h2 style="margin:0">📅 Gastos Fijos</h2>
+        <h2 style="margin:0"><span class="nav-icon">${cashMinusIcon}</span> Gastos Fijos</h2>
         <button type="button" class="btn-secondary" id="gastos-fijos-btn">Ver módulo</button>
       </div>
       <div id="gastos-fijos-resumen"></div>
@@ -71,7 +84,7 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
 
     <div class="card" id="deudas-card" style="margin-bottom:20px">
       <div class="table-toolbar">
-        <h2 style="margin:0">🐷 Deudas</h2>
+        <h2 style="margin:0"><span class="nav-icon">${pigMoneyIcon}</span> Deudas</h2>
         <button type="button" class="btn-secondary" id="deudas-btn">Ver módulo</button>
       </div>
       <div id="deudas-resumen"></div>
@@ -79,7 +92,7 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
 
     <div class="card" id="me-deben-card" style="margin-bottom:20px">
       <div class="table-toolbar">
-        <h2 style="margin:0">💼 Me Deben</h2>
+        <h2 style="margin:0"><span class="nav-icon">${businessplanIcon}</span> Me Deben</h2>
         <button type="button" class="btn-secondary" id="me-deben-btn">Ver módulo</button>
       </div>
       <div id="me-deben-resumen"></div>
@@ -87,7 +100,7 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
 
     <div class="card" id="metas-resumen-card" hidden style="margin-bottom:20px">
       <div class="table-toolbar">
-        <h2 style="margin:0">🐷 Ahorros y Metas</h2>
+        <h2 style="margin:0"><span class="nav-icon">${moneybagPlusIcon}</span> Ahorros y Metas</h2>
         <button type="button" class="btn-secondary" id="metas-resumen-btn">Ver todas</button>
       </div>
       <div class="stat-card__value" id="metas-total" style="margin-bottom:12px">—</div>
@@ -195,11 +208,14 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
 
     if (ingresos.length === 0) ctaCard.hidden = false;
 
+    const eventosPorDeuda = agruparEventosPorDeuda(eventosDeudas);
+
     // --- A. Balance del mes ---
     const totalIngresos = sumIngresosActivos(ingresos);
     const totalGastosFijos = sumGastosFijosTotal(gastosFijos);
     const totalGastosVariables = sumGastosYCompras(gastosYCompras);
-    const disponible = totalIngresos - totalGastosFijos - totalGastosVariables;
+    const totalCuotasDeudas = sumCuotasMensualesActivas(deudasYoDebo, eventosPorDeuda);
+    const disponible = totalIngresos - totalGastosFijos - totalGastosVariables - totalCuotasDeudas;
     statBalance.textContent = formatMoney(disponible);
 
     const metasActivas = metas.filter((m) => m.estado === "Activa" && m.aporteAutoActivo && m.aporteAutoMonto > 0);
@@ -213,7 +229,6 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
         : "";
 
     // --- B. Alertas activas ---
-    const eventosPorDeuda = agruparEventosPorDeuda(eventosDeudas);
     const hoy = new Date();
     const hoyDia = hoy.getDate();
 
@@ -241,9 +256,9 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
     for (const d of deudasYoDebo) {
       const estadoD = estadoAlerta(d, eventosPorDeuda.get(d.id) ?? [], hoy);
       if (estadoD === "vencida") {
-        alertas.push({ nivel: "rojo", texto: `Pago mínimo vencido con ${d.contraparte} (${formatMoney(d.pagoMinimo)})`, destino: "deudas" });
+        alertas.push({ nivel: "rojo", texto: `Cuota vencida con ${d.contraparte} (${formatMoney(d.montoCuota)})`, destino: "deudas" });
       } else if (estadoD === "proxima") {
-        alertas.push({ nivel: "naranja", texto: `Pago mínimo próximo a vencer con ${d.contraparte} (${formatMoney(d.pagoMinimo)})`, destino: "deudas" });
+        alertas.push({ nivel: "naranja", texto: `Cuota próxima a vencer con ${d.contraparte} (${formatMoney(d.montoCuota)})`, destino: "deudas" });
       }
     }
 
@@ -258,7 +273,7 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
     for (const d of deudasMeDeben) {
       const estadoD = estadoAlerta(d, eventosPorDeuda.get(d.id) ?? [], hoy);
       if (estadoD === "vencida") {
-        alertas.push({ nivel: "verde", texto: `${d.contraparte} tiene un pago comprometido vencido (${formatMoney(d.pagoMinimo)})`, destino: "me-deben" });
+        alertas.push({ nivel: "verde", texto: `${d.contraparte} tiene un pago comprometido vencido (${formatMoney(d.montoCuota)})`, destino: "me-deben" });
       }
     }
 
@@ -307,13 +322,17 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
 
     // --- D. Resumen de Deudas ---
     const deudasActivas = deudasYoDebo.filter((d) => d.estado === "Activa");
-    const totalDeudas = deudasActivas.reduce((s, d) => s + calcularEstadoDeuda(d, eventosPorDeuda.get(d.id) ?? []).totalHoy, 0);
+    const totalDeudas = deudasActivas.reduce((s, d) => s + calcularEstadoDeuda(d, eventosPorDeuda.get(d.id) ?? []).saldoPendiente, 0);
     const conProximoPago = deudasActivas
       .filter((d) => Number(d.diaPago) > 0 && estadoAlerta(d, eventosPorDeuda.get(d.id) ?? [], hoy) !== null)
       .sort((a, b) => Math.abs(Number(a.diaPago) - hoyDia) - Math.abs(Number(b.diaPago) - hoyDia));
     const proximoPago = conProximoPago[0];
     const destacadasDeudas = [...deudasActivas]
-      .sort((a, b) => calcularEstadoDeuda(b, eventosPorDeuda.get(b.id) ?? []).totalHoy - calcularEstadoDeuda(a, eventosPorDeuda.get(a.id) ?? []).totalHoy)
+      .sort(
+        (a, b) =>
+          calcularEstadoDeuda(b, eventosPorDeuda.get(b.id) ?? []).saldoPendiente -
+          calcularEstadoDeuda(a, eventosPorDeuda.get(a.id) ?? []).saldoPendiente,
+      )
       .slice(0, 3);
 
     deudasResumen.innerHTML =
@@ -321,8 +340,8 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
         ? `<p class="empty-state">No tienes deudas activas.</p>`
         : `
         <div class="stat-card__value" style="margin-bottom:4px">${formatMoney(totalDeudas)}</div>
-        <p class="empty-state" style="margin:0 0 14px">Total pendiente (capital + interés)</p>
-        ${proximoPago ? `<p style="margin:0 0 14px">Próximo pago mínimo: <strong>${formatMoney(proximoPago.pagoMinimo)}</strong> a ${proximoPago.contraparte} el día ${proximoPago.diaPago}</p>` : ""}
+        <p class="empty-state" style="margin:0 0 14px">Total pendiente</p>
+        ${proximoPago ? `<p style="margin:0 0 14px">Próxima cuota: <strong>${formatMoney(proximoPago.montoCuota)}</strong> a ${proximoPago.contraparte} el día ${proximoPago.diaPago}</p>` : ""}
         ${destacadasDeudas
           .map((d) => {
             const estado = calcularEstadoDeuda(d, eventosPorDeuda.get(d.id) ?? []);
@@ -330,7 +349,7 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
               <div style="margin-bottom:12px">
                 <div style="display:flex;justify-content:space-between;margin-bottom:4px">
                   <span>${d.contraparte}</span>
-                  <span class="empty-state">${formatMoney(estado.totalHoy)}</span>
+                  <span class="empty-state">${formatMoney(estado.saldoPendiente)}</span>
                 </div>
                 <div class="progress-bar"><div class="progress-bar__fill" style="width:${estado.progresoPct}%"></div></div>
               </div>
@@ -341,7 +360,7 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
 
     // --- E. Resumen de Me Deben ---
     const meDebenActivas = deudasMeDeben.filter((d) => d.estado === "Activa");
-    const totalMeDeben = meDebenActivas.reduce((s, d) => s + calcularEstadoDeuda(d, eventosPorDeuda.get(d.id) ?? []).totalHoy, 0);
+    const totalMeDeben = meDebenActivas.reduce((s, d) => s + calcularEstadoDeuda(d, eventosPorDeuda.get(d.id) ?? []).saldoPendiente, 0);
     const vencidasMeDeben = meDebenActivas.filter((d) => estadoAlerta(d, eventosPorDeuda.get(d.id) ?? [], hoy) === "vencida");
 
     meDebenResumen.innerHTML =
@@ -424,21 +443,21 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
     }
 
     // --- I. Últimos movimientos ---
-    interface Movimiento { fecha: string; icono: string; texto: string; monto: number }
+    interface Movimiento { fecha: string; texto: string; monto: number }
     const movimientos: Movimiento[] = [];
     for (const g of [...gastosYCompras, ...gastosYComprasMesAnterior]) {
-      if (g.estado === "Pagado") movimientos.push({ fecha: g.fecha, icono: "🛍️", texto: g.nombre, monto: -g.monto });
+      if (g.estado === "Pagado") movimientos.push({ fecha: g.fecha, texto: g.nombre, monto: -g.monto });
     }
     for (const e of eventosDeudas) {
       if (e.tipo !== "Abono") continue;
       const esMia = deudasYoDebo.some((d) => d.id === e.idDeuda);
-      movimientos.push({ fecha: e.fecha, icono: esMia ? "💳" : "💼", texto: esMia ? "Abono a deuda" : "Pago recibido", monto: esMia ? -e.monto : e.monto });
+      movimientos.push({ fecha: e.fecha, texto: esMia ? "Abono a deuda" : "Pago recibido", monto: esMia ? -e.monto : e.monto });
     }
     for (const m of movimientosMetas) {
-      movimientos.push({ fecha: m.fecha, icono: "🐷", texto: m.tipo === "Retiro" ? "Retiro de ahorro" : "Aporte a meta", monto: m.tipo === "Retiro" ? m.monto : -m.monto });
+      movimientos.push({ fecha: m.fecha, texto: m.tipo === "Retiro" ? "Retiro de ahorro" : "Aporte a meta", monto: m.tipo === "Retiro" ? m.monto : -m.monto });
     }
     for (const i of ingresos) {
-      if (i.recurrencia === "UnicoMes" && i.mes === monthKey()) movimientos.push({ fecha: `${i.mes}-01`, icono: "💰", texto: i.tipo, monto: i.monto });
+      if (i.recurrencia === "UnicoMes" && i.mes === monthKey()) movimientos.push({ fecha: `${i.mes}-01`, texto: i.tipo, monto: i.monto });
     }
     movimientos.sort((a, b) => b.fecha.localeCompare(a.fecha));
     const recientes = movimientos.slice(0, 6);
@@ -451,7 +470,7 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
               (m) => `
                 <div class="record-row">
                   <div class="record-row__main">
-                    <span class="record-row__title">${m.icono} ${m.texto}</span>
+                    <span class="record-row__title"><span class="nav-icon">${cashIcon}</span> ${m.texto}</span>
                     <span class="record-row__subtitle">${hace(m.fecha)}</span>
                   </div>
                   <div class="record-row__amount" style="color:${m.monto < 0 ? "var(--color-danger)" : "var(--color-success)"}">${m.monto < 0 ? "-" : "+"}${formatMoney(Math.abs(m.monto))}</div>

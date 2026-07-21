@@ -61,7 +61,7 @@ function showApp(user: AuthUser): void {
   }
 
   const shell = renderAppShell(root, user, renderSection, async () => {
-    await signOut();
+    await signOut(true);
     showLogin();
   });
   renderSection("inicio");
@@ -83,8 +83,8 @@ function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T
 }
 
 async function bootstrap(): Promise<void> {
-  root.innerHTML = `<div class="boot-loader"><p class="empty-state">Cargando…</p></div>`;
-  const user = await withTimeout(trySilentSignIn(), 6000, null);
+  root.innerHTML = `<div class="boot-loader"><p class="empty-state">Verificando sesión…</p></div>`;
+  const user = await withTimeout(trySilentSignIn(), 7000, null);
   if (user) {
     showApp(user);
   } else {

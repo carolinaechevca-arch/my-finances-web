@@ -213,7 +213,7 @@ export function patrimonioNetoEnMes(snap: HistoricoSnapshot, mes: string): numbe
   const eventosPorDeuda = agruparEventosPorDeuda(eventosHastaFinMes);
   const deudaPendiente = snap.deudasYoDebo.reduce((s, d) => {
     if (d.fechaInicio && d.fechaInicio > finMes) return s;
-    return s + calcularEstadoDeuda(d, eventosPorDeuda.get(d.id) ?? [], finMes).totalHoy;
+    return s + calcularEstadoDeuda(d, eventosPorDeuda.get(d.id) ?? []).saldoPendiente;
   }, 0);
 
   return ahorros - deudaPendiente;

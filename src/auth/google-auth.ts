@@ -57,6 +57,38 @@ let tokenClient: TokenClient | null = null;
 let accessToken: string | null = null;
 let tokenExpiresAt = 0;
 
+/**
+ * Nada sensible acá: solo un booleano que dice "el usuario cerró sesión a
+ * propósito la última vez", para no reintentar el login silencioso en el
+ * próximo reload. El token en sí nunca toca sessionStorage/localStorage.
+ */
+const LOGGED_OUT_KEY = "mf_logged_out";
+
+function marcarSesionCerradaManualmente(): void {
+  try {
+    sessionStorage.setItem(LOGGED_OUT_KEY, "1");
+  } catch {
+    // Si sessionStorage no está disponible (modo privado estricto, etc.), no pasa nada grave:
+    // en el peor caso se reintenta el login silencioso una vez de más.
+  }
+}
+
+function limpiarSesionCerradaManualmente(): void {
+  try {
+    sessionStorage.removeItem(LOGGED_OUT_KEY);
+  } catch {
+    // Ignorado a propósito, ver comentario arriba.
+  }
+}
+
+function sesionFueCerradaManualmente(): boolean {
+  try {
+    return sessionStorage.getItem(LOGGED_OUT_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
 function loadGisScript(): Promise<void> {
   if (window.google?.accounts?.oauth2) return Promise.resolve();
   return new Promise((resolve, reject) => {
@@ -153,16 +185,20 @@ async function resolveUser(token: string): Promise<AuthUser> {
  */
 export async function signIn(): Promise<AuthUser> {
   const token = await requestToken("consent");
-  return resolveUser(token);
+  const user = await resolveUser(token);
+  limpiarSesionCerradaManualmente();
+  return user;
 }
 
 /**
  * Intenta recuperar la sesión sin mostrar ningún diálogo (se usa al cargar
  * la app). Si el navegador todavía tiene la sesión de Google activa y ya
  * diste consentimiento antes, esto entra directo sin pedir login de nuevo;
- * si no, devuelve null y se muestra la pantalla de login normal.
+ * si no, devuelve null y se muestra la pantalla de login normal. Si el
+ * usuario cerró sesión a propósito la última vez, ni siquiera lo intenta.
  */
 export async function trySilentSignIn(): Promise<AuthUser | null> {
+  if (sesionFueCerradaManualmente()) return null;
   try {
     const token = await requestToken("");
     return await resolveUser(token);
@@ -171,10 +207,18 @@ export async function trySilentSignIn(): Promise<AuthUser | null> {
   }
 }
 
-export async function signOut(): Promise<void> {
+/**
+ * @param manual true cuando lo dispara el usuario desde el botón "Cerrar
+ * sesión" (evita que el próximo reload reintente el login silencioso).
+ * false para el cierre interno que hace resolveUser() cuando el correo no
+ * está autorizado — ese caso no debe bloquear futuros intentos silenciosos
+ * con la cuenta correcta.
+ */
+export async function signOut(manual = false): Promise<void> {
   const token = accessToken;
   accessToken = null;
   tokenExpiresAt = 0;
+  if (manual) marcarSesionCerradaManualmente();
   if (!token || !window.google) return;
   await new Promise<void>((resolve) => window.google!.accounts.oauth2.revoke(token, () => resolve()));
 }

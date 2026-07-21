@@ -1,9 +1,7 @@
 import { ABONOS_DEUDAS_SHEET, CONTRAPARTES_SHEET, DEUDAS_SHEET, TIPOS_DEUDA_SHEET } from "../api/spreadsheet-bootstrap";
 import { appendRecord, deleteRecord, listRecords, updateRecord, type SheetRow } from "../api/records";
-import { parseDateInput, todayISO } from "./format";
 
 export type Direccion = "YoDebo" | "MeDeben";
-export type PeriodicidadInteres = "Anual" | "Mensual";
 export type EstadoDeuda = "Activa" | "Pagada";
 export type TipoEventoAbono = "Abono" | "MontoAgregado";
 
@@ -13,10 +11,10 @@ export interface Deuda {
   direccion: Direccion;
   contraparte: string;
   tipo: string;
-  montoOriginal: number;
-  tasaInteres: number;
-  periodicidadInteres: PeriodicidadInteres;
-  pagoMinimo: number;
+  /** Monto total real de la deuda (puede diferir de montoCuota × numCuotas por redondeo). */
+  montoDeuda: number;
+  montoCuota: number;
+  numCuotas: number;
   diaPago: string;
   fechaInicio: string;
   notas: string;
@@ -29,8 +27,6 @@ export interface EventoAbono {
   fecha: string;
   tipo: TipoEventoAbono;
   monto: number;
-  montoInteres: number;
-  montoCapital: number;
   nota: string;
 }
 
@@ -40,10 +36,9 @@ function parseDeuda(r: SheetRow): Deuda {
     direccion = "",
     contraparte = "",
     tipo = "",
-    montoOriginal = "0",
-    tasaInteres = "0",
-    periodicidadInteres = "",
-    pagoMinimo = "0",
+    montoDeuda = "0",
+    montoCuota = "0",
+    numCuotas = "0",
     diaPago = "",
     fechaInicio = "",
     notas = "",
@@ -55,10 +50,9 @@ function parseDeuda(r: SheetRow): Deuda {
     direccion: direccion === "MeDeben" ? "MeDeben" : "YoDebo",
     contraparte,
     tipo,
-    montoOriginal: Number(montoOriginal) || 0,
-    tasaInteres: Number(tasaInteres) || 0,
-    periodicidadInteres: periodicidadInteres === "Mensual" ? "Mensual" : "Anual",
-    pagoMinimo: Number(pagoMinimo) || 0,
+    montoDeuda: Number(montoDeuda) || 0,
+    montoCuota: Number(montoCuota) || 0,
+    numCuotas: Number(numCuotas) || 0,
     diaPago,
     fechaInicio,
     notas,
@@ -67,28 +61,25 @@ function parseDeuda(r: SheetRow): Deuda {
 }
 
 function parseEvento(r: SheetRow): EventoAbono {
-  const [idDeuda = "", fecha = "", tipo = "", monto = "0", montoInteres = "0", montoCapital = "0", nota = ""] =
-    r.values;
+  const [idDeuda = "", fecha = "", tipo = "", monto = "0", nota = ""] = r.values;
   return {
     row: r.row,
     idDeuda,
     fecha,
     tipo: tipo === "MontoAgregado" ? "MontoAgregado" : "Abono",
     monto: Number(monto) || 0,
-    montoInteres: Number(montoInteres) || 0,
-    montoCapital: Number(montoCapital) || 0,
     nota,
   };
 }
 
 export async function listDeudas(spreadsheetId: string, direccion: Direccion): Promise<Deuda[]> {
-  const rows = await listRecords(spreadsheetId, DEUDAS_SHEET, 12);
+  const rows = await listRecords(spreadsheetId, DEUDAS_SHEET, 11);
   return rows.map(parseDeuda).filter((d) => d.direccion === direccion);
 }
 
 /** Todos los eventos de una vez, para calcular varias deudas sin hacer N llamadas a la hoja. */
 export async function listTodosLosEventos(spreadsheetId: string): Promise<EventoAbono[]> {
-  const rows = await listRecords(spreadsheetId, ABONOS_DEUDAS_SHEET, 7);
+  const rows = await listRecords(spreadsheetId, ABONOS_DEUDAS_SHEET, 5);
   return rows.map(parseEvento);
 }
 
@@ -102,114 +93,60 @@ export function agruparEventosPorDeuda(eventos: EventoAbono[]): Map<string, Even
   return map;
 }
 
-function tasaMensual(deuda: Deuda): number {
-  const tasa = deuda.tasaInteres / 100;
-  return deuda.periodicidadInteres === "Anual" ? tasa / 12 : tasa;
-}
-
-function mesesEntre(desde: string, hasta: string): number {
-  const d1 = parseDateInput(desde);
-  const d2 = parseDateInput(hasta);
-  const dias = (d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24);
-  return Math.max(0, dias / 30);
-}
-
 export interface EstadoCalculado {
-  saldoCapital: number;
-  interesPendiente: number;
-  totalHoy: number;
+  saldoPendiente: number;
   totalAbonado: number;
+  /** Redondeado hacia arriba: cuántas cuotas del tamaño actual harían falta para cubrir el saldo. */
+  cuotasRestantes: number;
   progresoPct: number;
 }
 
 /**
- * Recorre los eventos en orden cronológico acumulando interés mes a mes
- * sobre el capital pendiente (aproximación mensual: días/30, no interés
- * bancario diario exacto). Un abono paga primero el interés acumulado y el
- * resto reduce capital; un "monto agregado" (fusión de otra deuda) suma
- * directo al capital. Al final acumula el interés desde el último evento
- * hasta la fecha de corte.
+ * Sin interés: el monto de la deuda solo baja con abonos y solo sube con un
+ * "monto agregado" (fusión de otra deuda). Si un abono es mayor o menor que
+ * la cuota, el saldo (y por lo tanto las cuotas restantes, que se derivan de
+ * él) se ajusta automáticamente — no hay un contador de cuotas que llevar
+ * aparte.
  */
-export function calcularEstadoDeuda(deuda: Deuda, eventos: EventoAbono[], hoy: string = todayISO()): EstadoCalculado {
-  const ordenados = [...eventos].sort((a, b) => a.fecha.localeCompare(b.fecha));
-  const tasa = tasaMensual(deuda);
-
-  let capital = deuda.montoOriginal;
-  let interesAcumulado = 0;
-  let fechaUltimoEvento = deuda.fechaInicio;
+export function calcularEstadoDeuda(deuda: Deuda, eventos: EventoAbono[]): EstadoCalculado {
+  let monto = deuda.montoDeuda;
   let totalAbonado = 0;
 
-  for (const evento of ordenados) {
-    const meses = tasa > 0 ? mesesEntre(fechaUltimoEvento, evento.fecha) : 0;
-    interesAcumulado += capital * tasa * meses;
-    fechaUltimoEvento = evento.fecha;
-
+  for (const evento of eventos) {
     if (evento.tipo === "MontoAgregado") {
-      capital += evento.monto;
+      monto += evento.monto;
     } else {
       totalAbonado += evento.monto;
-      const aInteres = Math.min(evento.monto, interesAcumulado);
-      interesAcumulado -= aInteres;
-      capital = Math.max(0, capital - (evento.monto - aInteres));
     }
   }
 
-  const mesesFinales = tasa > 0 ? mesesEntre(fechaUltimoEvento, hoy) : 0;
-  interesAcumulado += capital * tasa * mesesFinales;
-
-  const totalHoy = capital + interesAcumulado;
-  const totalConLoAbonado = totalAbonado + totalHoy;
+  const saldoPendiente = Math.max(0, monto - totalAbonado);
+  const cuotasRestantes = deuda.montoCuota > 0 ? Math.ceil(saldoPendiente / deuda.montoCuota) : 0;
+  const totalConLoAbonado = totalAbonado + saldoPendiente;
   const progresoPct = totalConLoAbonado > 0 ? Math.min(100, (totalAbonado / totalConLoAbonado) * 100) : 0;
 
-  return {
-    saldoCapital: Math.max(0, capital),
-    interesPendiente: Math.max(0, interesAcumulado),
-    totalHoy: Math.max(0, totalHoy),
-    totalAbonado,
-    progresoPct,
-  };
-}
-
-/** Cómo se dividiría un abono nuevo (interés vs capital) sin aplicarlo todavía, para guardar el desglose. */
-export function previsualizarAbono(
-  deuda: Deuda,
-  eventos: EventoAbono[],
-  fecha: string,
-  monto: number,
-): { montoInteres: number; montoCapital: number } {
-  const estado = calcularEstadoDeuda(deuda, eventos, fecha);
-  const aInteres = Math.min(monto, estado.interesPendiente);
-  return { montoInteres: aInteres, montoCapital: monto - aInteres };
+  return { saldoPendiente, totalAbonado, cuotasRestantes, progresoPct };
 }
 
 export interface EventoConSaldo {
   evento: EventoAbono;
-  saldoCapitalDespues: number;
-  interesPendienteDespues: number;
+  saldoPendienteDespues: number;
 }
 
-/** Historial cronológico con el saldo de capital/interés que queda después de cada evento (para auditar). */
+/** Historial cronológico con el saldo pendiente que queda después de cada evento (para auditar). */
 export function historialConSaldos(deuda: Deuda, eventos: EventoAbono[]): EventoConSaldo[] {
   const ordenados = [...eventos].sort((a, b) => a.fecha.localeCompare(b.fecha));
-  const tasa = tasaMensual(deuda);
-  let capital = deuda.montoOriginal;
-  let interesAcumulado = 0;
-  let fechaUltimoEvento = deuda.fechaInicio;
+  let monto = deuda.montoDeuda;
+  let totalAbonado = 0;
   const resultado: EventoConSaldo[] = [];
 
   for (const evento of ordenados) {
-    const meses = tasa > 0 ? mesesEntre(fechaUltimoEvento, evento.fecha) : 0;
-    interesAcumulado += capital * tasa * meses;
-    fechaUltimoEvento = evento.fecha;
-
     if (evento.tipo === "MontoAgregado") {
-      capital += evento.monto;
+      monto += evento.monto;
     } else {
-      const aInteres = Math.min(evento.monto, interesAcumulado);
-      interesAcumulado -= aInteres;
-      capital = Math.max(0, capital - (evento.monto - aInteres));
+      totalAbonado += evento.monto;
     }
-    resultado.push({ evento, saldoCapitalDespues: capital, interesPendienteDespues: interesAcumulado });
+    resultado.push({ evento, saldoPendienteDespues: Math.max(0, monto - totalAbonado) });
   }
 
   return resultado;
@@ -219,10 +156,9 @@ export interface NuevaDeuda {
   direccion: Direccion;
   contraparte: string;
   tipo: string;
-  montoOriginal: number;
-  tasaInteres: number;
-  periodicidadInteres: PeriodicidadInteres;
-  pagoMinimo: number;
+  montoDeuda: number;
+  montoCuota: number;
+  numCuotas: number;
   diaPago: string;
   fechaInicio: string;
   notas: string;
@@ -235,10 +171,9 @@ export async function crearDeuda(spreadsheetId: string, deuda: NuevaDeuda): Prom
     deuda.direccion,
     deuda.contraparte,
     deuda.tipo,
-    deuda.montoOriginal,
-    deuda.tasaInteres,
-    deuda.periodicidadInteres,
-    deuda.pagoMinimo,
+    deuda.montoDeuda,
+    deuda.montoCuota,
+    deuda.numCuotas,
     deuda.diaPago,
     deuda.fechaInicio,
     deuda.notas,
@@ -253,10 +188,9 @@ export async function actualizarDeuda(spreadsheetId: string, deuda: Deuda, cambi
     cambios.direccion,
     cambios.contraparte,
     cambios.tipo,
-    cambios.montoOriginal,
-    cambios.tasaInteres,
-    cambios.periodicidadInteres,
-    cambios.pagoMinimo,
+    cambios.montoDeuda,
+    cambios.montoCuota,
+    cambios.numCuotas,
     cambios.diaPago,
     cambios.fechaInicio,
     cambios.notas,
@@ -274,10 +208,9 @@ async function setEstadoDeuda(spreadsheetId: string, deuda: Deuda, estado: Estad
     deuda.direccion,
     deuda.contraparte,
     deuda.tipo,
-    deuda.montoOriginal,
-    deuda.tasaInteres,
-    deuda.periodicidadInteres,
-    deuda.pagoMinimo,
+    deuda.montoDeuda,
+    deuda.montoCuota,
+    deuda.numCuotas,
     deuda.diaPago,
     deuda.fechaInicio,
     deuda.notas,
@@ -293,25 +226,15 @@ export async function reabrirDeuda(spreadsheetId: string, deuda: Deuda): Promise
   await setEstadoDeuda(spreadsheetId, deuda, "Activa");
 }
 
-/** Registra un abono calculando cuánto va a interés y cuánto a capital según el estado actual de la deuda. */
+/** Registra un abono (o un pago distinto a la cuota, de más o de menos): se resta directo del saldo. */
 export async function registrarAbono(
   spreadsheetId: string,
   deuda: Deuda,
-  eventosActuales: EventoAbono[],
   fecha: string,
   monto: number,
   nota: string,
 ): Promise<void> {
-  const { montoInteres, montoCapital } = previsualizarAbono(deuda, eventosActuales, fecha, monto);
-  await appendRecord(spreadsheetId, ABONOS_DEUDAS_SHEET, [
-    deuda.id,
-    fecha,
-    "Abono",
-    monto,
-    montoInteres,
-    montoCapital,
-    nota,
-  ]);
+  await appendRecord(spreadsheetId, ABONOS_DEUDAS_SHEET, [deuda.id, fecha, "Abono", monto, nota]);
 }
 
 /** Fusiona un monto nuevo dentro de una deuda existente activa (flujo de "sumar a la deuda existente"). */
@@ -322,7 +245,7 @@ export async function agregarMontoADeuda(
   monto: number,
   nota: string,
 ): Promise<void> {
-  await appendRecord(spreadsheetId, ABONOS_DEUDAS_SHEET, [deuda.id, fecha, "MontoAgregado", monto, 0, monto, nota]);
+  await appendRecord(spreadsheetId, ABONOS_DEUDAS_SHEET, [deuda.id, fecha, "MontoAgregado", monto, nota]);
 }
 
 export function buscarDeudaActivaPorContraparte(
@@ -348,32 +271,29 @@ export function listContrapartes(deudas: Deuda[]): string[] {
   return nombres;
 }
 
-export function sumTotalHoy(deudas: Deuda[], eventosPorDeuda: Map<string, EventoAbono[]>): number {
+export function sumSaldoPendiente(deudas: Deuda[], eventosPorDeuda: Map<string, EventoAbono[]>): number {
   return deudas
     .filter((d) => d.estado === "Activa")
-    .reduce((s, d) => s + calcularEstadoDeuda(d, eventosPorDeuda.get(d.id) ?? []).totalHoy, 0);
+    .reduce((s, d) => s + calcularEstadoDeuda(d, eventosPorDeuda.get(d.id) ?? []).saldoPendiente, 0);
 }
 
-/** Estima en cuántos meses se termina de pagar, con el promedio de abonos o el pago mínimo si no hay historial. */
+/** Suma la cuota mensual de las deudas activas que todavía tienen saldo pendiente — para descontar de "disponible este mes". */
+export function sumCuotasMensualesActivas(deudas: Deuda[], eventosPorDeuda: Map<string, EventoAbono[]>): number {
+  return deudas
+    .filter((d) => d.estado === "Activa" && calcularEstadoDeuda(d, eventosPorDeuda.get(d.id) ?? []).saldoPendiente > 0)
+    .reduce((s, d) => s + d.montoCuota, 0);
+}
+
+/** Estima en cuántos meses se termina de pagar, con el promedio de abonos o la cuota si no hay historial. */
 export function estimarMesesRestantes(deuda: Deuda, eventos: EventoAbono[]): number | null {
   const estado = calcularEstadoDeuda(deuda, eventos);
-  if (estado.totalHoy <= 0) return 0;
+  if (estado.saldoPendiente <= 0) return 0;
 
   const abonos = eventos.filter((e) => e.tipo === "Abono");
-  const promedioAbono =
-    abonos.length > 0 ? abonos.reduce((s, e) => s + e.monto, 0) / abonos.length : deuda.pagoMinimo;
+  const promedioAbono = abonos.length > 0 ? abonos.reduce((s, e) => s + e.monto, 0) / abonos.length : deuda.montoCuota;
   if (!promedioAbono || promedioAbono <= 0) return null;
 
-  const tasa = tasaMensual(deuda);
-  let saldo = estado.totalHoy;
-  let meses = 0;
-  const LIMITE = 600;
-  while (saldo > 0 && meses < LIMITE) {
-    saldo += saldo * tasa;
-    saldo -= promedioAbono;
-    meses++;
-  }
-  return saldo > 0 ? null : meses;
+  return Math.ceil(estado.saldoPendiente / promedioAbono);
 }
 
 /** "vencida" si ya pasó el día de pago sin abono este mes; "proxima" si faltan 5 días o menos. */

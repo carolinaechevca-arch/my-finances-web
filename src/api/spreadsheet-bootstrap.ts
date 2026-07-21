@@ -73,10 +73,9 @@ export const SHEET_DEFINITIONS: SheetDefinition[] = [
       "Direccion",
       "Contraparte",
       "Tipo",
-      "MontoOriginal",
-      "TasaInteres",
-      "PeriodicidadInteres",
-      "PagoMinimo",
+      "MontoDeuda",
+      "MontoCuota",
+      "NumCuotas",
       "DiaPago",
       "FechaInicio",
       "Notas",
@@ -85,7 +84,7 @@ export const SHEET_DEFINITIONS: SheetDefinition[] = [
   },
   {
     name: ABONOS_DEUDAS_SHEET,
-    headers: ["IdDeuda", "Fecha", "Tipo", "Monto", "MontoInteres", "MontoCapital", "Nota"],
+    headers: ["IdDeuda", "Fecha", "Tipo", "Monto", "Nota"],
   },
   {
     name: METAS_SHEET,

@@ -5,6 +5,7 @@ import fileTimeIcon from "../icon/file-time.svg?raw";
 import financeIcon from "../icon/finance.svg?raw";
 import homeDollarIcon from "../icon/home-dollar.svg?raw";
 import menuIcon from "../icon/menu-2.svg?raw";
+import moneybagPlusIcon from "../icon/moneybag-plus.svg?raw";
 import pigMoneyIcon from "../icon/pig-money.svg?raw";
 import shoppingCartIcon from "../icon/shopping-cart.svg?raw";
 import type { AuthUser } from "../auth/google-auth";
@@ -23,7 +24,7 @@ export const NAV_SECTIONS: NavSection[] = [
   { id: "gastos-personales", label: "Gastos y Compras", icon: `<span class="nav-icon nav-icon--white">${shoppingCartIcon}</span>` },
   { id: "deudas", label: "Deudas", icon: `<span class="nav-icon nav-icon--white">${pigMoneyIcon}</span>` },
   { id: "me-deben", label: "Me Deben", icon: `<span class="nav-icon nav-icon--white">${businessplanIcon}</span>` },
-  { id: "ahorros", label: "Ahorros y Metas", icon: "🐷" },
+  { id: "ahorros", label: "Ahorros y Metas", icon: `<span class="nav-icon nav-icon--white">${moneybagPlusIcon}</span>` },
   { id: "historico", label: "Histórico", icon: `<span class="nav-icon nav-icon--white">${fileTimeIcon}</span>` },
 ];
 

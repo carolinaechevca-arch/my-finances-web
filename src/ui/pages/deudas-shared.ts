@@ -23,12 +23,11 @@ import {
   marcarDeudaPagada,
   reabrirDeuda,
   registrarAbono,
-  sumTotalHoy,
+  sumSaldoPendiente,
   type Deuda,
   type Direccion,
   type EventoAbono,
   type NuevaDeuda,
-  type PeriodicidadInteres,
 } from "../../domain/deudas";
 import { formatMoney, todayISO } from "../../domain/format";
 import { showAbonoDialog, showAlert, showConfirm, showMergeChoice } from "../components/dialogs";
@@ -64,16 +63,9 @@ export async function renderDeudasModulo(container: HTMLElement, config: ModuloD
           <label>Tipo</label>
           <div id="dd-tipo-mount"></div>
         </div>
-        <div class="field"><label for="dd-monto">Monto original</label><input id="dd-monto" type="number" min="0" step="0.01" required /></div>
-        <div class="field"><label for="dd-tasa">Tasa de interés (%)</label><input id="dd-tasa" type="number" min="0" step="0.01" value="0" /></div>
-        <div class="field">
-          <label for="dd-periodicidad">Periodicidad</label>
-          <select id="dd-periodicidad">
-            <option value="Mensual">Mensual</option>
-            <option value="Anual">Anual</option>
-          </select>
-        </div>
-        <div class="field"><label for="dd-pago-minimo">Pago mínimo mensual</label><input id="dd-pago-minimo" type="number" min="0" step="0.01" value="0" /></div>
+        <div class="field"><label for="dd-cuota">Monto de la cuota</label><input id="dd-cuota" type="number" min="0" step="0.01" required /></div>
+        <div class="field"><label for="dd-num-cuotas">Número de cuotas</label><input id="dd-num-cuotas" type="number" min="1" step="1" required /></div>
+        <div class="field"><label for="dd-monto">Monto total de la deuda</label><input id="dd-monto" type="number" min="0" step="0.01" required /></div>
         <div class="field"><label for="dd-dia-pago">Día de pago (opcional)</label><input id="dd-dia-pago" type="number" min="1" max="31" /></div>
         <div class="field"><label for="dd-fecha-inicio">Fecha de inicio</label><input id="dd-fecha-inicio" type="date" value="${todayISO()}" required /></div>
         <div class="field"><label for="dd-notas">Notas (opcional)</label><input id="dd-notas" type="text" /></div>
@@ -100,16 +92,9 @@ export async function renderDeudasModulo(container: HTMLElement, config: ModuloD
           <label>Tipo</label>
           <div id="edit-tipo-mount"></div>
         </div>
-        <div class="field"><label for="edit-monto">Monto original</label><input id="edit-monto" type="number" min="0" step="0.01" required /></div>
-        <div class="field"><label for="edit-tasa">Tasa de interés (%)</label><input id="edit-tasa" type="number" min="0" step="0.01" /></div>
-        <div class="field">
-          <label for="edit-periodicidad">Periodicidad</label>
-          <select id="edit-periodicidad">
-            <option value="Mensual">Mensual</option>
-            <option value="Anual">Anual</option>
-          </select>
-        </div>
-        <div class="field"><label for="edit-pago-minimo">Pago mínimo mensual</label><input id="edit-pago-minimo" type="number" min="0" step="0.01" /></div>
+        <div class="field"><label for="edit-cuota">Monto de la cuota</label><input id="edit-cuota" type="number" min="0" step="0.01" required /></div>
+        <div class="field"><label for="edit-num-cuotas">Número de cuotas</label><input id="edit-num-cuotas" type="number" min="1" step="1" required /></div>
+        <div class="field"><label for="edit-monto">Monto total de la deuda</label><input id="edit-monto" type="number" min="0" step="0.01" required /></div>
         <div class="field"><label for="edit-dia-pago">Día de pago (opcional)</label><input id="edit-dia-pago" type="number" min="1" max="31" /></div>
         <div class="field"><label for="edit-fecha-inicio">Fecha de inicio</label><input id="edit-fecha-inicio" type="date" required /></div>
         <div class="field"><label for="edit-notas">Notas</label><input id="edit-notas" type="text" /></div>
@@ -171,9 +156,8 @@ export async function renderDeudasModulo(container: HTMLElement, config: ModuloD
   const formError = container.querySelector<HTMLParagraphElement>("#deuda-form-error")!;
   const submitBtn = form.querySelector<HTMLButtonElement>('button[type="submit"]')!;
   const montoInput = container.querySelector<HTMLInputElement>("#dd-monto")!;
-  const tasaInput = container.querySelector<HTMLInputElement>("#dd-tasa")!;
-  const periodicidadSelect = container.querySelector<HTMLSelectElement>("#dd-periodicidad")!;
-  const pagoMinimoInput = container.querySelector<HTMLInputElement>("#dd-pago-minimo")!;
+  const cuotaInput = container.querySelector<HTMLInputElement>("#dd-cuota")!;
+  const numCuotasInput = container.querySelector<HTMLInputElement>("#dd-num-cuotas")!;
   const diaPagoInput = container.querySelector<HTMLInputElement>("#dd-dia-pago")!;
   const fechaInicioInput = container.querySelector<HTMLInputElement>("#dd-fecha-inicio")!;
   const notasInput = container.querySelector<HTMLInputElement>("#dd-notas")!;
@@ -183,9 +167,8 @@ export async function renderDeudasModulo(container: HTMLElement, config: ModuloD
   const editModalError = container.querySelector<HTMLParagraphElement>("#edit-modal-error")!;
   const editModalCancel = container.querySelector<HTMLButtonElement>("#edit-modal-cancel")!;
   const editMontoInput = container.querySelector<HTMLInputElement>("#edit-monto")!;
-  const editTasaInput = container.querySelector<HTMLInputElement>("#edit-tasa")!;
-  const editPeriodicidadSelect = container.querySelector<HTMLSelectElement>("#edit-periodicidad")!;
-  const editPagoMinimoInput = container.querySelector<HTMLInputElement>("#edit-pago-minimo")!;
+  const editCuotaInput = container.querySelector<HTMLInputElement>("#edit-cuota")!;
+  const editNumCuotasInput = container.querySelector<HTMLInputElement>("#edit-num-cuotas")!;
   const editDiaPagoInput = container.querySelector<HTMLInputElement>("#edit-dia-pago")!;
   const editFechaInicioInput = container.querySelector<HTMLInputElement>("#edit-fecha-inicio")!;
   const editNotasInput = container.querySelector<HTMLInputElement>("#edit-notas")!;
@@ -409,6 +392,23 @@ export async function renderDeudasModulo(container: HTMLElement, config: ModuloD
   });
   container.querySelector("#edit-tipo-mount")!.appendChild(editTipoCombo.el);
 
+  /** Mientras el usuario no toque "Monto total" a mano, lo sugerimos como cuota × número de cuotas. */
+  function conectarSugerenciaMonto(cuota: HTMLInputElement, numCuotas: HTMLInputElement, monto: HTMLInputElement): () => void {
+    let montoTocadoManualmente = false;
+    monto.addEventListener("input", () => { montoTocadoManualmente = true; });
+    const sugerir = () => {
+      if (montoTocadoManualmente) return;
+      const c = Number(cuota.value) || 0;
+      const n = Number(numCuotas.value) || 0;
+      if (c > 0 && n > 0) monto.value = String(c * n);
+    };
+    cuota.addEventListener("input", sugerir);
+    numCuotas.addEventListener("input", sugerir);
+    return () => { montoTocadoManualmente = false; };
+  }
+  const resetSugerenciaMonto = conectarSugerenciaMonto(cuotaInput, numCuotasInput, montoInput);
+  const resetSugerenciaMontoEdit = conectarSugerenciaMonto(editCuotaInput, editNumCuotasInput, editMontoInput);
+
   historialModalClose.addEventListener("click", () => historialModal.close());
 
   function openHistorialModal(deuda: Deuda): void {
@@ -419,15 +419,15 @@ export async function renderDeudasModulo(container: HTMLElement, config: ModuloD
       historialListEl.innerHTML = `<p class="empty-state">Aún no hay abonos registrados.</p>`;
     } else {
       historialListEl.innerHTML = historial
-        .map(({ evento, saldoCapitalDespues, interesPendienteDespues }) => {
+        .map(({ evento, saldoPendienteDespues }) => {
           const esFusion = evento.tipo === "MontoAgregado";
           return `
             <div class="record-row">
               <div class="record-row__main">
                 <span class="record-row__title">${esFusion ? "Monto agregado" : "Abono"} — ${evento.fecha}</span>
                 <span class="record-row__subtitle">
-                  ${esFusion ? "Se sumó a la deuda" : `Interés ${formatMoney(evento.montoInteres)} · Capital ${formatMoney(evento.montoCapital)}`}
-                  ${evento.nota ? ` · ${evento.nota}` : ""} · Saldo después: ${formatMoney(saldoCapitalDespues + interesPendienteDespues)}
+                  ${esFusion ? "Se sumó a la deuda" : ""}
+                  ${evento.nota ? ` · ${evento.nota}` : ""} · Saldo después: ${formatMoney(saldoPendienteDespues)}
                 </span>
               </div>
               <div class="record-row__amount">${esFusion ? "+" : "-"}${formatMoney(evento.monto)}</div>
@@ -449,18 +449,12 @@ export async function renderDeudasModulo(container: HTMLElement, config: ModuloD
   function proyeccionTexto(deuda: Deuda): string {
     const eventos = eventosPorDeuda.get(deuda.id) ?? [];
     const meses = estimarMesesRestantes(deuda, eventos);
-    if (meses === null) return "A este ritmo no se alcanza a cubrir el interés — no se terminará de pagar así.";
+    if (meses === null) return "";
     if (meses === 0) return "¡Ya está saldada!";
     const fecha = new Date();
     fecha.setMonth(fecha.getMonth() + meses);
     const fechaLabel = fecha.toLocaleDateString("es-CO", { month: "long", year: "numeric" });
     return `A este ritmo, se termina de pagar en aproximadamente ${meses} ${meses === 1 ? "mes" : "meses"} (${fechaLabel}).`;
-  }
-
-  function tasaBadge(deuda: Deuda): string {
-    if (!deuda.tasaInteres) return "";
-    const periodo = deuda.periodicidadInteres === "Anual" ? "anual" : "mensual";
-    return `<span class="badge">${deuda.tasaInteres}% ${periodo}</span>`;
   }
 
   function renderDeudaCard(deuda: Deuda): HTMLDivElement {
@@ -474,7 +468,6 @@ export async function renderDeudasModulo(container: HTMLElement, config: ModuloD
         <div>
           <span class="deuda-card__contraparte">${deuda.contraparte}</span>
           <span class="badge">${deuda.tipo}</span>
-          ${tasaBadge(deuda)}
           ${pagada ? `<span class="badge badge--fijo">Pagada</span>` : alertaBadge(deuda)}
         </div>
         <div class="deuda-card__actions">
@@ -484,15 +477,15 @@ export async function renderDeudasModulo(container: HTMLElement, config: ModuloD
       </div>
       ${
         pagada
-          ? `<p class="empty-state" style="margin:0">Monto original ${formatMoney(deuda.montoOriginal)} · Total pagado ${formatMoney(estado.totalAbonado)}</p>`
+          ? `<p class="empty-state" style="margin:0">Monto de la deuda ${formatMoney(deuda.montoDeuda)} · Total pagado ${formatMoney(estado.totalAbonado)}</p>`
           : `
       <div class="progress-bar"><div class="progress-bar__fill" style="width:${estado.progresoPct}%"></div></div>
       <div class="deuda-card__stats">
-        <div class="deuda-card__stat"><span class="deuda-card__stat-label">Saldo capital</span><span class="deuda-card__stat-value">${formatMoney(estado.saldoCapital)}</span></div>
-        <div class="deuda-card__stat"><span class="deuda-card__stat-label">Interés pendiente</span><span class="deuda-card__stat-value">${formatMoney(estado.interesPendiente)}</span></div>
-        <div class="deuda-card__stat"><span class="deuda-card__stat-label">Total hoy</span><span class="deuda-card__stat-value deuda-card__stat-value--total">${formatMoney(estado.totalHoy)}</span></div>
+        <div class="deuda-card__stat"><span class="deuda-card__stat-label">Saldo pendiente</span><span class="deuda-card__stat-value deuda-card__stat-value--total">${formatMoney(estado.saldoPendiente)}</span></div>
+        <div class="deuda-card__stat"><span class="deuda-card__stat-label">Cuota</span><span class="deuda-card__stat-value">${formatMoney(deuda.montoCuota)}</span></div>
+        <div class="deuda-card__stat"><span class="deuda-card__stat-label">Cuotas restantes</span><span class="deuda-card__stat-value">${estado.cuotasRestantes} de ${deuda.numCuotas}</span></div>
       </div>
-      <p class="empty-state" style="margin:10px 0 0">${deuda.diaPago ? `Próximo pago: día ${deuda.diaPago} · ` : ""}Mínimo ${formatMoney(deuda.pagoMinimo)}</p>
+      <p class="empty-state" style="margin:10px 0 0">${deuda.diaPago ? `Próximo pago: día ${deuda.diaPago} · ` : ""}Cuota ${formatMoney(deuda.montoCuota)}</p>
       <p class="empty-state" style="margin:4px 0 0">${proyeccionTexto(deuda)}</p>`
       }
       <div class="deuda-card__footer">
@@ -516,18 +509,16 @@ export async function renderDeudasModulo(container: HTMLElement, config: ModuloD
 
     const abonarBtn = card.querySelector<HTMLButtonElement>('[data-action="abonar"]');
     abonarBtn?.addEventListener("click", async () => {
-      const resultado = await showAbonoDialog(`Registrar abono — ${deuda.contraparte}`, deuda.pagoMinimo || undefined);
+      const resultado = await showAbonoDialog(`Registrar abono — ${deuda.contraparte}`, deuda.montoCuota || undefined);
       if (!resultado) return;
-      void runAction(() =>
-        registrarAbono(spreadsheetId, deuda, eventosPorDeuda.get(deuda.id) ?? [], resultado.fecha, resultado.monto, resultado.nota),
-      );
+      void runAction(() => registrarAbono(spreadsheetId, deuda, resultado.fecha, resultado.monto, resultado.nota));
     });
 
     const pagadaBtn = card.querySelector<HTMLButtonElement>('[data-action="pagada"]');
     pagadaBtn?.addEventListener("click", async () => {
       const mensaje =
-        estado.totalHoy > 0
-          ? `Esta deuda todavía tiene un saldo de ${formatMoney(estado.totalHoy)}. ¿Confirmas marcarla como pagada de todas formas?`
+        estado.saldoPendiente > 0
+          ? `Esta deuda todavía tiene un saldo de ${formatMoney(estado.saldoPendiente)}. ¿Confirmas marcarla como pagada de todas formas?`
           : `¿Marcar la deuda con "${deuda.contraparte}" como pagada?`;
       const ok = await showConfirm(mensaje, { title: "Marcar como pagada", confirmLabel: "Marcar pagada" });
       if (!ok) return;
@@ -544,7 +535,7 @@ export async function renderDeudasModulo(container: HTMLElement, config: ModuloD
     const activas = deudas.filter((d) => d.estado === "Activa");
     const pagadas = deudas.filter((d) => d.estado === "Pagada");
 
-    totalEl.textContent = formatMoney(sumTotalHoy(deudas, eventosPorDeuda));
+    totalEl.textContent = formatMoney(sumSaldoPendiente(deudas, eventosPorDeuda));
 
     activasListEl.innerHTML = "";
     if (activas.length === 0) {
@@ -596,10 +587,10 @@ export async function renderDeudasModulo(container: HTMLElement, config: ModuloD
     editTipoValue = deuda.tipo;
     editContraparteCombo.refresh();
     editTipoCombo.refresh();
-    editMontoInput.value = String(deuda.montoOriginal);
-    editTasaInput.value = String(deuda.tasaInteres);
-    editPeriodicidadSelect.value = deuda.periodicidadInteres;
-    editPagoMinimoInput.value = String(deuda.pagoMinimo);
+    resetSugerenciaMontoEdit();
+    editMontoInput.value = String(deuda.montoDeuda);
+    editCuotaInput.value = String(deuda.montoCuota);
+    editNumCuotasInput.value = String(deuda.numCuotas);
     editDiaPagoInput.value = deuda.diaPago;
     editFechaInicioInput.value = deuda.fechaInicio;
     editNotasInput.value = deuda.notas;
@@ -630,10 +621,9 @@ export async function renderDeudasModulo(container: HTMLElement, config: ModuloD
             direccion: config.direccion,
             contraparte,
             tipo: editTipoValue,
-            montoOriginal: monto,
-            tasaInteres: Number(editTasaInput.value) || 0,
-            periodicidadInteres: editPeriodicidadSelect.value as PeriodicidadInteres,
-            pagoMinimo: Number(editPagoMinimoInput.value) || 0,
+            montoDeuda: monto,
+            montoCuota: Number(editCuotaInput.value) || 0,
+            numCuotas: Number(editNumCuotasInput.value) || 0,
             diaPago: editDiaPagoInput.value.trim(),
             fechaInicio: editFechaInicioInput.value,
             notas: editNotasInput.value.trim(),
@@ -676,10 +666,9 @@ export async function renderDeudasModulo(container: HTMLElement, config: ModuloD
       direccion: config.direccion,
       contraparte,
       tipo: formTipoValue,
-      montoOriginal: monto,
-      tasaInteres: Number(tasaInput.value) || 0,
-      periodicidadInteres: periodicidadSelect.value as PeriodicidadInteres,
-      pagoMinimo: Number(pagoMinimoInput.value) || 0,
+      montoDeuda: monto,
+      montoCuota: Number(cuotaInput.value) || 0,
+      numCuotas: Number(numCuotasInput.value) || 0,
       diaPago: diaPagoInput.value.trim(),
       fechaInicio: fechaInicioInput.value,
       notas: notasInput.value.trim(),
@@ -690,10 +679,10 @@ export async function renderDeudasModulo(container: HTMLElement, config: ModuloD
       const existente = buscarDeudaActivaPorContraparte(deudas, config.direccion, contraparte);
       if (existente) {
         const estadoExistente = calcularEstadoDeuda(existente, eventosPorDeuda.get(existente.id) ?? []);
-        const eleccion = await showMergeChoice(existente.contraparte, estadoExistente.totalHoy);
+        const eleccion = await showMergeChoice(existente.contraparte, estadoExistente.saldoPendiente);
         if (eleccion === null) return;
         if (eleccion === "fusionar") {
-          await agregarMontoADeuda(spreadsheetId, existente, nueva.fechaInicio, nueva.montoOriginal, nueva.notas);
+          await agregarMontoADeuda(spreadsheetId, existente, nueva.fechaInicio, nueva.montoDeuda, nueva.notas);
         } else {
           await crearDeuda(spreadsheetId, nueva);
         }
@@ -702,8 +691,7 @@ export async function renderDeudasModulo(container: HTMLElement, config: ModuloD
       }
       form.reset();
       fechaInicioInput.value = todayISO();
-      tasaInput.value = "0";
-      pagoMinimoInput.value = "0";
+      resetSugerenciaMonto();
       await reload();
     } catch (err) {
       formError.hidden = false;
