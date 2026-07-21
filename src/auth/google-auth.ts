@@ -167,25 +167,15 @@ async function fetchUserInfo(token: string): Promise<AuthUser> {
   return { email: data.email, name: data.name, picture: data.picture };
 }
 
-async function resolveUser(token: string): Promise<AuthUser> {
-  const user = await fetchUserInfo(token);
-
-  const allowedEmail = import.meta.env.VITE_ALLOWED_EMAIL?.toLowerCase();
-  if (!allowedEmail || user.email.toLowerCase() !== allowedEmail) {
-    await signOut();
-    throw new AuthError("Esta cuenta de Google no está autorizada para usar esta app.");
-  }
-
-  return user;
-}
-
 /**
- * Inicia sesión, valida contra la whitelist de un solo correo y devuelve el
- * usuario. Si el correo no coincide, revoca el token y lanza AuthError.
+ * Inicia sesión y devuelve el usuario. El control de acceso ya no vive en
+ * la app: quién puede autenticarse lo decide Google Cloud Console (Google
+ * Auth Platform → Público → Usuarios de prueba). Si Google deja pasar al
+ * usuario, la app confía en eso y lo deja entrar.
  */
 export async function signIn(): Promise<AuthUser> {
   const token = await requestToken("consent");
-  const user = await resolveUser(token);
+  const user = await fetchUserInfo(token);
   limpiarSesionCerradaManualmente();
   return user;
 }
@@ -201,24 +191,18 @@ export async function trySilentSignIn(): Promise<AuthUser | null> {
   if (sesionFueCerradaManualmente()) return null;
   try {
     const token = await requestToken("");
-    return await resolveUser(token);
+    return await fetchUserInfo(token);
   } catch {
     return null;
   }
 }
 
-/**
- * @param manual true cuando lo dispara el usuario desde el botón "Cerrar
- * sesión" (evita que el próximo reload reintente el login silencioso).
- * false para el cierre interno que hace resolveUser() cuando el correo no
- * está autorizado — ese caso no debe bloquear futuros intentos silenciosos
- * con la cuenta correcta.
- */
-export async function signOut(manual = false): Promise<void> {
+/** Siempre lo dispara el usuario desde el botón "Cerrar sesión" — evita que el próximo reload reintente el login silencioso. */
+export async function signOut(): Promise<void> {
   const token = accessToken;
   accessToken = null;
   tokenExpiresAt = 0;
-  if (manual) marcarSesionCerradaManualmente();
+  marcarSesionCerradaManualmente();
   if (!token || !window.google) return;
   await new Promise<void>((resolve) => window.google!.accounts.oauth2.revoke(token, () => resolve()));
 }

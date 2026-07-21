@@ -61,7 +61,7 @@ function showApp(user: AuthUser): void {
   }
 
   const shell = renderAppShell(root, user, renderSection, async () => {
-    await signOut(true);
+    await signOut();
     showLogin();
   });
   renderSection("inicio");

@@ -27,7 +27,6 @@ jobs:
       - run: npm run build
         env:
           VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID }}
-          VITE_ALLOWED_EMAIL: ${{ secrets.VITE_ALLOWED_EMAIL }}
           VITE_SPREADSHEET_ID: ${{ secrets.VITE_SPREADSHEET_ID }}
       - uses: actions/upload-pages-artifact@v3
         with:
