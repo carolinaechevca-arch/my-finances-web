@@ -7,11 +7,17 @@ import { appendRecord, deleteRecord, listRecords, updateRecord, type SheetRow } 
 import { monthKey, todayISO } from "./format";
 
 export type Recurrencia = "Fijo" | "UnicoMes";
+/** Cada cuánto se recibe un ingreso "Fijo" — solo aplica a esa recurrencia, no a "UnicoMes". */
+export type FrecuenciaIngreso = "Mensual" | "Quincenal" | "Semanal";
+
+/** Cuántas veces al mes cae cada frecuencia, para calcular el equivalente mensual de un ingreso. */
+export const OCURRENCIAS_POR_MES: Record<FrecuenciaIngreso, number> = { Mensual: 1, Quincenal: 2, Semanal: 4.33 };
 
 export interface IngresoFijo {
   id: string;
   row: number;
   tipo: string;
+  /** Monto que recibes en cada pago (no el total mensual si es quincenal o semanal). */
   monto: number;
   notas: string;
   recurrencia: Recurrencia;
@@ -19,6 +25,7 @@ export interface IngresoFijo {
   mes: string;
   activo: boolean;
   fechaCreacion: string;
+  frecuencia: FrecuenciaIngreso;
 }
 
 function parseIngreso(r: SheetRow): IngresoFijo {
@@ -31,6 +38,7 @@ function parseIngreso(r: SheetRow): IngresoFijo {
     activo = "TRUE",
     fechaCreacion = "",
     id = "",
+    frecuencia = "",
   ] = r.values;
   return {
     id,
@@ -42,7 +50,14 @@ function parseIngreso(r: SheetRow): IngresoFijo {
     mes,
     activo: activo.toUpperCase() !== "FALSE",
     fechaCreacion,
+    frecuencia: frecuencia === "Quincenal" || frecuencia === "Semanal" ? frecuencia : "Mensual",
   };
+}
+
+/** Cuánto equivale por mes: el monto tal cual si es mensual/puntual, o multiplicado por sus pagos al mes si es quincenal/semanal. */
+export function montoMensualEquivalente(ingreso: IngresoFijo): number {
+  if (ingreso.recurrencia === "UnicoMes") return ingreso.monto;
+  return ingreso.monto * OCURRENCIAS_POR_MES[ingreso.frecuencia];
 }
 
 /**
@@ -125,7 +140,7 @@ export async function listIngresosVigentes(spreadsheetId: string, date: Date = n
 
 /** Todos los ingresos registrados alguna vez, sin filtrar por mes vigente — para reconstrucción histórica. */
 export async function listTodosLosIngresos(spreadsheetId: string): Promise<IngresoFijo[]> {
-  const rows = await listRecords(spreadsheetId, INGRESOS_FIJOS_SHEET, 8);
+  const rows = await listRecords(spreadsheetId, INGRESOS_FIJOS_SHEET, 9);
   return rows.map(parseIngreso);
 }
 
@@ -157,6 +172,7 @@ export async function crearIngreso(
   monto: number,
   notas: string,
   recurrencia: Recurrencia,
+  frecuencia: FrecuenciaIngreso = "Mensual",
 ): Promise<void> {
   await appendRecord(spreadsheetId, INGRESOS_FIJOS_SHEET, [
     tipo,
@@ -167,6 +183,7 @@ export async function crearIngreso(
     "TRUE",
     new Date().toISOString().slice(0, 10),
     crypto.randomUUID(),
+    frecuencia,
   ]);
 }
 
@@ -183,6 +200,7 @@ export async function setIngresoActivo(spreadsheetId: string, ingreso: IngresoFi
     activo ? "TRUE" : "FALSE",
     ingreso.fechaCreacion,
     ingreso.id,
+    ingreso.frecuencia,
   ]);
 }
 
@@ -212,6 +230,7 @@ export interface IngresoCambios {
   monto: number;
   notas: string;
   recurrencia: Recurrencia;
+  frecuencia: FrecuenciaIngreso;
 }
 
 export async function actualizarIngreso(
@@ -231,16 +250,17 @@ export async function actualizarIngreso(
     ingreso.activo ? "TRUE" : "FALSE",
     ingreso.fechaCreacion,
     ingreso.id,
+    cambios.recurrencia === "Fijo" ? cambios.frecuencia : ingreso.frecuencia,
   ]);
 }
 
 export function sumIngresosActivos(ingresos: IngresoFijo[]): number {
-  return ingresos.filter((i) => i.activo).reduce((sum, i) => sum + i.monto, 0);
+  return ingresos.filter((i) => i.activo).reduce((sum, i) => sum + montoMensualEquivalente(i), 0);
 }
 
-/** Solo los ingresos "Fijo" (recurrentes) activos, sin contar los de "solo este mes". */
+/** Solo los ingresos "Fijo" (recurrentes) activos, sin contar los de "solo este mes" — ya convertidos a su equivalente mensual. */
 export function sumIngresosFijosRecurrentes(ingresos: IngresoFijo[]): number {
   return ingresos
     .filter((i) => i.recurrencia === "Fijo" && i.activo)
-    .reduce((sum, i) => sum + i.monto, 0);
+    .reduce((sum, i) => sum + montoMensualEquivalente(i), 0);
 }

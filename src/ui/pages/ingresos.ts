@@ -13,9 +13,11 @@ import {
   eliminarTipoIngreso,
   listIngresosVigentes,
   listTiposIngreso,
+  montoMensualEquivalente,
   setIngresoActivo,
   sumIngresosActivos,
   sumIngresosFijosRecurrentes,
+  type FrecuenciaIngreso,
   type IngresoFijo,
 } from "../../domain/ingresos";
 import { showAlert, showConfirm } from "../components/dialogs";
@@ -70,8 +72,16 @@ export async function renderIngresos(container: HTMLElement): Promise<void> {
             <option value="UnicoMes">Solo este mes</option>
           </select>
         </div>
+        <div class="field" id="ingreso-frecuencia-field">
+          <label for="ingreso-frecuencia">¿Cada cuánto te pagan?</label>
+          <select id="ingreso-frecuencia">
+            <option value="Mensual">Mensual</option>
+            <option value="Quincenal">Quincenal</option>
+            <option value="Semanal">Semanal</option>
+          </select>
+        </div>
         <div class="field">
-          <label for="ingreso-monto">Monto</label>
+          <label for="ingreso-monto">Monto por pago</label>
           <input id="ingreso-monto" type="number" min="0" step="0.01" required />
         </div>
         <div class="field">
@@ -80,6 +90,7 @@ export async function renderIngresos(container: HTMLElement): Promise<void> {
         </div>
         <button type="submit" class="btn">Guardar ingreso</button>
       </form>
+      <p class="empty-state" id="ingreso-form-equivalente" hidden></p>
       <p class="empty-state" id="ingreso-form-error" hidden></p>
     </div>
 
@@ -127,8 +138,16 @@ export async function renderIngresos(container: HTMLElement): Promise<void> {
             <option value="UnicoMes">Solo este mes</option>
           </select>
         </div>
+        <div class="field" id="edit-frecuencia-field">
+          <label for="edit-frecuencia">¿Cada cuánto te pagan?</label>
+          <select id="edit-frecuencia">
+            <option value="Mensual">Mensual</option>
+            <option value="Quincenal">Quincenal</option>
+            <option value="Semanal">Semanal</option>
+          </select>
+        </div>
         <div class="field">
-          <label for="edit-monto">Monto</label>
+          <label for="edit-monto">Monto por pago</label>
           <input id="edit-monto" type="number" min="0" step="0.01" required />
         </div>
         <div class="field">
@@ -148,9 +167,12 @@ export async function renderIngresos(container: HTMLElement): Promise<void> {
   const totalFijoEl = container.querySelector<HTMLDivElement>("#ingresos-total-fijo")!;
   const balanceEl = container.querySelector<HTMLDivElement>("#ingresos-balance")!;
   const recurrenciaSelect = container.querySelector<HTMLSelectElement>("#ingreso-recurrencia")!;
+  const frecuenciaField = container.querySelector<HTMLDivElement>("#ingreso-frecuencia-field")!;
+  const frecuenciaSelect = container.querySelector<HTMLSelectElement>("#ingreso-frecuencia")!;
   const montoInput = container.querySelector<HTMLInputElement>("#ingreso-monto")!;
   const notasInput = container.querySelector<HTMLInputElement>("#ingreso-notas")!;
   const form = container.querySelector<HTMLFormElement>("#ingreso-form")!;
+  const formEquivalente = container.querySelector<HTMLParagraphElement>("#ingreso-form-equivalente")!;
   const formError = container.querySelector<HTMLParagraphElement>("#ingreso-form-error")!;
   const listEl = container.querySelector<HTMLDivElement>("#ingresos-list")!;
   const submitBtn = form.querySelector<HTMLButtonElement>('button[type="submit"]')!;
@@ -165,6 +187,8 @@ export async function renderIngresos(container: HTMLElement): Promise<void> {
   const editModal = container.querySelector<HTMLDialogElement>("#edit-modal")!;
   const editForm = container.querySelector<HTMLFormElement>("#edit-form")!;
   const editRecurrenciaSelect = container.querySelector<HTMLSelectElement>("#edit-recurrencia")!;
+  const editFrecuenciaField = container.querySelector<HTMLDivElement>("#edit-frecuencia-field")!;
+  const editFrecuenciaSelect = container.querySelector<HTMLSelectElement>("#edit-frecuencia")!;
   const editMontoInput = container.querySelector<HTMLInputElement>("#edit-monto")!;
   const editNotasInput = container.querySelector<HTMLInputElement>("#edit-notas")!;
   const editModalError = container.querySelector<HTMLParagraphElement>("#edit-modal-error")!;
@@ -184,6 +208,40 @@ export async function renderIngresos(container: HTMLElement): Promise<void> {
     tipoCombo.refresh();
     editTipoCombo.refresh();
   }
+
+  function actualizarVisibilidadFrecuencia(): void {
+    const esUnicoMes = recurrenciaSelect.value === "UnicoMes";
+    frecuenciaField.hidden = esUnicoMes;
+    montoInput.previousElementSibling!.textContent = esUnicoMes ? "Monto" : "Monto por pago";
+    actualizarEquivalenteMensual();
+  }
+
+  function actualizarEquivalenteMensual(): void {
+    const monto = Number(montoInput.value) || 0;
+    if (recurrenciaSelect.value === "UnicoMes" || frecuenciaSelect.value === "Mensual" || monto <= 0) {
+      formEquivalente.hidden = true;
+      return;
+    }
+    const equivalente = montoMensualEquivalente({
+      recurrencia: "Fijo",
+      monto,
+      frecuencia: frecuenciaSelect.value as FrecuenciaIngreso,
+    } as IngresoFijo);
+    formEquivalente.hidden = false;
+    formEquivalente.textContent = `≈ ${formatMoney(equivalente)} al mes.`;
+  }
+
+  recurrenciaSelect.addEventListener("change", actualizarVisibilidadFrecuencia);
+  frecuenciaSelect.addEventListener("change", actualizarEquivalenteMensual);
+  montoInput.addEventListener("input", actualizarEquivalenteMensual);
+  actualizarVisibilidadFrecuencia();
+
+  function actualizarVisibilidadFrecuenciaEdit(): void {
+    const esUnicoMes = editRecurrenciaSelect.value === "UnicoMes";
+    editFrecuenciaField.hidden = esUnicoMes;
+    editMontoInput.previousElementSibling!.textContent = esUnicoMes ? "Monto" : "Monto por pago";
+  }
+  editRecurrenciaSelect.addEventListener("change", actualizarVisibilidadFrecuenciaEdit);
 
   /** Abre el modal para crear un tipo nuevo; al confirmar, lo selecciona con onDone. */
   function openTipoModal(onDone: (nombre: string) => void): void {
@@ -305,6 +363,8 @@ export async function renderIngresos(container: HTMLElement): Promise<void> {
     editTipoValue = ingreso.tipo;
     editTipoCombo.refresh();
     editRecurrenciaSelect.value = ingreso.recurrencia;
+    editFrecuenciaSelect.value = ingreso.frecuencia;
+    actualizarVisibilidadFrecuenciaEdit();
     editMontoInput.value = String(ingreso.monto);
     editNotasInput.value = ingreso.notas;
     editModalError.hidden = true;
@@ -341,6 +401,7 @@ export async function renderIngresos(container: HTMLElement): Promise<void> {
             monto,
             notas: editNotasInput.value.trim(),
             recurrencia: editRecurrenciaSelect.value === "UnicoMes" ? "UnicoMes" : "Fijo",
+            frecuencia: editFrecuenciaSelect.value as FrecuenciaIngreso,
           });
           controller.abort();
           editModal.close();
@@ -379,7 +440,7 @@ export async function renderIngresos(container: HTMLElement): Promise<void> {
         return `
           <tr data-row="${ingreso.row}">
             <td data-label="Tipo">${ingreso.tipo}</td>
-            <td data-label="Recurrencia"><span class="badge ${esFijo ? "badge--fijo" : "badge--unico"}">${esFijo ? "Fijo" : "Solo este mes"}</span></td>
+            <td data-label="Recurrencia"><span class="badge ${esFijo ? "badge--fijo" : "badge--unico"}">${esFijo ? (ingreso.frecuencia === "Mensual" ? "Fijo" : `Fijo · ${ingreso.frecuencia}`) : "Solo este mes"}</span></td>
             <td data-label="Notas" class="text-muted">${ingreso.notas || "—"}</td>
             <td data-label="Estado">${estadoCell}</td>
             <td data-label="Monto" class="text-right amount-cell">${formatMoney(ingreso.monto)}</td>
@@ -481,10 +542,13 @@ export async function renderIngresos(container: HTMLElement): Promise<void> {
         monto,
         notasInput.value.trim(),
         recurrenciaSelect.value === "UnicoMes" ? "UnicoMes" : "Fijo",
+        frecuenciaSelect.value as FrecuenciaIngreso,
       );
       montoInput.value = "";
       notasInput.value = "";
       recurrenciaSelect.value = "Fijo";
+      frecuenciaSelect.value = "Mensual";
+      actualizarVisibilidadFrecuencia();
       await reload();
     } catch (err) {
       formError.hidden = false;

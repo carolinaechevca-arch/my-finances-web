@@ -17,6 +17,7 @@ import {
 } from "./gastos";
 import { listTodosLosGastos, sumGastos, type GastoYCompra } from "./gastos-y-compras";
 import {
+  OCURRENCIAS_POR_MES,
   estadoIngresoEnFecha,
   listHistorialIngresos,
   listTodosLosIngresos,
@@ -83,7 +84,7 @@ function sumIngresosEnMes(snap: HistoricoSnapshot, mes: string): number {
     if (i.recurrencia === "UnicoMes") return i.mes === mes && i.activo ? s + i.monto : s;
     if (i.fechaCreacion && i.fechaCreacion > finMes) return s;
     const estado = estadoIngresoEnFecha(i, snap.cambiosIngresos, finMes);
-    return estado.activo ? s + estado.monto : s;
+    return estado.activo ? s + estado.monto * OCURRENCIAS_POR_MES[i.frecuencia] : s;
   }, 0);
 }
 

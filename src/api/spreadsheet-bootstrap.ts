@@ -46,7 +46,7 @@ export const SHEET_DEFINITIONS: SheetDefinition[] = [
   { name: TIPOS_INGRESO_SHEET, headers: ["Nombre"] },
   {
     name: INGRESOS_FIJOS_SHEET,
-    headers: ["Tipo", "Monto", "Notas", "Recurrencia", "Mes", "Activo", "FechaCreacion", "Id"],
+    headers: ["Tipo", "Monto", "Notas", "Recurrencia", "Mes", "Activo", "FechaCreacion", "Id", "Frecuencia"],
   },
   {
     name: HISTORIAL_INGRESOS_FIJOS_SHEET,
@@ -132,6 +132,7 @@ async function ensureSpreadsheetInternal(): Promise<{ spreadsheetId: string; cre
     await ensureSheets(existingId);
     await ensureIngresosFijosHeaders(existingId);
     await ensureIngresosFijosIds(existingId);
+    await ensureIngresosFijosFrecuencia(existingId);
     await ensureHistorialIngresosFijosHeaders(existingId);
     await ensureGastosFijosHeaders(existingId);
     await ensureGastosYComprasHeaders(existingId);
@@ -195,6 +196,40 @@ async function ensureIngresosFijosIds(spreadsheetId: string): Promise<void> {
       activo,
       fechaCreacion,
       crypto.randomUUID(),
+    ]);
+  }
+}
+
+/**
+ * Agrega la columna "Frecuencia" a IngresosFijos (para ingresos quincenales o
+ * semanales, no solo mensuales) y le rellena "Mensual" a cada fila que ya
+ * exista y todavía no tenga una. Solo toca la columna nueva.
+ */
+async function ensureIngresosFijosFrecuencia(spreadsheetId: string): Promise<void> {
+  const rows = await listRecords(spreadsheetId, INGRESOS_FIJOS_SHEET, 9);
+  for (const row of rows) {
+    const [
+      tipo = "",
+      monto = "",
+      notas = "",
+      recurrencia = "",
+      mes = "",
+      activo = "",
+      fechaCreacion = "",
+      id = "",
+      frecuencia = "",
+    ] = row.values;
+    if (frecuencia) continue;
+    await updateRecord(spreadsheetId, INGRESOS_FIJOS_SHEET, row.row, [
+      tipo,
+      monto,
+      notas,
+      recurrencia,
+      mes,
+      activo,
+      fechaCreacion,
+      id,
+      "Mensual",
     ]);
   }
 }
