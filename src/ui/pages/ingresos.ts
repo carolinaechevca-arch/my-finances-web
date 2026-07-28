@@ -2,9 +2,8 @@ import cashBanknotePlusIcon from "../../icon/cash-banknote-plus.svg?raw";
 import editIcon from "../../icon/edit.svg?raw";
 import trashIcon from "../../icon/trash-x.svg?raw";
 import { ensureSpreadsheet } from "../../api/spreadsheet-bootstrap";
+import { calcularDisponible } from "../../domain/balance";
 import { formatMoney } from "../../domain/format";
-import { listGastosFijosVigentes, sumGastosFijosTotal } from "../../domain/gastos";
-import { listGastosDelMes, sumGastos as sumGastosYCompras } from "../../domain/gastos-y-compras";
 import {
   actualizarIngreso,
   crearIngreso,
@@ -176,7 +175,8 @@ export async function renderIngresos(container: HTMLElement): Promise<void> {
   let spreadsheetId = "";
   let tipos: string[] = [];
   let currentIngresos: IngresoFijo[] = [];
-  let gastosDelPeriodoTotal = 0;
+  let periodoInicio = "";
+  let balanceDisponible = 0;
   let sortOrder: SortOrder = "tipo";
   let busy = false;
   let formTipoValue = "";
@@ -367,7 +367,7 @@ export async function renderIngresos(container: HTMLElement): Promise<void> {
     const totalIngresos = sumIngresosActivos(currentIngresos);
     totalEl.textContent = formatMoney(totalIngresos);
     totalFijoEl.textContent = formatMoney(sumIngresosFijosRecurrentes(currentIngresos));
-    balanceEl.textContent = formatMoney(totalIngresos - gastosDelPeriodoTotal);
+    balanceEl.textContent = formatMoney(balanceDisponible);
 
     if (currentIngresos.length === 0) {
       listEl.innerHTML = `<p class="empty-state">Aún no tienes ingresos vigentes. Agrega el primero arriba.</p>`;
@@ -453,7 +453,12 @@ export async function renderIngresos(container: HTMLElement): Promise<void> {
   }
 
   async function reload(): Promise<void> {
-    currentIngresos = await listIngresosVigentes(spreadsheetId);
+    const [ingresosList, detalle] = await Promise.all([
+      listIngresosVigentes(spreadsheetId),
+      calcularDisponible(spreadsheetId, periodoInicio),
+    ]);
+    currentIngresos = ingresosList;
+    balanceDisponible = detalle.disponible;
     renderList();
   }
 
@@ -502,14 +507,9 @@ export async function renderIngresos(container: HTMLElement): Promise<void> {
   try {
     const ensured = await ensureSpreadsheet();
     spreadsheetId = ensured.spreadsheetId;
-    const [tiposList, gastosYCompras, configPeriodo] = await Promise.all([
-      listTiposIngreso(spreadsheetId),
-      listGastosDelMes(spreadsheetId),
-      obtenerConfigPeriodo(spreadsheetId),
-    ]);
-    const { delPeriodo: gastosFijos } = await listGastosFijosVigentes(spreadsheetId, configPeriodo.fechaUltimoReinicio);
+    const [tiposList, configPeriodo] = await Promise.all([listTiposIngreso(spreadsheetId), obtenerConfigPeriodo(spreadsheetId)]);
     tipos = tiposList;
-    gastosDelPeriodoTotal = sumGastosFijosTotal(gastosFijos) + sumGastosYCompras(gastosYCompras);
+    periodoInicio = configPeriodo.fechaUltimoReinicio;
     formTipoValue = tipos[0] ?? "";
     periodoBadge.textContent = formatPeriodoBadge(configPeriodo);
     refreshCombos();

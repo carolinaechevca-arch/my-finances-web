@@ -10,15 +10,9 @@ import moneybagPlusIcon from "../../icon/moneybag-plus.svg?raw";
 import pigMoneyIcon from "../../icon/pig-money.svg?raw";
 import trendingUpIcon from "../../icon/trending-up.svg?raw";
 import { ensureSpreadsheet } from "../../api/spreadsheet-bootstrap";
+import { calcularDisponible } from "../../domain/balance";
 import { listDashboardConfig } from "../../domain/dashboard-config";
-import {
-  agruparEventosPorDeuda,
-  calcularEstadoDeuda,
-  estadoAlerta,
-  listDeudas,
-  listTodosLosEventos,
-  sumCuotasMensualesActivas,
-} from "../../domain/deudas";
+import { agruparEventosPorDeuda, calcularEstadoDeuda, estadoAlerta, listDeudas, listTodosLosEventos } from "../../domain/deudas";
 import { formatFullDateLabel, formatMoney, monthKey, parseDateInput, todayISO } from "../../domain/format";
 import {
   estadoAlertaGastoFijo,
@@ -35,7 +29,7 @@ import {
   sumGastos as sumGastosYCompras,
   type GastoYCompra,
 } from "../../domain/gastos-y-compras";
-import { listIngresosVigentes, sumIngresosActivos } from "../../domain/ingresos";
+import { listIngresosVigentes } from "../../domain/ingresos";
 import { ejecutarReinicioPeriodo, obtenerConfigPeriodo } from "../../domain/periodo";
 import {
   agruparMovimientosPorMeta,
@@ -44,7 +38,7 @@ import {
   listMetas,
   listTodosLosMovimientos,
 } from "../../domain/metas";
-import { showConfirm } from "../components/dialogs";
+import { showConfirm, showTraspasoNegativoDialog } from "../components/dialogs";
 import { loaderHtml } from "../components/loader";
 
 function hace(fecha: string): string {
@@ -216,6 +210,7 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
       metas,
       movimientosMetas,
       dashboardConfig,
+      disponibleDetalle,
     ] = await Promise.all([
       listIngresosVigentes(spreadsheetId),
       listGastosFijosVigentes(spreadsheetId, configPeriodo.fechaUltimoReinicio),
@@ -229,6 +224,7 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
       listMetas(spreadsheetId),
       listTodosLosMovimientos(spreadsheetId),
       listDashboardConfig(spreadsheetId),
+      calcularDisponible(spreadsheetId, configPeriodo.fechaUltimoReinicio),
     ]);
 
     if (ingresos.length === 0) ctaCard.hidden = false;
@@ -241,20 +237,24 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
           { title: "Reiniciar periodo", confirmLabel: "Reiniciar" },
         );
         if (!ok) return;
+
+        let traspasoDeficit: "adicional" | "deuda" = "adicional";
+        if (disponibleDetalle.disponible < 0) {
+          const eleccion = await showTraspasoNegativoDialog(Math.abs(disponibleDetalle.disponible));
+          if (eleccion === null) return;
+          traspasoDeficit = eleccion;
+        }
+
         reiniciarPeriodoBtn.disabled = true;
-        await ejecutarReinicioPeriodo(spreadsheetId, todayISO());
+        await ejecutarReinicioPeriodo(spreadsheetId, todayISO(), traspasoDeficit);
         await renderDashboard(container, onNavigate);
       });
     }
 
     const eventosPorDeuda = agruparEventosPorDeuda(eventosDeudas);
 
-    // --- A. Balance del mes ---
-    const totalIngresos = sumIngresosActivos(ingresos);
-    const totalGastosFijos = sumGastosFijosTotal(gastosFijos);
-    const totalGastosVariables = sumGastosYCompras(gastosYCompras);
-    const totalCuotasDeudas = sumCuotasMensualesActivas(deudasYoDebo, eventosPorDeuda);
-    const disponible = totalIngresos - totalGastosFijos - totalGastosVariables - totalCuotasDeudas;
+    // --- A. Balance del periodo ---
+    const disponible = disponibleDetalle.disponible;
     statBalance.textContent = formatMoney(disponible);
 
     // --- B. Alertas activas ---

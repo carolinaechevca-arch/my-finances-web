@@ -241,6 +241,43 @@ export function showMergeChoice(nombre: string, montoRestante: number): Promise<
   });
 }
 
+/**
+ * Cuando el periodo cierra en negativo (gastaste más de lo que tenías
+ * disponible), le pregunta al usuario cómo traspasar el déficit al
+ * siguiente periodo: como un ingreso "Adicional" negativo, o como una
+ * deuda simple contigo mismo a pagar más adelante. Solo se muestra en el
+ * reinicio manual (Inicio) — a discreción del usuario, según lo confirmado.
+ */
+export function showTraspasoNegativoDialog(montoDeficit: number): Promise<"adicional" | "deuda" | null> {
+  return new Promise((resolve) => {
+    const dialog = createDialog();
+    dialog.innerHTML = `
+      <div class="modal__form">
+        <h2 class="modal__title">Este periodo cierra en negativo</h2>
+        <p class="modal__message">Gastaste ${formatMoney(montoDeficit)} más de lo que tenías disponible. ¿Cómo quieres traspasarlo al siguiente periodo?</p>
+        <div class="modal__actions">
+          <button type="button" class="btn-secondary" data-action="cancel">Cancelar reinicio</button>
+          <button type="button" class="btn-secondary" data-action="deuda">Registrar como deuda</button>
+          <button type="button" class="btn" data-action="adicional">Traspasar como ingreso negativo</button>
+        </div>
+      </div>
+    `;
+
+    const cleanup = (result: "adicional" | "deuda" | null) => {
+      dialog.close();
+      dialog.remove();
+      resolve(result);
+    };
+
+    dialog.querySelector('[data-action="cancel"]')!.addEventListener("click", () => cleanup(null));
+    dialog.querySelector('[data-action="deuda"]')!.addEventListener("click", () => cleanup("deuda"));
+    dialog.querySelector('[data-action="adicional"]')!.addEventListener("click", () => cleanup("adicional"));
+    dialog.addEventListener("cancel", () => cleanup(null));
+
+    dialog.showModal();
+  });
+}
+
 /** Modal para registrar un abono (o un monto agregado): fecha, monto y nota opcional. */
 export function showAbonoDialog(
   titulo: string,

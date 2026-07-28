@@ -1,9 +1,11 @@
 import { appendRecord, listRecords, updateRecord } from "../api/records";
 import { CONFIG_PERIODO_SHEET, HISTORIAL_PERIODOS_SHEET } from "../api/spreadsheet-bootstrap";
+import { calcularDisponible } from "./balance";
 import { avanzarComprasRecurrentes } from "./compras-recurrentes";
+import { crearDeuda } from "./deudas";
 import { formatMonthLabel, parseDateInput, todayISO } from "./format";
 import { reaplicarGastosFijos } from "./gastos";
-import { archivarIngresosAdicionalesAbiertos } from "./ingresos";
+import { archivarIngresosAdicionalesAbiertos, crearIngreso } from "./ingresos";
 
 export type FrecuenciaPeriodo = "Semanal" | "Quincenal" | "Mensual" | "Manual";
 
@@ -78,18 +80,61 @@ export function debeReiniciar(config: ConfigPeriodo, hoy: Date = new Date()): st
   return corte > config.fechaUltimoReinicio ? corte : null;
 }
 
+/** Cómo traspasar el dinero disponible que quedó al cerrar un periodo, cuando cerró en negativo (ver domain/balance.ts). Solo aplica si `disponible < 0`; si sobró dinero, siempre se traspasa como ingreso positivo. */
+export type TraspasoDeficit = "adicional" | "deuda";
+
 /**
  * Efecto de reiniciar el periodo (automático o por el botón manual): archiva
  * los ingresos "Adicional" que seguían vigentes, reaplica Gastos Fijos,
- * avanza el contador de compras recurrentes, y mueve la fecha de reinicio.
- * También registra la fecha en HistorialPeriodos, para que Histórico pueda
- * navegar este periodo más adelante con su fecha real.
+ * avanza el contador de compras recurrentes, mueve la fecha de reinicio, y
+ * traspasa el dinero disponible que quedó del periodo que cierra al
+ * siguiente — si sobró, como un ingreso "Adicional"; si quedó en negativo,
+ * como ingreso "Adicional" negativo (default, usado en reinicios
+ * automáticos donde no hay nadie para preguntar) o como una deuda simple
+ * contigo mismo, según `traspasoDeficit` (solo relevante si es negativo;
+ * ver spec-dinero-disponible.md). También registra la fecha en
+ * HistorialPeriodos, para que Histórico pueda navegar este periodo más
+ * adelante con su fecha real.
  */
-export async function ejecutarReinicioPeriodo(spreadsheetId: string, nuevaFecha: string): Promise<void> {
+export async function ejecutarReinicioPeriodo(
+  spreadsheetId: string,
+  nuevaFecha: string,
+  traspasoDeficit: TraspasoDeficit = "adicional",
+): Promise<void> {
+  const config = await obtenerConfigPeriodo(spreadsheetId);
+  const { disponible } = await calcularDisponible(spreadsheetId, config.fechaUltimoReinicio);
+
   await archivarIngresosAdicionalesAbiertos(spreadsheetId);
   await reaplicarGastosFijos(spreadsheetId, nuevaFecha);
   await avanzarComprasRecurrentes(spreadsheetId);
-  const config = await obtenerConfigPeriodo(spreadsheetId);
+
+  if (disponible > 0) {
+    await crearIngreso(spreadsheetId, "Sobrante de periodo", disponible, "Traspasado automáticamente del periodo anterior", "UnicoMes");
+  } else if (disponible < 0) {
+    if (traspasoDeficit === "deuda") {
+      await crearDeuda(spreadsheetId, {
+        direccion: "YoDebo",
+        contraparte: "Sobregiro de periodo",
+        tipo: "Sobregiro de periodo",
+        montoOriginal: Math.abs(disponible),
+        montoCuota: 0,
+        numCuotas: 0,
+        diaPago: "",
+        fechaInicio: nuevaFecha,
+        notas: "Generado automáticamente: el periodo anterior cerró en negativo.",
+        modo: "Simple",
+      });
+    } else {
+      await crearIngreso(
+        spreadsheetId,
+        "Sobrante de periodo",
+        disponible,
+        "El periodo anterior cerró en negativo; traspasado como ajuste.",
+        "UnicoMes",
+      );
+    }
+  }
+
   await updateRecord(spreadsheetId, CONFIG_PERIODO_SHEET, 2, [config.frecuencia, nuevaFecha, String(config.diaInicioSemana)]);
   await appendRecord(spreadsheetId, HISTORIAL_PERIODOS_SHEET, [nuevaFecha]);
 }
