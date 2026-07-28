@@ -2,9 +2,15 @@ import businessplanIcon from "../../icon/businessplan.svg?raw";
 import calendarMonthIcon from "../../icon/calendar-month.svg?raw";
 import cashIcon from "../../icon/cash.svg?raw";
 import cashMinusIcon from "../../icon/cash-minus.svg?raw";
+import chartPieIcon from "../../icon/chart-pie.svg?raw";
+import financeIcon from "../../icon/finance.svg?raw";
+import fileSpreadsheetIcon from "../../icon/file-spreadsheet.svg?raw";
+import homeDollarIcon from "../../icon/home-dollar.svg?raw";
 import moneybagPlusIcon from "../../icon/moneybag-plus.svg?raw";
 import pigMoneyIcon from "../../icon/pig-money.svg?raw";
+import trendingUpIcon from "../../icon/trending-up.svg?raw";
 import { ensureSpreadsheet } from "../../api/spreadsheet-bootstrap";
+import { listDashboardConfig } from "../../domain/dashboard-config";
 import {
   agruparEventosPorDeuda,
   calcularEstadoDeuda,
@@ -13,10 +19,11 @@ import {
   listTodosLosEventos,
   sumCuotasMensualesActivas,
 } from "../../domain/deudas";
-import { formatMonthLabel, formatMoney, monthKey, parseDateInput, todayISO } from "../../domain/format";
+import { formatFullDateLabel, formatMoney, monthKey, parseDateInput, todayISO } from "../../domain/format";
 import {
   estadoAlertaGastoFijo,
   listGastosFijosDelMes,
+  listGastosFijosVigentes,
   sumGastosFijosPagado,
   sumGastosFijosPendientes,
   sumGastosFijosTotal,
@@ -29,6 +36,7 @@ import {
   type GastoYCompra,
 } from "../../domain/gastos-y-compras";
 import { listIngresosVigentes, sumIngresosActivos } from "../../domain/ingresos";
+import { ejecutarReinicioPeriodo, obtenerConfigPeriodo } from "../../domain/periodo";
 import {
   agruparMovimientosPorMeta,
   calcularAcumulado,
@@ -36,6 +44,8 @@ import {
   listMetas,
   listTodosLosMovimientos,
 } from "../../domain/metas";
+import { showConfirm } from "../components/dialogs";
+import { loaderHtml } from "../components/loader";
 
 function hace(fecha: string): string {
   const dias = Math.round((parseDateInput(todayISO()).getTime() - parseDateInput(fecha).getTime()) / 86400000);
@@ -53,81 +63,96 @@ function mesAnteriorDate(): Date {
   return d;
 }
 
+function cardTitle(icon: string, texto: string): string {
+  return `<div class="card__title"><span class="card__icon-badge">${icon}</span>${texto}</div>`;
+}
+
 export async function renderDashboard(container: HTMLElement, onNavigate: (sectionId: string) => void): Promise<void> {
   container.innerHTML = `
     <div class="page-title-row">
-      <h1 class="page-title">${calendarMonthIcon} Resumen del Mes</h1>
-      <span class="month-badge">${formatMonthLabel()}</span>
-    </div>
-
-    <div class="card stat-card stat-card--primary" id="balance-card" style="margin-bottom:20px">
-      <div class="stat-card__value" id="stat-balance">—</div>
-      <div class="stat-card__label">Disponible este mes</div>
-    </div>
-
-    <div class="card" id="alertas-card" style="margin-bottom:20px">
-      <h2 style="margin-top:0">Alertas</h2>
-      <div id="alertas-list"><p class="empty-state">Cargando…</p></div>
-    </div>
-
-    <div class="card" id="gastos-fijos-card" style="margin-bottom:20px">
-      <div class="table-toolbar">
-        <h2 style="margin:0"><span class="nav-icon">${cashMinusIcon}</span> Gastos Fijos</h2>
-        <button type="button" class="btn-secondary" id="gastos-fijos-btn">Ver módulo</button>
+      <h1 class="page-title">${calendarMonthIcon} Cómo van mis finanzas</h1>
+      <div style="display:flex;align-items:center;gap:10px">
+        <button type="button" class="btn-secondary" id="reiniciar-periodo-btn" hidden>Reiniciar periodo</button>
+        <span class="month-badge">${formatFullDateLabel()}</span>
       </div>
-      <div id="gastos-fijos-resumen"></div>
     </div>
 
-    <div class="card" id="deudas-card" style="margin-bottom:20px">
-      <div class="table-toolbar">
-        <h2 style="margin:0"><span class="nav-icon">${pigMoneyIcon}</span> Deudas</h2>
-        <button type="button" class="btn-secondary" id="deudas-btn">Ver módulo</button>
+    <div class="dashboard-grid" id="dashboard-grid">
+      <div class="card stat-card card--span2" id="balance-card" data-card-id="balance">
+        ${cardTitle(financeIcon, "Balance")}
+        <div class="stat-card__value" id="stat-balance">—</div>
+        <div class="stat-card__label">Disponible este mes</div>
       </div>
-      <div id="deudas-resumen"></div>
-    </div>
 
-    <div class="card" id="me-deben-card" style="margin-bottom:20px">
-      <div class="table-toolbar">
-        <h2 style="margin:0"><span class="nav-icon">${businessplanIcon}</span> Me Deben</h2>
-        <button type="button" class="btn-secondary" id="me-deben-btn">Ver módulo</button>
+      <div class="card" id="alertas-card" data-card-id="alertas">
+        ${cardTitle(`<i class="bi bi-bell-fill"></i>`, "Alertas")}
+        <div id="alertas-list">${loaderHtml()}</div>
       </div>
-      <div id="me-deben-resumen"></div>
-    </div>
 
-    <div class="card" id="metas-resumen-card" hidden style="margin-bottom:20px">
-      <div class="table-toolbar">
-        <h2 style="margin:0"><span class="nav-icon">${moneybagPlusIcon}</span> Ahorros y Metas</h2>
-        <button type="button" class="btn-secondary" id="metas-resumen-btn">Ver todas</button>
+      <div class="card" id="gastos-fijos-card" data-card-id="resumenGastosFijos">
+        <div class="table-toolbar">
+          ${cardTitle(cashMinusIcon, "Gastos Fijos")}
+          <button type="button" class="btn-secondary" id="gastos-fijos-btn">Ver módulo</button>
+        </div>
+        <div id="gastos-fijos-resumen"></div>
       </div>
-      <div class="stat-card__value" id="metas-total" style="margin-bottom:12px">—</div>
-      <div id="metas-resumen-list"></div>
-    </div>
 
-    <div class="card" id="categorias-card" style="margin-bottom:20px">
-      <h2 style="margin-top:0">Gastos del mes por categoría</h2>
-      <div id="categorias-resumen"></div>
-    </div>
+      <div class="card" id="deudas-card" data-card-id="resumenDeudas">
+        <div class="table-toolbar">
+          ${cardTitle(pigMoneyIcon, "Deudas")}
+          <button type="button" class="btn-secondary" id="deudas-btn">Ver módulo</button>
+        </div>
+        <div id="deudas-resumen"></div>
+      </div>
 
-    <div class="card" id="comparativo-card" hidden style="margin-bottom:20px">
-      <p style="margin:0" id="comparativo-texto"></p>
-    </div>
+      <div class="card" id="me-deben-card" data-card-id="resumenMeDeben">
+        <div class="table-toolbar">
+          ${cardTitle(businessplanIcon, "Me Deben")}
+          <button type="button" class="btn-secondary" id="me-deben-btn">Ver módulo</button>
+        </div>
+        <div id="me-deben-resumen"></div>
+      </div>
 
-    <div class="card" id="movimientos-card" style="margin-bottom:20px">
-      <h2 style="margin-top:0">Últimos movimientos</h2>
-      <div id="movimientos-list"></div>
-    </div>
+      <div class="card" id="metas-resumen-card" data-card-id="resumenAhorros" hidden>
+        <div class="table-toolbar">
+          ${cardTitle(moneybagPlusIcon, "Ahorros y Metas")}
+          <button type="button" class="btn-secondary" id="metas-resumen-btn">Ver todas</button>
+        </div>
+        <div class="stat-card__value" id="metas-total" style="margin-bottom:12px">—</div>
+        <div id="metas-resumen-list"></div>
+      </div>
 
-    <div class="card" id="ingresos-cta-card" hidden style="margin-bottom:20px">
-      <p class="empty-state" style="margin:0 0 12px">Aún no registras ningún ingreso fijo mensual.</p>
-      <button type="button" class="btn" id="ingresos-cta-btn">➕ Agregar ingreso fijo</button>
-    </div>
+      <div class="card card--span2" id="categorias-card" data-card-id="gastosPorCategoria">
+        ${cardTitle(chartPieIcon, "Gastos del mes por categoría")}
+        <div id="categorias-resumen"></div>
+      </div>
 
-    <div class="card" id="sheet-link-card">
-      <h2 style="margin-top:0">🔗 Tu Hoja de Cálculo en Drive</h2>
-      <p class="empty-state" id="sheet-status">Conectando con Google Sheets…</p>
+      <div class="card card--span2" id="comparativo-card" data-card-id="comparativoMesAnterior" hidden>
+        ${cardTitle(trendingUpIcon, "Comparativo")}
+        <p style="margin:0" id="comparativo-texto"></p>
+      </div>
+
+      <div class="card" id="movimientos-card" data-card-id="ultimosMovimientos">
+        ${cardTitle(cashIcon, "Últimos movimientos")}
+        <div id="movimientos-list"></div>
+      </div>
+
+      <div class="card" id="ingresos-cta-card" data-card-id="cta" hidden>
+        <div class="card__title" style="font-size:14px;font-weight:400;color:var(--color-text-muted)">
+          <span class="card__icon-badge">${homeDollarIcon}</span>
+          Aún no registras ningún ingreso fijo mensual.
+        </div>
+        <button type="button" class="btn" id="ingresos-cta-btn">➕ Agregar ingreso fijo</button>
+      </div>
+
+      <div class="card" id="sheet-link-card" data-card-id="hojaDrive">
+        ${cardTitle(fileSpreadsheetIcon, "Tu Hoja de Cálculo en Drive")}
+        <p class="empty-state" id="sheet-status">Conectando con Google Sheets…</p>
+      </div>
     </div>
   `;
 
+  const grid = container.querySelector<HTMLDivElement>("#dashboard-grid")!;
   const status = container.querySelector<HTMLParagraphElement>("#sheet-status")!;
   const sheetCard = container.querySelector<HTMLDivElement>("#sheet-link-card")!;
   const statBalance = container.querySelector<HTMLDivElement>("#stat-balance")!;
@@ -155,6 +180,7 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
   const comparativoCard = container.querySelector<HTMLDivElement>("#comparativo-card")!;
   const comparativoTexto = container.querySelector<HTMLParagraphElement>("#comparativo-texto")!;
   const movimientosList = container.querySelector<HTMLDivElement>("#movimientos-list")!;
+  const reiniciarPeriodoBtn = container.querySelector<HTMLButtonElement>("#reiniciar-periodo-btn")!;
 
   try {
     const { spreadsheetId, created } = await ensureSpreadsheet();
@@ -175,9 +201,11 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
       sheetCard.appendChild(note);
     }
 
+    const configPeriodo = await obtenerConfigPeriodo(spreadsheetId);
+
     const [
       ingresos,
-      gastosFijos,
+      { delPeriodo: gastosFijos },
       gastosFijosMesAnterior,
       gastosYCompras,
       gastosYComprasMesAnterior,
@@ -187,9 +215,10 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
       eventosDeudas,
       metas,
       movimientosMetas,
+      dashboardConfig,
     ] = await Promise.all([
       listIngresosVigentes(spreadsheetId),
-      listGastosFijosDelMes(spreadsheetId),
+      listGastosFijosVigentes(spreadsheetId, configPeriodo.fechaUltimoReinicio),
       listGastosFijosDelMes(spreadsheetId, mesAnteriorDate()),
       listGastosDelMes(spreadsheetId),
       listGastosDelMes(spreadsheetId, mesAnteriorDate()),
@@ -199,9 +228,24 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
       listTodosLosEventos(spreadsheetId),
       listMetas(spreadsheetId),
       listTodosLosMovimientos(spreadsheetId),
+      listDashboardConfig(spreadsheetId),
     ]);
 
     if (ingresos.length === 0) ctaCard.hidden = false;
+
+    if (configPeriodo.frecuencia === "Manual") {
+      reiniciarPeriodoBtn.hidden = false;
+      reiniciarPeriodoBtn.addEventListener("click", async () => {
+        const ok = await showConfirm(
+          "Esto reaplica tus ingresos \"Fijo\" y archiva los \"Adicional\" del periodo que termina. ¿Reiniciar el periodo ahora?",
+          { title: "Reiniciar periodo", confirmLabel: "Reiniciar" },
+        );
+        if (!ok) return;
+        reiniciarPeriodoBtn.disabled = true;
+        await ejecutarReinicioPeriodo(spreadsheetId, todayISO());
+        await renderDashboard(container, onNavigate);
+      });
+    }
 
     const eventosPorDeuda = agruparEventosPorDeuda(eventosDeudas);
 
@@ -217,7 +261,9 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
     const hoy = new Date();
     const hoyDia = hoy.getDate();
 
-    type Alerta = { nivel: "rojo" | "naranja" | "amarillo" | "verde"; texto: string; destino: string };
+    type NivelAlerta = "rojo" | "naranja" | "amarillo" | "verde";
+    type TipoAlerta = "gastoFijo" | "deuda" | "compra" | "meDeben";
+    type Alerta = { nivel: NivelAlerta; tipo: TipoAlerta; texto: string; destino: string };
     const alertas: Alerta[] = [];
 
     for (const g of gastosFijos) {
@@ -226,12 +272,14 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
         const dias = hoyDia - Number(g.diaPago);
         alertas.push({
           nivel: "rojo",
+          tipo: "gastoFijo",
           texto: `${g.nombre} (${formatMoney(g.monto)}) vencido hace ${dias} día${dias === 1 ? "" : "s"}`,
           destino: "gastos-fijos",
         });
       } else if (estadoG === "proxima") {
         alertas.push({
           nivel: "naranja",
+          tipo: "gastoFijo",
           texto: `${g.nombre} (${formatMoney(g.monto)}) vence el día ${g.diaPago}`,
           destino: "gastos-fijos",
         });
@@ -241,15 +289,16 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
     for (const d of deudasYoDebo) {
       const estadoD = estadoAlerta(d, eventosPorDeuda.get(d.id) ?? [], hoy);
       if (estadoD === "vencida") {
-        alertas.push({ nivel: "rojo", texto: `Cuota vencida con ${d.contraparte} (${formatMoney(d.montoCuota)})`, destino: "deudas" });
+        alertas.push({ nivel: "rojo", tipo: "deuda", texto: `Cuota vencida con ${d.contraparte} (${formatMoney(d.montoCuota)})`, destino: "deudas" });
       } else if (estadoD === "proxima") {
-        alertas.push({ nivel: "naranja", texto: `Cuota próxima a vencer con ${d.contraparte} (${formatMoney(d.montoCuota)})`, destino: "deudas" });
+        alertas.push({ nivel: "naranja", tipo: "deuda", texto: `Cuota próxima a vencer con ${d.contraparte} (${formatMoney(d.montoCuota)})`, destino: "deudas" });
       }
     }
 
     if (pendientes.length > 0) {
       alertas.push({
         nivel: "amarillo",
+        tipo: "compra",
         texto: `${formatMoney(sumGastosYCompras(pendientes))} en ${pendientes.length} compra${pendientes.length === 1 ? "" : "s"} pendiente${pendientes.length === 1 ? "" : "s"} por pagar`,
         destino: "gastos-personales",
       });
@@ -258,21 +307,26 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
     for (const d of deudasMeDeben) {
       const estadoD = estadoAlerta(d, eventosPorDeuda.get(d.id) ?? [], hoy);
       if (estadoD === "vencida") {
-        alertas.push({ nivel: "verde", texto: `${d.contraparte} tiene un pago comprometido vencido (${formatMoney(d.montoCuota)})`, destino: "me-deben" });
+        alertas.push({ nivel: "verde", tipo: "meDeben", texto: `${d.contraparte} tiene un pago comprometido vencido (${formatMoney(d.montoCuota)})`, destino: "me-deben" });
       }
     }
 
-    const iconoNivel: Record<Alerta["nivel"], string> = { rojo: "🔴", naranja: "🟠", amarillo: "🟡", verde: "🟢" };
+    const iconoTipo: Record<TipoAlerta, string> = {
+      gastoFijo: "bi-cash-coin",
+      deuda: "bi-credit-card",
+      compra: "bi-cart",
+      meDeben: "bi-people",
+    };
     if (alertas.length === 0) {
-      alertasList.innerHTML = `<p class="empty-state">Todo al día ✅</p>`;
+      alertasList.innerHTML = `<p class="empty-state"><i class="bi bi-check-circle alert-icon alert-icon--verde"></i> Todo al día</p>`;
     } else {
-      const orden: Alerta["nivel"][] = ["rojo", "naranja", "amarillo", "verde"];
+      const orden: NivelAlerta[] = ["rojo", "naranja", "amarillo", "verde"];
       alertas.sort((a, b) => orden.indexOf(a.nivel) - orden.indexOf(b.nivel));
       alertasList.innerHTML = "";
       for (const alerta of alertas) {
         const row = document.createElement("div");
         row.className = "record-row";
-        row.innerHTML = `<div class="record-row__main"><span class="record-row__title">${iconoNivel[alerta.nivel]} ${alerta.texto}</span></div>`;
+        row.innerHTML = `<div class="record-row__main"><span class="record-row__title"><i class="bi ${iconoTipo[alerta.tipo]} alert-icon alert-icon--${alerta.nivel}"></i> ${alerta.texto}</span></div>`;
         row.addEventListener("click", () => onNavigate(alerta.destino));
         row.style.cursor = "pointer";
         alertasList.appendChild(row);
@@ -463,6 +517,15 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
               `,
             )
             .join("");
+
+    // --- J. Personalización (Configuración → "Personalizar dashboard"): visibilidad, color y orden ---
+    for (const cfg of dashboardConfig) {
+      const card = grid.querySelector<HTMLElement>(`[data-card-id="${cfg.cardId}"]`);
+      if (!card) continue;
+      if (!cfg.visible) card.hidden = true;
+      card.classList.toggle("card--primary", cfg.color === "Primario");
+      grid.appendChild(card);
+    }
   } catch (err) {
     status.textContent = err instanceof Error ? err.message : "No se pudo conectar con Google Sheets.";
   }

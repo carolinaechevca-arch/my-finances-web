@@ -62,6 +62,17 @@ export async function listPendientes(spreadsheetId: string): Promise<GastoYCompr
   return all.filter((g) => g.estado === "Pendiente");
 }
 
+/**
+ * Gastos ya realizados/pagados desde el último reinicio de periodo — para el
+ * stat "Gastado en el periodo". Independiente de `listGastosDelMes`, que
+ * sigue siendo por mes calendario para la tabla de Historial (sin cambios,
+ * ver spec-gastos-compras.md sección 6).
+ */
+export async function listGastosDelPeriodo(spreadsheetId: string, fechaUltimoReinicio: string): Promise<GastoYCompra[]> {
+  const all = await listAll(spreadsheetId);
+  return all.filter((g) => g.estado === "Pagado" && g.fecha >= fechaUltimoReinicio);
+}
+
 /** Compras que se están gestionando como meta de ahorro (ver domain/metas.ts). */
 export async function listAhorrando(spreadsheetId: string): Promise<GastoYCompra[]> {
   const all = await listAll(spreadsheetId);

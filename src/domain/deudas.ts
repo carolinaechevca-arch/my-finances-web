@@ -4,6 +4,8 @@ import { appendRecord, deleteRecord, listRecords, updateRecord, type SheetRow } 
 export type Direccion = "YoDebo" | "MeDeben";
 export type EstadoDeuda = "Activa" | "Pagada";
 export type TipoEventoAbono = "Abono" | "MontoAgregado";
+/** "Cuotas": comportamiento de siempre (cronograma con interés implícito). "Simple": solo un monto total + abonos libres, sin cuotas ni alertas de vencido. */
+export type ModoDeuda = "Cuotas" | "Simple";
 
 export interface Deuda {
   id: string;
@@ -11,14 +13,17 @@ export interface Deuda {
   direccion: Direccion;
   contraparte: string;
   tipo: string;
-  /** Lo que te prestaron o el valor de compra antes de intereses. */
+  /** Lo que te prestaron o el valor de compra antes de intereses. En modo "Simple" es directamente el monto total de la deuda. */
   montoOriginal: number;
+  /** 0 en modo "Simple" (no aplica). */
   montoCuota: number;
+  /** 0 en modo "Simple" (no aplica). */
   numCuotas: number;
   diaPago: string;
   fechaInicio: string;
   notas: string;
   estado: EstadoDeuda;
+  modo: ModoDeuda;
 }
 
 export interface EventoAbono {
@@ -43,6 +48,7 @@ function parseDeuda(r: SheetRow): Deuda {
     fechaInicio = "",
     notas = "",
     estado = "",
+    modo = "",
   ] = r.values;
   return {
     id,
@@ -57,6 +63,7 @@ function parseDeuda(r: SheetRow): Deuda {
     fechaInicio,
     notas,
     estado: estado === "Pagada" ? "Pagada" : "Activa",
+    modo: modo === "Simple" ? "Simple" : "Cuotas",
   };
 }
 
@@ -73,7 +80,7 @@ function parseEvento(r: SheetRow): EventoAbono {
 }
 
 export async function listDeudas(spreadsheetId: string, direccion: Direccion): Promise<Deuda[]> {
-  const rows = await listRecords(spreadsheetId, DEUDAS_SHEET, 11);
+  const rows = await listRecords(spreadsheetId, DEUDAS_SHEET, 12);
   return rows.map(parseDeuda).filter((d) => d.direccion === direccion);
 }
 
@@ -115,7 +122,7 @@ export interface EstadoCalculado {
  * sin necesitar un contador manual aparte.
  */
 export function calcularEstadoDeuda(deuda: Deuda, eventos: EventoAbono[]): EstadoCalculado {
-  let totalAPagar = deuda.montoCuota * deuda.numCuotas;
+  let totalAPagar = deuda.modo === "Simple" ? deuda.montoOriginal : deuda.montoCuota * deuda.numCuotas;
   let totalAbonado = 0;
 
   for (const evento of eventos) {
@@ -145,7 +152,7 @@ export interface EventoConSaldo {
 /** Historial cronológico con el saldo y la(s) cuota(s) que cubrió cada evento (para auditar). */
 export function historialConSaldos(deuda: Deuda, eventos: EventoAbono[]): EventoConSaldo[] {
   const ordenados = [...eventos].sort((a, b) => a.fecha.localeCompare(b.fecha));
-  let totalAPagar = deuda.montoCuota * deuda.numCuotas;
+  let totalAPagar = deuda.modo === "Simple" ? deuda.montoOriginal : deuda.montoCuota * deuda.numCuotas;
   let totalAbonado = 0;
   const resultado: EventoConSaldo[] = [];
 
@@ -191,6 +198,7 @@ export interface NuevaDeuda {
   diaPago: string;
   fechaInicio: string;
   notas: string;
+  modo: ModoDeuda;
 }
 
 export async function crearDeuda(spreadsheetId: string, deuda: NuevaDeuda): Promise<Deuda> {
@@ -207,10 +215,12 @@ export async function crearDeuda(spreadsheetId: string, deuda: NuevaDeuda): Prom
     deuda.fechaInicio,
     deuda.notas,
     "Activa",
+    deuda.modo,
   ]);
   return { id, row, ...deuda, estado: "Activa" };
 }
 
+/** No permite cambiar `modo` (se ignora `cambios.modo`, se conserva el original): cambiarlo implicaría recalcular todo el historial de abonos contra un esquema distinto. */
 export async function actualizarDeuda(spreadsheetId: string, deuda: Deuda, cambios: NuevaDeuda): Promise<void> {
   await updateRecord(spreadsheetId, DEUDAS_SHEET, deuda.row, [
     deuda.id,
@@ -224,6 +234,7 @@ export async function actualizarDeuda(spreadsheetId: string, deuda: Deuda, cambi
     cambios.fechaInicio,
     cambios.notas,
     deuda.estado,
+    deuda.modo,
   ]);
 }
 
@@ -244,6 +255,7 @@ async function setEstadoDeuda(spreadsheetId: string, deuda: Deuda, estado: Estad
     deuda.fechaInicio,
     deuda.notas,
     estado,
+    deuda.modo,
   ]);
 }
 
@@ -319,12 +331,17 @@ export function estimarMesesRestantes(deuda: Deuda, eventos: EventoAbono[]): num
   return calcularEstadoDeuda(deuda, eventos).cuotasRestantes;
 }
 
-/** "vencida" si ya pasó el día de pago sin abono este mes; "proxima" si faltan 5 días o menos. */
+/**
+ * "vencida" si ya pasó el día de pago sin abono este mes; "proxima" si
+ * faltan 5 días o menos. En modo "Simple" nunca hay alerta: no hay
+ * cronograma fijo, el "Día de pago" (si se llenó) es solo informativo.
+ */
 export function estadoAlerta(
   deuda: Deuda,
   eventos: EventoAbono[],
   hoy: Date = new Date(),
 ): "vencida" | "proxima" | null {
+  if (deuda.modo === "Simple") return null;
   const dia = Number(deuda.diaPago);
   if (!dia || deuda.estado !== "Activa") return null;
 

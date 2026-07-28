@@ -27,6 +27,34 @@ export const METAS_SHEET = "Metas";
 export const MOVIMIENTOS_METAS_SHEET = "MovimientosMetas";
 /** Tipos de meta de ahorro (viaje, tecnología, etc.), manejables igual que las categorías de gastos. */
 export const TIPOS_METAS_SHEET = "TiposMetas";
+/** Visibilidad/color/orden de las tarjetas del dashboard, editable desde Configuración → "Personalizar dashboard". */
+export const CONFIG_DASHBOARD_SHEET = "ConfigDashboard";
+/** Frecuencia global de periodo (Semanal/Quincenal/Mensual/Manual) y fecha del último reinicio. Una sola fila de datos. */
+export const CONFIG_PERIODO_SHEET = "ConfigPeriodo";
+/** Plantillas de compras recurrentes (Fijo/Personalizado) de Gastos y Compras — nunca obligatorias, ver spec-gastos-compras.md. */
+export const COMPRAS_RECURRENTES_SHEET = "ComprasRecurrentes";
+/** Un registro por cada reinicio de periodo que realmente ocurrió (automático o manual) — permite a Histórico navegar periodos pasados con sus fechas reales, sin importar si el modo cambió con el tiempo. */
+export const HISTORIAL_PERIODOS_SHEET = "HistorialPeriodos";
+
+/**
+ * Ids estables de las tarjetas del dashboard, en su orden por defecto.
+ * No cambiar estos valores aunque cambien las etiquetas visibles: quedan
+ * guardados como texto en ConfigDashboard y se usan para volver a mapear
+ * cada fila a su tarjeta.
+ */
+export const DEFAULT_DASHBOARD_CARD_ORDER = [
+  "balance",
+  "alertas",
+  "resumenGastosFijos",
+  "resumenDeudas",
+  "resumenMeDeben",
+  "resumenAhorros",
+  "gastosPorCategoria",
+  "comparativoMesAnterior",
+  "ultimosMovimientos",
+  "cta",
+  "hojaDrive",
+] as const;
 
 /** Tipos de ingreso fijo con los que arranca toda cuenta nueva; el usuario puede agregar más. */
 const DEFAULT_TIPOS_INGRESO = ["Nómina", "Trabajo independiente", "Regalo", "Otro"];
@@ -46,7 +74,19 @@ export const SHEET_DEFINITIONS: SheetDefinition[] = [
   { name: TIPOS_INGRESO_SHEET, headers: ["Nombre"] },
   {
     name: INGRESOS_FIJOS_SHEET,
-    headers: ["Tipo", "Monto", "Notas", "Recurrencia", "Mes", "Activo", "FechaCreacion", "Id", "Frecuencia", "DiaPago"],
+    headers: [
+      "Tipo",
+      "Monto",
+      "Notas",
+      "Recurrencia",
+      "Mes",
+      "Activo",
+      "FechaCreacion",
+      "Id",
+      "Frecuencia",
+      "DiaPago",
+      "Cerrado",
+    ],
   },
   {
     name: HISTORIAL_INGRESOS_FIJOS_SHEET,
@@ -54,7 +94,22 @@ export const SHEET_DEFINITIONS: SheetDefinition[] = [
   },
   {
     name: GASTOS_FIJOS_SHEET,
-    headers: ["Nombre", "Monto", "DiaPago", "Categoria", "Mes", "Estado", "MontoPagado"],
+    headers: [
+      "Nombre",
+      "Monto",
+      "DiaPago",
+      "Categoria",
+      "Mes",
+      "Estado",
+      "MontoPagado",
+      "Id",
+      "SerieId",
+      "Recurrencia",
+      "RepiteCadaN",
+      "ContadorPeriodos",
+      "Pausado",
+      "PeriodoId",
+    ],
   },
   {
     name: "Suscripciones",
@@ -82,6 +137,7 @@ export const SHEET_DEFINITIONS: SheetDefinition[] = [
       "FechaInicio",
       "Notas",
       "Estado",
+      "Modo",
     ],
   },
   {
@@ -102,6 +158,13 @@ export const SHEET_DEFINITIONS: SheetDefinition[] = [
   { name: CATEGORIAS_GASTOS_Y_COMPRAS_SHEET, headers: ["Nombre"] },
   { name: TIPOS_DEUDA_SHEET, headers: ["Nombre", "Direccion"] },
   { name: CONTRAPARTES_SHEET, headers: ["Nombre", "Direccion"] },
+  { name: CONFIG_DASHBOARD_SHEET, headers: ["CardId", "Visible", "Color", "Orden"] },
+  { name: CONFIG_PERIODO_SHEET, headers: ["Frecuencia", "FechaUltimoReinicio", "DiaInicioSemana"] },
+  { name: HISTORIAL_PERIODOS_SHEET, headers: ["Fecha"] },
+  {
+    name: COMPRAS_RECURRENTES_SHEET,
+    headers: ["Id", "Nombre", "Categoria", "Monto", "Recurrencia", "RepiteCadaN", "ContadorPeriodos"],
+  },
 ];
 
 let ensurePromise: Promise<{ spreadsheetId: string; created: boolean }> | null = null;
@@ -133,20 +196,30 @@ async function ensureSpreadsheetInternal(): Promise<{ spreadsheetId: string; cre
     await ensureIngresosFijosHeaders(existingId);
     await ensureIngresosFijosIds(existingId);
     await ensureIngresosFijosFrecuencia(existingId);
+    await ensureIngresosFijosCerrado(existingId);
     await ensureHistorialIngresosFijosHeaders(existingId);
     await ensureGastosFijosHeaders(existingId);
     await ensureGastosYComprasHeaders(existingId);
     await ensureGastosYComprasIds(existingId);
     await ensureDeudasHeaders(existingId);
+    await ensureDeudasModo(existingId);
     await ensureMetasHeaders(existingId);
     await ensureDireccionEnListasDeuda(existingId);
     await ensureDefaultTipos(existingId);
     await ensureDefaultTiposDeuda(existingId);
+    await ensureDefaultConfigDashboard(existingId);
+    await ensureDefaultConfigPeriodo(existingId);
+    await ensureConfigPeriodoDiaSemana(existingId);
+    await ensureDefaultHistorialPeriodos(existingId);
+    await ensureGastosFijosPeriodoColumnas(existingId);
     return { spreadsheetId: existingId, created: false };
   }
   const spreadsheetId = await createSpreadsheet(SPREADSHEET_TITLE, SHEET_DEFINITIONS);
   await ensureDefaultTipos(spreadsheetId);
   await ensureDefaultTiposDeuda(spreadsheetId);
+  await ensureDefaultConfigDashboard(spreadsheetId);
+  await ensureDefaultConfigPeriodo(spreadsheetId);
+  await ensureDefaultHistorialPeriodos(spreadsheetId);
   return { spreadsheetId, created: true };
 }
 
@@ -234,6 +307,45 @@ async function ensureIngresosFijosFrecuencia(spreadsheetId: string): Promise<voi
   }
 }
 
+/**
+ * Agrega la columna "Cerrado" a IngresosFijos (marca un ingreso "Adicional"
+ * como archivado al reiniciar el periodo, sin borrar la fila — ver
+ * domain/periodo.ts) y le rellena "FALSE" a cada fila que ya exista y
+ * todavía no tenga una. Solo toca la columna nueva.
+ */
+async function ensureIngresosFijosCerrado(spreadsheetId: string): Promise<void> {
+  const rows = await listRecords(spreadsheetId, INGRESOS_FIJOS_SHEET, 11);
+  for (const row of rows) {
+    const [
+      tipo = "",
+      monto = "",
+      notas = "",
+      recurrencia = "",
+      mes = "",
+      activo = "",
+      fechaCreacion = "",
+      id = "",
+      frecuencia = "",
+      diaPago = "",
+      cerrado = "",
+    ] = row.values;
+    if (cerrado) continue;
+    await updateRecord(spreadsheetId, INGRESOS_FIJOS_SHEET, row.row, [
+      tipo,
+      monto,
+      notas,
+      recurrencia,
+      mes,
+      activo,
+      fechaCreacion,
+      id,
+      frecuencia,
+      diaPago,
+      "FALSE",
+    ]);
+  }
+}
+
 /** Deja el encabezado de HistorialIngresosFijos solo si todavía no tiene filas de datos. */
 async function ensureHistorialIngresosFijosHeaders(spreadsheetId: string): Promise<void> {
   const def = SHEET_DEFINITIONS.find((s) => s.name === HISTORIAL_INGRESOS_FIJOS_SHEET)!;
@@ -253,6 +365,47 @@ async function ensureGastosFijosHeaders(spreadsheetId: string): Promise<void> {
   const [headerRow = []] = await getValues(spreadsheetId, `${GASTOS_FIJOS_SHEET}!A1:Z1`);
   if (headerRow.length >= def.headers.length) return;
   await updateValues(spreadsheetId, `${GASTOS_FIJOS_SHEET}!A1`, [def.headers]);
+}
+
+/**
+ * Agrega Id/SerieId/Recurrencia/RepiteCadaN/ContadorPeriodos/Pausado/PeriodoId
+ * a GastosFijos (sistema de periodo, ver spec-gastos-fijos.md) y le rellena
+ * un valor a cada fila que ya exista y todavía no tenga uno. Los gastos
+ * fijos de antes de este cambio quedan como su propia serie "Fijo"
+ * independiente, asignada al periodo actual (para que sigan apareciendo
+ * como vigentes en vez de desaparecer de la vista tras la migración). No
+ * hay forma de reconstruir con certeza cuáles eran "la misma serie" mes a
+ * mes con el modelo anterior, así que cada fila vieja arranca su propia
+ * serie desde cero.
+ */
+async function ensureGastosFijosPeriodoColumnas(spreadsheetId: string): Promise<void> {
+  const rows = await listRecords(spreadsheetId, GASTOS_FIJOS_SHEET, 14);
+  const pendientes = rows.filter((r) => !r.values[7]);
+  if (pendientes.length === 0) return;
+
+  const [configRow] = await listRecords(spreadsheetId, CONFIG_PERIODO_SHEET, 2);
+  const periodoActualId = configRow?.values[1] || "";
+
+  for (const row of pendientes) {
+    const [nombre = "", monto = "", diaPago = "", categoria = "", mes = "", estado = "", montoPagado = ""] = row.values;
+    const id = crypto.randomUUID();
+    await updateRecord(spreadsheetId, GASTOS_FIJOS_SHEET, row.row, [
+      nombre,
+      monto,
+      diaPago,
+      categoria,
+      mes,
+      estado,
+      montoPagado,
+      id,
+      id,
+      "Fijo",
+      "",
+      0,
+      "FALSE",
+      periodoActualId,
+    ]);
+  }
 }
 
 /**
@@ -283,6 +436,54 @@ async function ensureDeudasHeaders(spreadsheetId: string): Promise<void> {
   const abonosRows = await listRecords(spreadsheetId, ABONOS_DEUDAS_SHEET, 1);
   if (abonosRows.length === 0) {
     await updateValues(spreadsheetId, `${ABONOS_DEUDAS_SHEET}!A1`, [abonosDef.headers]);
+  }
+}
+
+/**
+ * Agrega la columna "Modo" a Deudas (Con cuotas / Deuda simple, ver
+ * spec-deudas.md) y le rellena "Cuotas" a cada fila que ya exista y todavía
+ * no tenga uno — todas las deudas de antes de este cambio se comportaban
+ * como "Con cuotas", así que ese es el valor que preserva su comportamiento
+ * exacto. Solo toca la columna nueva.
+ */
+async function ensureDeudasModo(spreadsheetId: string): Promise<void> {
+  const def = SHEET_DEFINITIONS.find((s) => s.name === DEUDAS_SHEET)!;
+  const [headerRow = []] = await getValues(spreadsheetId, `${DEUDAS_SHEET}!A1:Z1`);
+  if (headerRow.length < def.headers.length) {
+    await updateValues(spreadsheetId, `${DEUDAS_SHEET}!A1`, [def.headers]);
+  }
+
+  const rows = await listRecords(spreadsheetId, DEUDAS_SHEET, 12);
+  for (const row of rows) {
+    const [
+      id = "",
+      direccion = "",
+      contraparte = "",
+      tipo = "",
+      montoOriginal = "",
+      montoCuota = "",
+      numCuotas = "",
+      diaPago = "",
+      fechaInicio = "",
+      notas = "",
+      estado = "",
+      modo = "",
+    ] = row.values;
+    if (modo) continue;
+    await updateRecord(spreadsheetId, DEUDAS_SHEET, row.row, [
+      id,
+      direccion,
+      contraparte,
+      tipo,
+      montoOriginal,
+      montoCuota,
+      numCuotas,
+      diaPago,
+      fechaInicio,
+      notas,
+      estado,
+      "Cuotas",
+    ]);
   }
 }
 
@@ -355,6 +556,56 @@ async function ensureDireccionEnListasDeuda(spreadsheetId: string): Promise<void
       await updateRecord(spreadsheetId, sheet, row.row, [nombre, "YoDebo"]);
     }
   }
+}
+
+/**
+ * Balance arranca en Primario (único caso especial), el resto de tarjetas en
+ * Neutro. Solo agrega las filas de tarjetas que todavía no existan en la
+ * hoja, para no pisar la personalización ya guardada si en el futuro se
+ * agrega una tarjeta nueva a DEFAULT_DASHBOARD_CARD_ORDER.
+ */
+async function ensureDefaultConfigDashboard(spreadsheetId: string): Promise<void> {
+  const rows = await listRecords(spreadsheetId, CONFIG_DASHBOARD_SHEET, 4);
+  const existentes = new Set(rows.map((r) => r.values[0]));
+  const faltantes = DEFAULT_DASHBOARD_CARD_ORDER.filter((id) => !existentes.has(id));
+  if (faltantes.length === 0) return;
+  let orden = rows.length;
+  await appendRecords(
+    spreadsheetId,
+    CONFIG_DASHBOARD_SHEET,
+    faltantes.map((cardId) => [cardId, "TRUE", cardId === "balance" ? "Primario" : "Neutro", orden++]),
+  );
+}
+
+/** Arranca en modo "Mensual", reiniciado el día 1 del mes actual (mismo corte que el sistema de mes calendario que reemplaza), semana empezando el lunes (1). */
+async function ensureDefaultConfigPeriodo(spreadsheetId: string): Promise<void> {
+  const rows = await listRecords(spreadsheetId, CONFIG_PERIODO_SHEET, 3);
+  if (rows.length > 0) return;
+  const hoy = new Date();
+  const primerDiaMes = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, "0")}-01`;
+  await appendRecords(spreadsheetId, CONFIG_PERIODO_SHEET, [["Mensual", primerDiaMes, "1"]]);
+}
+
+/** Agrega "DiaInicioSemana" a ConfigPeriodo (día en que empieza la semana en modo Semanal, configurable) con "1" (lunes) por defecto si la fila ya existía sin esa columna. */
+async function ensureConfigPeriodoDiaSemana(spreadsheetId: string): Promise<void> {
+  const [headerRow = []] = await getValues(spreadsheetId, `${CONFIG_PERIODO_SHEET}!A1:Z1`);
+  const def = SHEET_DEFINITIONS.find((s) => s.name === CONFIG_PERIODO_SHEET)!;
+  if (headerRow.length < def.headers.length) {
+    await updateValues(spreadsheetId, `${CONFIG_PERIODO_SHEET}!A1`, [def.headers]);
+  }
+  const [row] = await listRecords(spreadsheetId, CONFIG_PERIODO_SHEET, 3);
+  if (!row || row.values[2]) return;
+  const [frecuencia = "Mensual", fechaUltimoReinicio = ""] = row.values;
+  await updateRecord(spreadsheetId, CONFIG_PERIODO_SHEET, row.row, [frecuencia, fechaUltimoReinicio, "1"]);
+}
+
+/** Siembra el registro inicial de HistorialPeriodos con la fecha ya guardada en ConfigPeriodo, si el log todavía está vacío (primera vez que corre esta versión). */
+async function ensureDefaultHistorialPeriodos(spreadsheetId: string): Promise<void> {
+  const rows = await listRecords(spreadsheetId, HISTORIAL_PERIODOS_SHEET, 1);
+  if (rows.length > 0) return;
+  const [configRow] = await listRecords(spreadsheetId, CONFIG_PERIODO_SHEET, 3);
+  const fecha = configRow?.values[1];
+  if (fecha) await appendRecords(spreadsheetId, HISTORIAL_PERIODOS_SHEET, [[fecha]]);
 }
 
 async function ensureDefaultTiposDeuda(spreadsheetId: string): Promise<void> {

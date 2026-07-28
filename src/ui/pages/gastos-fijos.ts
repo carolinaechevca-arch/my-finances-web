@@ -1,8 +1,10 @@
 import cashMinusIcon from "../../icon/cash-minus.svg?raw";
+import chartPieIcon from "../../icon/chart-pie.svg?raw";
 import editIcon from "../../icon/edit.svg?raw";
 import trashIcon from "../../icon/trash-x.svg?raw";
 import { ensureSpreadsheet } from "../../api/spreadsheet-bootstrap";
-import { formatMoney, formatMonthLabel } from "../../domain/format";
+import { formatMoney } from "../../domain/format";
+import { formatPeriodoBadge, obtenerConfigPeriodo } from "../../domain/periodo";
 import {
   actualizarGastoFijo,
   crearCategoria,
@@ -11,21 +13,28 @@ import {
   eliminarCategoria,
   eliminarGastoFijo,
   listCategorias,
-  listGastosFijosDelMes,
   listGastosFijosNombres,
+  listGastosFijosVigentes,
   marcarGastoPagado,
   marcarGastoPendiente,
+  setGastoFijoPausado,
   sumDiferenciasPago,
   sumGastosFijosPagado,
   sumGastosFijosPendientes,
+  sumGastosFijosTotal,
   type GastoFijo,
+  type RecurrenciaGastoFijo,
 } from "../../domain/gastos";
 import { showAlert, showConfirm, showMontoPagadoDialog } from "../components/dialogs";
+import { loaderHtml } from "../components/loader";
 import { createOptionCombo, type OptionCombo } from "../components/tipo-combo";
 
 type SortOrder = "nombre" | "monto-desc" | "monto-asc" | "dia";
 
-function sortGastos(list: GastoFijo[], order: SortOrder): GastoFijo[] {
+/** Gasto del periodo actual, o de una serie "Personalizado" que todavía no le toca reaplicarse. */
+type GastoFijoFila = GastoFijo & { enEspera: boolean };
+
+function sortGastos(list: GastoFijoFila[], order: SortOrder): GastoFijoFila[] {
   const copy = [...list];
   switch (order) {
     case "monto-desc":
@@ -39,13 +48,19 @@ function sortGastos(list: GastoFijo[], order: SortOrder): GastoFijo[] {
   }
 }
 
+const RECURRENCIA_BADGE: Record<RecurrenciaGastoFijo, string> = {
+  Fijo: "badge--fijo",
+  Personalizado: "badge--personalizado",
+  Adicional: "badge--unico",
+};
+
 export async function renderGastosFijos(container: HTMLElement): Promise<void> {
   const hoy = new Date().getDate();
 
   container.innerHTML = `
     <div class="page-title-row">
       <h1 class="page-title">${cashMinusIcon} Gastos Fijos</h1>
-      <span class="month-badge">${formatMonthLabel()}</span>
+      <span class="month-badge" id="periodo-badge">Cargando…</span>
     </div>
     <div class="card-grid" style="max-width:820px">
       <div class="card stat-card stat-card--primary">
@@ -66,7 +81,12 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
     </button>
 
     <div class="card" style="margin-bottom:20px">
-      <h2 style="margin-top:0">Agregar gasto fijo de este mes</h2>
+      <div class="card__title"><span class="card__icon-badge">${chartPieIcon}</span>Gasto por categoría</div>
+      <div id="gf-categorias-resumen"></div>
+    </div>
+
+    <div class="card" style="margin-bottom:20px">
+      <h2 style="margin-top:0">Agregar gasto fijo</h2>
       <form id="gasto-form" class="form">
         <div class="field">
           <label for="gf-nombre">Nombre</label>
@@ -77,6 +97,18 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
           <label>Categoría</label>
           <div id="gf-categoria-mount"></div>
         </div>
+        <div class="field">
+          <label for="gf-recurrencia">Tipo de recurrencia</label>
+          <select id="gf-recurrencia">
+            <option value="Fijo">Fijo</option>
+            <option value="Personalizado">Personalizado</option>
+            <option value="Adicional">Adicional</option>
+          </select>
+        </div>
+        <div class="field" id="gf-repite-n-field" hidden>
+          <label for="gf-repite-n">¿Cada cuántos periodos se repite?</label>
+          <input id="gf-repite-n" type="number" min="2" step="1" />
+        </div>
         <div class="field"><label for="gf-monto">Monto</label><input id="gf-monto" type="number" min="0" step="0.01" required /></div>
         <div class="field"><label for="gf-dia">Día de pago</label><input id="gf-dia" type="number" min="1" max="31" /></div>
         <button type="submit" class="btn">Guardar gasto fijo</button>
@@ -86,7 +118,7 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
 
     <div class="card">
       <div class="table-toolbar">
-        <h2 style="margin:0">Gastos fijos — ${formatMonthLabel()}</h2>
+        <h2 style="margin:0">Gastos fijos</h2>
         <div class="field field--inline">
           <label for="gf-orden">Ordenar por</label>
           <select id="gf-orden">
@@ -97,7 +129,7 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
           </select>
         </div>
       </div>
-      <div id="gf-list"><p class="empty-state">Cargando…</p></div>
+      <div id="gf-list">${loaderHtml()}</div>
     </div>
 
     <dialog id="categoria-modal" class="modal">
@@ -133,6 +165,18 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
           <label>Categoría</label>
           <div id="edit-categoria-mount"></div>
         </div>
+        <div class="field">
+          <label for="edit-recurrencia">Tipo de recurrencia</label>
+          <select id="edit-recurrencia">
+            <option value="Fijo">Fijo</option>
+            <option value="Personalizado">Personalizado</option>
+            <option value="Adicional">Adicional</option>
+          </select>
+        </div>
+        <div class="field" id="edit-repite-n-field" hidden>
+          <label for="edit-repite-n">¿Cada cuántos periodos se repite?</label>
+          <input id="edit-repite-n" type="number" min="2" step="1" />
+        </div>
         <div class="field"><label for="edit-monto">Monto</label><input id="edit-monto" type="number" min="0" step="0.01" required /></div>
         <div class="field"><label for="edit-dia">Día de pago</label><input id="edit-dia" type="number" min="1" max="31" /></div>
         <p class="empty-state" id="edit-modal-error" hidden></p>
@@ -144,9 +188,11 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
     </dialog>
   `;
 
+  const periodoBadge = container.querySelector<HTMLSpanElement>("#periodo-badge")!;
   const totalEl = container.querySelector<HTMLDivElement>("#gf-total")!;
   const pendienteEl = container.querySelector<HTMLDivElement>("#gf-pendiente")!;
   const pagadoEl = container.querySelector<HTMLDivElement>("#gf-pagado")!;
+  const categoriasResumenEl = container.querySelector<HTMLDivElement>("#gf-categorias-resumen")!;
   const diferenciaBtn = container.querySelector<HTMLButtonElement>("#gf-diferencia-btn")!;
   const diferenciaValorEl = container.querySelector<HTMLSpanElement>("#gf-diferencia-valor")!;
   const diferenciaModal = container.querySelector<HTMLDialogElement>("#diferencia-modal")!;
@@ -158,6 +204,9 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
   const submitBtn = form.querySelector<HTMLButtonElement>('button[type="submit"]')!;
   const nombreInput = container.querySelector<HTMLInputElement>("#gf-nombre")!;
   const nombresDatalist = container.querySelector<HTMLDataListElement>("#gf-nombres-datalist")!;
+  const recurrenciaSelect = container.querySelector<HTMLSelectElement>("#gf-recurrencia")!;
+  const repiteNField = container.querySelector<HTMLDivElement>("#gf-repite-n-field")!;
+  const repiteNInput = container.querySelector<HTMLInputElement>("#gf-repite-n")!;
   const montoInput = container.querySelector<HTMLInputElement>("#gf-monto")!;
   const diaInput = container.querySelector<HTMLInputElement>("#gf-dia")!;
   const ordenSelect = container.querySelector<HTMLSelectElement>("#gf-orden")!;
@@ -171,15 +220,20 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
   const editModal = container.querySelector<HTMLDialogElement>("#edit-modal")!;
   const editForm = container.querySelector<HTMLFormElement>("#edit-form")!;
   const editNombreInput = container.querySelector<HTMLInputElement>("#edit-nombre")!;
+  const editRecurrenciaSelect = container.querySelector<HTMLSelectElement>("#edit-recurrencia")!;
+  const editRepiteNField = container.querySelector<HTMLDivElement>("#edit-repite-n-field")!;
+  const editRepiteNInput = container.querySelector<HTMLInputElement>("#edit-repite-n")!;
   const editMontoInput = container.querySelector<HTMLInputElement>("#edit-monto")!;
   const editDiaInput = container.querySelector<HTMLInputElement>("#edit-dia")!;
   const editModalError = container.querySelector<HTMLParagraphElement>("#edit-modal-error")!;
   const editModalCancel = container.querySelector<HTMLButtonElement>("#edit-modal-cancel")!;
 
   let spreadsheetId = "";
+  let periodoActualId = "";
   let categorias: string[] = [];
   let nombresConocidos: string[] = [];
-  let currentGastos: GastoFijo[] = [];
+  let currentDelPeriodo: GastoFijo[] = [];
+  let currentEnEspera: GastoFijo[] = [];
   let sortOrder: SortOrder = "nombre";
   let busy = false;
   let formCategoriaValue = "";
@@ -194,6 +248,13 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
   function renderNombresDatalist(): void {
     nombresDatalist.innerHTML = nombresConocidos.map((n) => `<option value="${n}"></option>`).join("");
   }
+
+  recurrenciaSelect.addEventListener("change", () => {
+    repiteNField.hidden = recurrenciaSelect.value !== "Personalizado";
+  });
+  editRecurrenciaSelect.addEventListener("change", () => {
+    editRepiteNField.hidden = editRecurrenciaSelect.value !== "Personalizado";
+  });
 
   function openCategoriaModal(onDone: (nombre: string) => void): void {
     categoriaModalInput.value = "";
@@ -247,7 +308,7 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
   }
 
   async function handleDeleteCategoria(categoria: string): Promise<void> {
-    const enUso = currentGastos.some((g) => g.categoria === categoria);
+    const enUso = [...currentDelPeriodo, ...currentEnEspera].some((g) => g.categoria === categoria);
     if (enUso) {
       await showAlert(
         `No puedes eliminar "${categoria}" porque tienes gastos fijos con esta categoría. Edítalos o elimínalos primero.`,
@@ -307,6 +368,9 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
     editNombreInput.value = gasto.nombre;
     editCategoriaValue = gasto.categoria;
     editCategoriaCombo.refresh();
+    editRecurrenciaSelect.value = gasto.recurrencia;
+    editRepiteNField.hidden = gasto.recurrencia !== "Personalizado";
+    editRepiteNInput.value = gasto.repiteCadaN > 0 ? String(gasto.repiteCadaN) : "";
     editMontoInput.value = String(gasto.monto);
     editDiaInput.value = gasto.diaPago;
     editModalError.hidden = true;
@@ -330,9 +394,16 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
         e.preventDefault();
         const nombre = editNombreInput.value.trim();
         const monto = Number(editMontoInput.value);
+        const recurrencia = editRecurrenciaSelect.value as RecurrenciaGastoFijo;
+        const repiteCadaN = Number(editRepiteNInput.value) || 0;
         if (!nombre || !monto || monto <= 0) {
           editModalError.hidden = false;
           editModalError.textContent = "Ingresa un nombre y un monto válido.";
+          return;
+        }
+        if (recurrencia === "Personalizado" && repiteCadaN < 2) {
+          editModalError.hidden = false;
+          editModalError.textContent = "Indica cada cuántos periodos se repite (2 o más).";
           return;
         }
         if (!editingGasto) return;
@@ -344,6 +415,8 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
             monto,
             categoria: editCategoriaValue,
             diaPago: editDiaInput.value.trim(),
+            recurrencia,
+            repiteCadaN,
           });
           controller.abort();
           editModal.close();
@@ -362,9 +435,9 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
   }
 
   function openDiferenciaModal(): void {
-    const diffs = diferenciasPago(currentGastos);
+    const diffs = diferenciasPago(currentDelPeriodo);
     if (diffs.length === 0) {
-      diferenciaListEl.innerHTML = `<p class="empty-state">No hay diferencias este mes: lo que pagaste coincide con lo esperado.</p>`;
+      diferenciaListEl.innerHTML = `<p class="empty-state">No hay diferencias en este periodo: lo que pagaste coincide con lo esperado.</p>`;
     } else {
       diferenciaListEl.innerHTML = diffs
         .map(({ gasto, diferencia }) => {
@@ -389,25 +462,57 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
   diferenciaBtn.addEventListener("click", openDiferenciaModal);
   diferenciaModalClose.addEventListener("click", () => diferenciaModal.close());
 
-  function renderList(): void {
-    totalEl.textContent = formatMoney(currentGastos.reduce((s, g) => s + g.monto, 0));
-    pendienteEl.textContent = formatMoney(sumGastosFijosPendientes(currentGastos));
-    pagadoEl.textContent = formatMoney(sumGastosFijosPagado(currentGastos));
-    diferenciaValorEl.textContent = formatMoney(sumDiferenciasPago(currentGastos));
+  function renderCategorias(): void {
+    const porCategoria = new Map<string, number>();
+    for (const g of currentDelPeriodo) {
+      porCategoria.set(g.categoria || "Sin categoría", (porCategoria.get(g.categoria || "Sin categoría") ?? 0) + g.monto);
+    }
+    const ordenadas = [...porCategoria.entries()].sort((a, b) => b[1] - a[1]);
+    const max = ordenadas[0]?.[1] ?? 0;
 
-    if (currentGastos.length === 0) {
-      listEl.innerHTML = `<p class="empty-state">Aún no registras gastos fijos este mes.</p>`;
+    categoriasResumenEl.innerHTML =
+      ordenadas.length === 0
+        ? `<p class="empty-state">Aún no registras gastos fijos en este periodo.</p>`
+        : ordenadas
+            .map(
+              ([categoria, monto]) => `
+                <div style="margin-bottom:10px">
+                  <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+                    <span>${categoria}</span>
+                    <span class="empty-state">${formatMoney(monto)}</span>
+                  </div>
+                  <div class="progress-bar"><div class="progress-bar__fill" style="width:${max > 0 ? (monto / max) * 100 : 0}%"></div></div>
+                </div>
+              `,
+            )
+            .join("");
+  }
+
+  function renderList(): void {
+    totalEl.textContent = formatMoney(sumGastosFijosTotal(currentDelPeriodo));
+    pendienteEl.textContent = formatMoney(sumGastosFijosPendientes(currentDelPeriodo));
+    pagadoEl.textContent = formatMoney(sumGastosFijosPagado(currentDelPeriodo));
+    diferenciaValorEl.textContent = formatMoney(sumDiferenciasPago(currentDelPeriodo));
+    renderCategorias();
+
+    const todos: GastoFijoFila[] = [
+      ...currentDelPeriodo.map((g) => ({ ...g, enEspera: false })),
+      ...currentEnEspera.map((g) => ({ ...g, enEspera: true })),
+    ];
+
+    if (todos.length === 0) {
+      listEl.innerHTML = `<p class="empty-state">Aún no registras gastos fijos en este periodo.</p>`;
       return;
     }
 
-    const ordered = sortGastos(currentGastos, sortOrder);
+    const ordered = sortGastos(todos, sortOrder);
     const rows = ordered
       .map((gasto) => {
         const pagado = gasto.estado === "Pagado";
         const diaPagoNum = Number(gasto.diaPago) || 0;
-        const esHoy = diaPagoNum === hoy;
-        const vencido = !pagado && diaPagoNum > 0 && diaPagoNum < hoy;
-        const tieneDiferencia = pagado && gasto.montoPagado !== null && gasto.montoPagado !== gasto.monto;
+        const esHoy = !gasto.enEspera && diaPagoNum === hoy;
+        const vencido = !gasto.enEspera && !pagado && diaPagoNum > 0 && diaPagoNum < hoy;
+        const tieneDiferencia = !gasto.enEspera && pagado && gasto.montoPagado !== null && gasto.montoPagado !== gasto.monto;
         const diferencia = tieneDiferencia ? (gasto.montoPagado as number) - gasto.monto : 0;
         const diferenciaHtml = tieneDiferencia
           ? `<div class="amount-diff" style="color:${diferencia > 0 ? "var(--color-danger)" : "var(--color-success)"}">${diferencia > 0 ? "+" : ""}${formatMoney(diferencia)}</div>`
@@ -417,13 +522,33 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
           : esHoy
             ? ` <span class="badge badge--today">Hoy</span>`
             : "";
+
+        const recurrenciaCell = `
+          <span class="badge ${RECURRENCIA_BADGE[gasto.recurrencia]}">${gasto.recurrencia}</span>
+          ${
+            gasto.recurrencia !== "Adicional"
+              ? `<button type="button" class="btn-toggle ${gasto.pausado ? "is-off" : ""}" data-row="${gasto.row}" data-action="pausar">${gasto.pausado ? "Pausado" : "Activo"}</button>`
+              : ""
+          }
+          ${
+            gasto.recurrencia === "Personalizado"
+              ? `<div class="record-row__subtitle">cada ${gasto.repiteCadaN} periodos${gasto.enEspera && !gasto.pausado ? ` · <span class="badge badge--en-espera">En espera (faltan ${Math.max(gasto.repiteCadaN - gasto.contadorPeriodos, 1)})</span>` : ""}</div>`
+              : ""
+          }
+        `;
+
+        const estadoCell = gasto.enEspera
+          ? `<span class="empty-state">—</span>`
+          : `<button type="button" class="btn-toggle ${pagado ? "" : "is-off"}" data-row="${gasto.row}" data-action="toggle">${pagado ? "Pagado" : "Pendiente"}</button>`;
+
         return `
           <tr data-row="${gasto.row}" class="${vencido ? "is-vencido" : esHoy ? "is-today" : ""}">
             <td data-label="Nombre">${gasto.nombre}</td>
             <td data-label="Categoría">${gasto.categoria ? `<span class="badge">${gasto.categoria}</span>` : "—"}</td>
+            <td data-label="Recurrencia">${recurrenciaCell}</td>
             <td data-label="Día de pago">${gasto.diaPago || "—"}${diaBadge}</td>
-            <td data-label="Estado"><button type="button" class="btn-toggle ${pagado ? "" : "is-off"}" data-row="${gasto.row}" data-action="toggle">${pagado ? "Pagado" : "Pendiente"}</button></td>
-            <td data-label="Monto" class="text-right amount-cell">${formatMoney(pagado ? (gasto.montoPagado ?? gasto.monto) : gasto.monto)}${diferenciaHtml}</td>
+            <td data-label="Estado">${estadoCell}</td>
+            <td data-label="Monto" class="text-right amount-cell">${formatMoney(gasto.enEspera || !pagado ? gasto.monto : (gasto.montoPagado ?? gasto.monto))}${diferenciaHtml}</td>
             <td class="actions-cell">
               <button type="button" class="icon-btn icon-btn--edit" data-row="${gasto.row}" data-action="edit" aria-label="Editar" title="Editar">${editIcon}</button>
               <button type="button" class="icon-btn icon-btn--delete" data-row="${gasto.row}" data-action="delete" aria-label="Eliminar" title="Eliminar">${trashIcon}</button>
@@ -440,6 +565,7 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
             <tr>
               <th>Nombre</th>
               <th>Categoría</th>
+              <th>Recurrencia</th>
               <th>Día de pago</th>
               <th>Estado</th>
               <th class="text-right">Monto</th>
@@ -454,7 +580,7 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
     listEl.querySelectorAll<HTMLButtonElement>("[data-action]").forEach((btn) => {
       btn.disabled = busy;
       const row = Number(btn.dataset.row);
-      const gasto = currentGastos.find((g) => g.row === row);
+      const gasto = todos.find((g) => g.row === row);
       if (!gasto) return;
 
       if (btn.dataset.action === "toggle") {
@@ -468,6 +594,8 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
           if (montoPagado === null) return;
           void runAction(() => marcarGastoPagado(spreadsheetId, gasto, montoPagado));
         });
+      } else if (btn.dataset.action === "pausar") {
+        btn.addEventListener("click", () => runAction(() => setGastoFijoPausado(spreadsheetId, gasto, !gasto.pausado)));
       } else if (btn.dataset.action === "edit") {
         btn.addEventListener("click", () => openEditModal(gasto));
       } else if (btn.dataset.action === "delete") {
@@ -498,7 +626,9 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
   }
 
   async function reload(): Promise<void> {
-    currentGastos = await listGastosFijosDelMes(spreadsheetId);
+    const vigentes = await listGastosFijosVigentes(spreadsheetId, periodoActualId);
+    currentDelPeriodo = vigentes.delPeriodo;
+    currentEnEspera = vigentes.enEspera;
     renderList();
   }
 
@@ -513,6 +643,8 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
 
     const nombre = nombreInput.value.trim();
     const monto = Number(montoInput.value);
+    const recurrencia = recurrenciaSelect.value as RecurrenciaGastoFijo;
+    const repiteCadaN = Number(repiteNInput.value) || 0;
     if (!nombre || !monto || monto <= 0) {
       formError.hidden = false;
       formError.textContent = "Ingresa un nombre y un monto válido.";
@@ -523,10 +655,15 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
       formError.textContent = "Elige o crea una categoría.";
       return;
     }
+    if (recurrencia === "Personalizado" && repiteCadaN < 2) {
+      formError.hidden = false;
+      formError.textContent = "Indica cada cuántos periodos se repite (2 o más).";
+      return;
+    }
 
     submitBtn.disabled = true;
     try {
-      await crearGastoFijo(spreadsheetId, nombre, monto, formCategoriaValue, diaInput.value.trim());
+      await crearGastoFijo(spreadsheetId, nombre, monto, formCategoriaValue, diaInput.value.trim(), recurrencia, repiteCadaN, periodoActualId);
       if (!nombresConocidos.includes(nombre)) {
         nombresConocidos.push(nombre);
         renderNombresDatalist();
@@ -534,6 +671,9 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
       nombreInput.value = "";
       montoInput.value = "";
       diaInput.value = "";
+      recurrenciaSelect.value = "Fijo";
+      repiteNInput.value = "";
+      repiteNField.hidden = true;
       await reload();
     } catch (err) {
       formError.hidden = false;
@@ -546,13 +686,16 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
   try {
     const ensured = await ensureSpreadsheet();
     spreadsheetId = ensured.spreadsheetId;
-    const [categoriasList, nombresList] = await Promise.all([
+    const [categoriasList, nombresList, configPeriodo] = await Promise.all([
       listCategorias(spreadsheetId),
       listGastosFijosNombres(spreadsheetId),
+      obtenerConfigPeriodo(spreadsheetId),
     ]);
     categorias = categoriasList;
     nombresConocidos = nombresList;
     formCategoriaValue = categorias[0] ?? "";
+    periodoActualId = configPeriodo.fechaUltimoReinicio;
+    periodoBadge.textContent = formatPeriodoBadge(configPeriodo);
     refreshCombos();
     renderNombresDatalist();
     await reload();

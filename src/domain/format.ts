@@ -32,6 +32,11 @@ export function todayISO(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+/** Fecha completa legible ("27 de Julio de 2026") del día indicado. */
+export function formatFullDateLabel(date: Date = new Date()): string {
+  return `${date.getDate()} de ${formatMonthLabel(date)}`;
+}
+
 /** Etiqueta legible ("Julio de 2026") a partir de una clave "YYYY-MM". */
 export function formatMonthLabelFromKey(mes: string): string {
   const [year, month] = mes.split("-").map(Number);

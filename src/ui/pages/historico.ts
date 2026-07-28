@@ -1,20 +1,21 @@
 import fileTimeIcon from "../../icon/file-time.svg?raw";
 import { ensureSpreadsheet } from "../../api/spreadsheet-bootstrap";
-import { formatMonthLabelFromKey, formatMonthShortFromKey, formatMoney } from "../../domain/format";
+import { formatMoney } from "../../domain/format";
 import {
   cargarSnapshotHistorico,
   descargarResumenAnualCSV,
   listAniosDisponibles,
   listCategoriasHistoricas,
-  listMesesDisponibles,
-  patrimonioNetoSerie,
+  listPeriodosDisponibles,
+  patrimonioNetoSeriePeriodos,
   resumenAnual,
-  resumenMes,
-  serieCategoria,
-  serieMensual,
-  ultimosMeses,
+  resumenPeriodo,
+  seriePeriodoCategoria,
+  seriePeriodos,
+  ultimosPeriodos,
   type HistoricoSnapshot,
 } from "../../domain/historico";
+import { formatPeriodoLabel, formatPeriodoLabelCorto, listHistorialPeriodos, type PeriodoHistorico } from "../../domain/periodo";
 import { renderBarChart, renderLineChart } from "../components/charts";
 
 type Rango = 3 | 6 | 12 | "todo";
@@ -24,16 +25,16 @@ export async function renderHistorico(container: HTMLElement): Promise<void> {
     <div class="page-title-row">
       <h1 class="page-title">${fileTimeIcon} Histórico</h1>
     </div>
-    <div class="card" id="mes-nav-card" style="margin-bottom:20px">
+    <div class="card" id="periodo-nav-card" style="margin-bottom:20px">
       <div class="mes-nav">
-        <button type="button" class="btn-secondary" id="mes-prev" aria-label="Mes anterior">←</button>
-        <select id="mes-select"></select>
-        <button type="button" class="btn-secondary" id="mes-next" aria-label="Mes siguiente">→</button>
+        <button type="button" class="btn-secondary" id="periodo-prev" aria-label="Periodo anterior">←</button>
+        <select id="periodo-select"></select>
+        <button type="button" class="btn-secondary" id="periodo-next" aria-label="Periodo siguiente">→</button>
       </div>
     </div>
 
-    <div id="resumen-mes-grid" class="card-grid" style="margin-bottom:8px"></div>
-    <p class="empty-state" id="resumen-mes-nota" style="margin-top:0;margin-bottom:20px"></p>
+    <div id="resumen-periodo-grid" class="card-grid" style="margin-bottom:8px"></div>
+    <p class="empty-state" id="resumen-periodo-nota" style="margin-top:0;margin-bottom:20px"></p>
 
     <div class="card" style="margin-bottom:20px">
       <div class="table-toolbar">
@@ -41,9 +42,9 @@ export async function renderHistorico(container: HTMLElement): Promise<void> {
         <div class="field field--inline">
           <label for="rango-select">Rango</label>
           <select id="rango-select">
-            <option value="3">Últimos 3 meses</option>
-            <option value="6" selected>Últimos 6 meses</option>
-            <option value="12">Últimos 12 meses</option>
+            <option value="3">Últimos 3 periodos</option>
+            <option value="6" selected>Últimos 6 periodos</option>
+            <option value="12">Últimos 12 periodos</option>
             <option value="todo">Todo el historial</option>
           </select>
         </div>
@@ -53,7 +54,7 @@ export async function renderHistorico(container: HTMLElement): Promise<void> {
 
     <div class="card" style="margin-bottom:20px">
       <h2 style="margin-top:0">Evolución del patrimonio neto</h2>
-      <p class="empty-state" style="margin-top:-8px;margin-bottom:14px">Total ahorrado en metas menos deudas pendientes, mes a mes.</p>
+      <p class="empty-state" style="margin-top:-8px;margin-bottom:14px">Total ahorrado en metas menos deudas pendientes, periodo a periodo.</p>
       <div id="patrimonio-chart"></div>
     </div>
 
@@ -85,11 +86,11 @@ export async function renderHistorico(container: HTMLElement): Promise<void> {
     </div>
   `;
 
-  const mesPrevBtn = container.querySelector<HTMLButtonElement>("#mes-prev")!;
-  const mesNextBtn = container.querySelector<HTMLButtonElement>("#mes-next")!;
-  const mesSelect = container.querySelector<HTMLSelectElement>("#mes-select")!;
-  const resumenMesGrid = container.querySelector<HTMLDivElement>("#resumen-mes-grid")!;
-  const resumenMesNota = container.querySelector<HTMLParagraphElement>("#resumen-mes-nota")!;
+  const periodoPrevBtn = container.querySelector<HTMLButtonElement>("#periodo-prev")!;
+  const periodoNextBtn = container.querySelector<HTMLButtonElement>("#periodo-next")!;
+  const periodoSelect = container.querySelector<HTMLSelectElement>("#periodo-select")!;
+  const resumenPeriodoGrid = container.querySelector<HTMLDivElement>("#resumen-periodo-grid")!;
+  const resumenPeriodoNota = container.querySelector<HTMLParagraphElement>("#resumen-periodo-nota")!;
 
   const rangoSelect = container.querySelector<HTMLSelectElement>("#rango-select")!;
   const comparativaChart = container.querySelector<HTMLDivElement>("#comparativa-chart")!;
@@ -105,25 +106,25 @@ export async function renderHistorico(container: HTMLElement): Promise<void> {
 
   let spreadsheetId = "";
   let snapshot: HistoricoSnapshot | null = null;
-  let mesesDisponibles: string[] = [];
-  let mesSeleccionado = "";
+  let periodosDisponibles: PeriodoHistorico[] = [];
+  let periodoSeleccionado: PeriodoHistorico | null = null;
   let rango: Rango = 6;
   let categoriaSeleccionada = "";
   let anioSeleccionado = "";
 
-  function renderResumenMes(): void {
-    if (!snapshot) return;
-    const r = resumenMes(snapshot, mesSeleccionado);
+  function renderResumenPeriodo(): void {
+    if (!snapshot || !periodoSeleccionado) return;
+    const r = resumenPeriodo(snapshot, periodoSeleccionado);
     const tarjetas: { label: string; value: string; primary?: boolean }[] = [
       { label: "Ingresos", value: formatMoney(r.ingresos) },
       { label: "Gastos fijos", value: formatMoney(r.gastosFijosTotal) },
       { label: "Gastos y compras", value: formatMoney(r.gastosVariables) },
-      { label: "Balance del mes", value: formatMoney(r.balance), primary: true },
+      { label: "Balance del periodo", value: formatMoney(r.balance), primary: true },
       { label: "Aportado a ahorros", value: formatMoney(r.aportadoAhorros) },
       { label: "Abonado a deudas", value: formatMoney(r.abonadoDeudas) },
       { label: "Recibido de Me Deben", value: formatMoney(r.recibidoMeDeben) },
     ];
-    resumenMesGrid.innerHTML = tarjetas
+    resumenPeriodoGrid.innerHTML = tarjetas
       .map(
         (t) => `
           <div class="card stat-card${t.primary ? " stat-card--primary" : ""}">
@@ -134,19 +135,19 @@ export async function renderHistorico(container: HTMLElement): Promise<void> {
       )
       .join("");
 
-    resumenMesNota.textContent =
+    resumenPeriodoNota.textContent =
       r.gastosFijosTotal > 0
         ? `Gastos fijos: ${formatMoney(r.gastosFijosPagado)} pagados · ${formatMoney(r.gastosFijosPendiente)} pendientes en ese momento.`
         : "";
   }
 
   function renderComparativa(): void {
-    if (!snapshot) return;
-    const meses = ultimosMeses(mesesDisponibles, mesSeleccionado, rango);
-    const serie = serieMensual(snapshot, meses);
+    if (!snapshot || !periodoSeleccionado) return;
+    const periodos = ultimosPeriodos(periodosDisponibles, periodoSeleccionado, rango);
+    const serie = seriePeriodos(snapshot, periodos);
     renderBarChart(
       comparativaChart,
-      meses.map((m) => formatMonthShortFromKey(m)),
+      periodos.map((p) => formatPeriodoLabelCorto(p)),
       [
         { nombre: "Ingresos", color: "var(--color-success, #2f9e58)", valores: serie.map((p) => p.ingresos) },
         { nombre: "Gastos", color: "var(--color-danger)", valores: serie.map((p) => p.gastos) },
@@ -157,25 +158,25 @@ export async function renderHistorico(container: HTMLElement): Promise<void> {
 
   function renderPatrimonio(): void {
     if (!snapshot) return;
-    const serie = patrimonioNetoSerie(snapshot, mesesDisponibles);
+    const serie = patrimonioNetoSeriePeriodos(snapshot, periodosDisponibles);
     renderLineChart(
       patrimonioChart,
-      mesesDisponibles.map((m) => formatMonthShortFromKey(m)),
+      periodosDisponibles.map((p) => formatPeriodoLabelCorto(p)),
       serie.map((p) => p.patrimonio),
       "var(--color-primary)",
     );
   }
 
   function renderCategoria(): void {
-    if (!snapshot || !categoriaSeleccionada) {
+    if (!snapshot || !categoriaSeleccionada || !periodoSeleccionado) {
       categoriaChart.innerHTML = `<p class="empty-state">Aún no tienes gastos categorizados.</p>`;
       return;
     }
-    const meses = ultimosMeses(mesesDisponibles, mesSeleccionado, rango);
-    const serie = serieCategoria(snapshot, categoriaSeleccionada, meses);
+    const periodos = ultimosPeriodos(periodosDisponibles, periodoSeleccionado, rango);
+    const serie = seriePeriodoCategoria(snapshot, categoriaSeleccionada, periodos);
     renderBarChart(
       categoriaChart,
-      meses.map((m) => formatMonthShortFromKey(m)),
+      periodos.map((p) => formatPeriodoLabelCorto(p)),
       [{ nombre: categoriaSeleccionada, color: "var(--color-primary)", valores: serie.map((p) => p.monto) }],
     );
   }
@@ -220,38 +221,43 @@ export async function renderHistorico(container: HTMLElement): Promise<void> {
   }
 
   function renderAll(): void {
-    renderResumenMes();
+    renderResumenPeriodo();
     renderComparativa();
     renderPatrimonio();
     renderCategoria();
     renderResumenAnual();
   }
 
-  function poblarMesSelect(): void {
-    mesSelect.innerHTML = mesesDisponibles.map((m) => `<option value="${m}">${formatMonthLabelFromKey(m)}</option>`).join("");
-    mesSelect.value = mesSeleccionado;
-    mesPrevBtn.disabled = mesesDisponibles.indexOf(mesSeleccionado) <= 0;
-    mesNextBtn.disabled = mesesDisponibles.indexOf(mesSeleccionado) >= mesesDisponibles.length - 1;
+  function poblarPeriodoSelect(): void {
+    periodoSelect.innerHTML = periodosDisponibles
+      .map((p) => `<option value="${p.inicio}">${formatPeriodoLabel(p)}</option>`)
+      .join("");
+    if (periodoSeleccionado) periodoSelect.value = periodoSeleccionado.inicio;
+    const idx = periodoSeleccionado ? periodosDisponibles.findIndex((p) => p.inicio === periodoSeleccionado!.inicio) : -1;
+    periodoPrevBtn.disabled = idx <= 0;
+    periodoNextBtn.disabled = idx < 0 || idx >= periodosDisponibles.length - 1;
   }
 
-  mesSelect.addEventListener("change", () => {
-    mesSeleccionado = mesSelect.value;
-    poblarMesSelect();
+  periodoSelect.addEventListener("change", () => {
+    periodoSeleccionado = periodosDisponibles.find((p) => p.inicio === periodoSelect.value) ?? periodoSeleccionado;
+    poblarPeriodoSelect();
     renderAll();
   });
-  mesPrevBtn.addEventListener("click", () => {
-    const idx = mesesDisponibles.indexOf(mesSeleccionado);
+  periodoPrevBtn.addEventListener("click", () => {
+    if (!periodoSeleccionado) return;
+    const idx = periodosDisponibles.findIndex((p) => p.inicio === periodoSeleccionado!.inicio);
     if (idx > 0) {
-      mesSeleccionado = mesesDisponibles[idx - 1];
-      poblarMesSelect();
+      periodoSeleccionado = periodosDisponibles[idx - 1];
+      poblarPeriodoSelect();
       renderAll();
     }
   });
-  mesNextBtn.addEventListener("click", () => {
-    const idx = mesesDisponibles.indexOf(mesSeleccionado);
-    if (idx < mesesDisponibles.length - 1) {
-      mesSeleccionado = mesesDisponibles[idx + 1];
-      poblarMesSelect();
+  periodoNextBtn.addEventListener("click", () => {
+    if (!periodoSeleccionado) return;
+    const idx = periodosDisponibles.findIndex((p) => p.inicio === periodoSeleccionado!.inicio);
+    if (idx >= 0 && idx < periodosDisponibles.length - 1) {
+      periodoSeleccionado = periodosDisponibles[idx + 1];
+      poblarPeriodoSelect();
       renderAll();
     }
   });
@@ -275,21 +281,25 @@ export async function renderHistorico(container: HTMLElement): Promise<void> {
   try {
     const ensured = await ensureSpreadsheet();
     spreadsheetId = ensured.spreadsheetId;
-    snapshot = await cargarSnapshotHistorico(spreadsheetId);
-    mesesDisponibles = listMesesDisponibles(snapshot);
-    mesSeleccionado = mesesDisponibles[mesesDisponibles.length - 1];
-    poblarMesSelect();
+    const [snap, historialPeriodos] = await Promise.all([
+      cargarSnapshotHistorico(spreadsheetId),
+      listHistorialPeriodos(spreadsheetId),
+    ]);
+    snapshot = snap;
+    periodosDisponibles = listPeriodosDisponibles(snap, historialPeriodos);
+    periodoSeleccionado = periodosDisponibles[periodosDisponibles.length - 1];
+    poblarPeriodoSelect();
 
-    const categorias = listCategoriasHistoricas(snapshot);
+    const categorias = listCategoriasHistoricas(snap);
     categoriaSelect.innerHTML = categorias.map((c) => `<option value="${c}">${c}</option>`).join("");
     categoriaSeleccionada = categorias[0] ?? "";
 
-    const anios = listAniosDisponibles(snapshot);
+    const anios = listAniosDisponibles(snap);
     anioSelect.innerHTML = anios.map((a) => `<option value="${a}">${a}</option>`).join("");
     anioSeleccionado = anios[anios.length - 1] ?? "";
 
     renderAll();
   } catch (err) {
-    resumenMesGrid.innerHTML = `<p class="empty-state">${err instanceof Error ? err.message : "No se pudo cargar la información."}</p>`;
+    resumenPeriodoGrid.innerHTML = `<p class="empty-state">${err instanceof Error ? err.message : "No se pudo cargar la información."}</p>`;
   }
 }

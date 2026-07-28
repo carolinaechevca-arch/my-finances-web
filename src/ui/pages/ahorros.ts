@@ -28,6 +28,7 @@ import {
   type MovimientoMeta,
 } from "../../domain/metas";
 import { showAbonoDialog, showAlert, showConfirm, showRetiroDialog } from "../components/dialogs";
+import { loaderHtml } from "../components/loader";
 import { createOptionCombo, type OptionCombo } from "../components/tipo-combo";
 
 type SortOrder = "progreso" | "fecha-limite";
@@ -68,7 +69,7 @@ export async function renderAhorros(container: HTMLElement): Promise<void> {
       </div>
     </div>
 
-    <div id="ah-activas-list" class="deuda-list" style="margin-top:14px"><p class="empty-state">Cargando…</p></div>
+    <div id="ah-activas-list" class="deuda-list" style="margin-top:14px">${loaderHtml()}</div>
 
     <details class="card" id="ah-cumplidas-card" style="margin-top:20px">
       <summary style="cursor:pointer;font-weight:700">Cumplidas</summary>

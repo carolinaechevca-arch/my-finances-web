@@ -8,6 +8,7 @@ import logoutIcon from "../icon/logout.svg?raw";
 import menuIcon from "../icon/menu-2.svg?raw";
 import moneybagPlusIcon from "../icon/moneybag-plus.svg?raw";
 import pigMoneyIcon from "../icon/pig-money.svg?raw";
+import settingsIcon from "../icon/settings.svg?raw";
 import shoppingCartIcon from "../icon/shopping-cart.svg?raw";
 import type { AuthUser } from "../auth/google-auth";
 import { mountThemeToggle } from "./theme-toggle";
@@ -27,6 +28,7 @@ export const NAV_SECTIONS: NavSection[] = [
   { id: "me-deben", label: "Me Deben", icon: `<span class="nav-icon nav-icon--white">${businessplanIcon}</span>` },
   { id: "ahorros", label: "Ahorros y Metas", icon: `<span class="nav-icon nav-icon--white">${moneybagPlusIcon}</span>` },
   { id: "historico", label: "Histórico", icon: `<span class="nav-icon nav-icon--white">${fileTimeIcon}</span>` },
+  { id: "configuracion", label: "Configuración", icon: `<span class="nav-icon nav-icon--white">${settingsIcon}</span>` },
 ];
 
 export interface AppShell {

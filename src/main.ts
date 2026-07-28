@@ -1,6 +1,8 @@
 import "./styles/theme.css";
 import "./styles/layout.css";
 import { signOut, trySilentSignIn, type AuthUser } from "./auth/google-auth";
+import { ensureSpreadsheet } from "./api/spreadsheet-bootstrap";
+import { ensurePeriodoActualizado } from "./domain/periodo";
 import { renderLogin } from "./ui/pages/login";
 import { renderAppShell, NAV_SECTIONS } from "./ui/layout";
 import { renderDashboard } from "./ui/pages/dashboard";
@@ -11,6 +13,8 @@ import { renderDeudas } from "./ui/pages/deudas";
 import { renderMeDeben } from "./ui/pages/me-deben";
 import { renderAhorros } from "./ui/pages/ahorros";
 import { renderHistorico } from "./ui/pages/historico";
+import { renderConfiguracion } from "./ui/pages/configuracion";
+import { loaderHtmlFullscreen } from "./ui/components/loader";
 import { initTheme } from "./ui/theme-toggle";
 
 initTheme();
@@ -27,7 +31,14 @@ function renderPlaceholder(container: HTMLElement, sectionId: string): void {
   `;
 }
 
-function showApp(user: AuthUser): void {
+async function showApp(user: AuthUser): Promise<void> {
+  try {
+    const { spreadsheetId } = await ensureSpreadsheet();
+    await ensurePeriodoActualizado(spreadsheetId);
+  } catch {
+    // Si falla, cada página reintenta ensureSpreadsheet() por su cuenta y muestra el error ahí.
+  }
+
   function renderSection(sectionId: string): void {
     shell.setActive(sectionId);
     switch (sectionId) {
@@ -54,6 +65,9 @@ function showApp(user: AuthUser): void {
         break;
       case "historico":
         void renderHistorico(shell.contentEl);
+        break;
+      case "configuracion":
+        void renderConfiguracion(shell.contentEl);
         break;
       default:
         renderPlaceholder(shell.contentEl, sectionId);
@@ -83,10 +97,10 @@ function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T
 }
 
 async function bootstrap(): Promise<void> {
-  root.innerHTML = `<div class="boot-loader"><p class="empty-state">Verificando sesión…</p></div>`;
+  root.innerHTML = `<div class="boot-loader">${loaderHtmlFullscreen()}</div>`;
   const user = await withTimeout(trySilentSignIn(), 7000, null);
   if (user) {
-    showApp(user);
+    void showApp(user);
   } else {
     showLogin();
   }

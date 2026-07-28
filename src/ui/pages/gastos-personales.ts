@@ -5,6 +5,16 @@ import trashIcon from "../../icon/trash-x.svg?raw";
 import { uploadGastoFactura } from "../../api/drive";
 import { ensureSpreadsheet } from "../../api/spreadsheet-bootstrap";
 import {
+  actualizarCompraRecurrente,
+  crearCompraRecurrente,
+  eliminarCompraRecurrente,
+  esCompraDue,
+  listComprasRecurrentes,
+  registrarCompraRecurrente,
+  type CompraRecurrente,
+  type RecurrenciaCompra,
+} from "../../domain/compras-recurrentes";
+import {
   actualizarGasto,
   adjuntarFactura,
   crearCategoria,
@@ -14,6 +24,7 @@ import {
   listAhorrando,
   listCategorias,
   listGastosDelMes,
+  listGastosDelPeriodo,
   listPendientes,
   marcarComoAhorrando,
   marcarComoPagado,
@@ -23,19 +34,26 @@ import {
 } from "../../domain/gastos-y-compras";
 import { formatMonthLabel, formatMoney, parseDateInput, todayISO } from "../../domain/format";
 import { crearMeta } from "../../domain/metas";
+import { formatPeriodoBadge, obtenerConfigPeriodo } from "../../domain/periodo";
 import { showAlert, showCompletarGastoDialog, showConfirm, showConvertirMetaDialog } from "../components/dialogs";
+import { loaderHtml } from "../components/loader";
 import { createOptionCombo, type OptionCombo } from "../components/tipo-combo";
+
+const RECURRENCIA_BADGE: Record<RecurrenciaCompra, string> = {
+  Fijo: "badge--fijo",
+  Personalizado: "badge--personalizado",
+};
 
 export async function renderGastosPersonales(container: HTMLElement): Promise<void> {
   container.innerHTML = `
     <div class="page-title-row">
       <h1 class="page-title">${shoppingCartIcon} Gastos y Compras</h1>
-      <span class="month-badge">${formatMonthLabel()}</span>
+      <span class="month-badge" id="periodo-badge">Cargando…</span>
     </div>
     <div class="card-grid" style="max-width:560px">
       <div class="card stat-card stat-card--primary">
-        <div class="stat-card__value" id="gc-total-mes">—</div>
-        <div class="stat-card__label">Gastado este mes</div>
+        <div class="stat-card__value" id="gc-total-periodo">—</div>
+        <div class="stat-card__label">Gastado en el periodo</div>
       </div>
       <div class="card stat-card">
         <div class="stat-card__value" id="gc-pendientes-total">—</div>
@@ -46,21 +64,33 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
     <div class="card" style="margin-bottom:20px">
       <h2 style="margin-top:0">Agregar gasto o compra</h2>
       <form id="gasto-form" class="form">
-        <div class="field"><label for="gc-fecha">Fecha</label><input id="gc-fecha" type="date" value="${todayISO()}" required /></div>
+        <div class="field">
+          <label for="gc-recurrencia">Tipo de recurrencia</label>
+          <select id="gc-recurrencia">
+            <option value="Adicional">Adicional</option>
+            <option value="Fijo">Fijo</option>
+            <option value="Personalizado">Personalizado</option>
+          </select>
+        </div>
+        <div class="field" id="gc-repite-n-field" hidden>
+          <label for="gc-repite-n">¿Cada cuántos periodos se repite?</label>
+          <input id="gc-repite-n" type="number" min="2" step="1" />
+        </div>
+        <div class="field" id="gc-fecha-field"><label for="gc-fecha">Fecha</label><input id="gc-fecha" type="date" value="${todayISO()}" required /></div>
         <div class="field">
           <label>Categoría</label>
           <div id="gc-categoria-mount"></div>
         </div>
         <div class="field"><label for="gc-nombre">Nombre</label><input id="gc-nombre" type="text" placeholder="Ej. Mercado Éxito" required /></div>
-        <div class="field"><label for="gc-monto">Monto</label><input id="gc-monto" type="number" min="0" step="0.01" required /></div>
-        <div class="field">
+        <div class="field"><label for="gc-monto" id="gc-monto-label">Monto</label><input id="gc-monto" type="number" min="0" step="0.01" required /></div>
+        <div class="field" id="gc-pendiente-field">
           <label for="gc-pendiente-check">¿Ya lo hiciste?</label>
           <select id="gc-pendiente-check">
             <option value="Pagado">Sí, ya lo pagué</option>
             <option value="Pendiente">No, es una compra pendiente</option>
           </select>
         </div>
-        <button type="submit" class="btn">Guardar gasto</button>
+        <button type="submit" class="btn" id="gasto-submit-btn">Guardar gasto</button>
       </form>
       <p class="empty-state" id="gasto-form-error" hidden></p>
     </div>
@@ -68,7 +98,13 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
     <div class="card" style="margin-bottom:20px">
       <h2 style="margin-top:0">Pendientes por pagar</h2>
       <p class="empty-state" style="margin-top:-8px;margin-bottom:14px">Compras planeadas que aún no se han hecho. Se mantienen aquí mes a mes hasta que las marques como realizadas.</p>
-      <div id="pendientes-list"><p class="empty-state">Cargando…</p></div>
+      <div id="pendientes-list">${loaderHtml()}</div>
+    </div>
+
+    <div class="card" id="recurrentes-card" style="margin-bottom:20px" hidden>
+      <h2 style="margin-top:0">Compras recurrentes pendientes de registrar</h2>
+      <p class="empty-state" style="margin-top:-8px;margin-bottom:14px">Recordatorios de compras que se repiten (como champú o maquillaje) — nunca son obligatorias, puedes posponerlas sin problema.</p>
+      <div id="recurrentes-list"></div>
     </div>
 
     <div class="card" id="ahorrando-card" style="margin-bottom:20px" hidden>
@@ -87,7 +123,7 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
           </select>
         </div>
       </div>
-      <div id="gc-list"><p class="empty-state">Cargando…</p></div>
+      <div id="gc-list">${loaderHtml()}</div>
     </div>
 
     <input type="file" id="factura-input" accept="image/*,application/pdf" capture="environment" hidden />
@@ -131,11 +167,42 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
         </div>
       </form>
     </dialog>
+
+    <dialog id="edit-recurrente-modal" class="modal">
+      <form class="modal__form" id="edit-recurrente-form">
+        <h2 class="modal__title">Editar compra recurrente</h2>
+        <div class="field"><label for="edit-recurrente-nombre">Nombre</label><input id="edit-recurrente-nombre" type="text" required /></div>
+        <div class="field">
+          <label>Categoría</label>
+          <div id="edit-recurrente-categoria-mount"></div>
+        </div>
+        <div class="field">
+          <label for="edit-recurrente-tipo">Tipo de recurrencia</label>
+          <select id="edit-recurrente-tipo">
+            <option value="Fijo">Fijo</option>
+            <option value="Personalizado">Personalizado</option>
+          </select>
+        </div>
+        <div class="field" id="edit-recurrente-repite-n-field" hidden>
+          <label for="edit-recurrente-repite-n">¿Cada cuántos periodos se repite?</label>
+          <input id="edit-recurrente-repite-n" type="number" min="2" step="1" />
+        </div>
+        <div class="field"><label for="edit-recurrente-monto">Monto de referencia</label><input id="edit-recurrente-monto" type="number" min="0" step="0.01" required /></div>
+        <p class="empty-state" id="edit-recurrente-error" hidden></p>
+        <div class="modal__actions">
+          <button type="button" class="btn-secondary" id="edit-recurrente-cancel">Cancelar</button>
+          <button type="submit" class="btn">Guardar cambios</button>
+        </div>
+      </form>
+    </dialog>
   `;
 
-  const totalMesEl = container.querySelector<HTMLDivElement>("#gc-total-mes")!;
+  const periodoBadge = container.querySelector<HTMLSpanElement>("#periodo-badge")!;
+  const totalPeriodoEl = container.querySelector<HTMLDivElement>("#gc-total-periodo")!;
   const pendientesTotalEl = container.querySelector<HTMLDivElement>("#gc-pendientes-total")!;
   const pendientesListEl = container.querySelector<HTMLDivElement>("#pendientes-list")!;
+  const recurrentesCard = container.querySelector<HTMLDivElement>("#recurrentes-card")!;
+  const recurrentesListEl = container.querySelector<HTMLDivElement>("#recurrentes-list")!;
   const ahorrandoCard = container.querySelector<HTMLDivElement>("#ahorrando-card")!;
   const ahorrandoListEl = container.querySelector<HTMLDivElement>("#ahorrando-list")!;
   const listEl = container.querySelector<HTMLDivElement>("#gc-list")!;
@@ -143,10 +210,16 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
 
   const form = container.querySelector<HTMLFormElement>("#gasto-form")!;
   const formError = container.querySelector<HTMLParagraphElement>("#gasto-form-error")!;
-  const submitBtn = form.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+  const submitBtn = container.querySelector<HTMLButtonElement>("#gasto-submit-btn")!;
+  const recurrenciaSelect = container.querySelector<HTMLSelectElement>("#gc-recurrencia")!;
+  const repiteNField = container.querySelector<HTMLDivElement>("#gc-repite-n-field")!;
+  const repiteNInput = container.querySelector<HTMLInputElement>("#gc-repite-n")!;
+  const fechaField = container.querySelector<HTMLDivElement>("#gc-fecha-field")!;
   const fechaInput = container.querySelector<HTMLInputElement>("#gc-fecha")!;
   const nombreInput = container.querySelector<HTMLInputElement>("#gc-nombre")!;
+  const montoLabel = container.querySelector<HTMLLabelElement>("#gc-monto-label")!;
   const montoInput = container.querySelector<HTMLInputElement>("#gc-monto")!;
+  const pendienteField = container.querySelector<HTMLDivElement>("#gc-pendiente-field")!;
   const estadoSelect = container.querySelector<HTMLSelectElement>("#gc-pendiente-check")!;
 
   const facturaInput = container.querySelector<HTMLInputElement>("#factura-input")!;
@@ -166,20 +239,36 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
   const editModalError = container.querySelector<HTMLParagraphElement>("#edit-modal-error")!;
   const editModalCancel = container.querySelector<HTMLButtonElement>("#edit-modal-cancel")!;
 
+  const editRecurrenteModal = container.querySelector<HTMLDialogElement>("#edit-recurrente-modal")!;
+  const editRecurrenteForm = container.querySelector<HTMLFormElement>("#edit-recurrente-form")!;
+  const editRecurrenteNombreInput = container.querySelector<HTMLInputElement>("#edit-recurrente-nombre")!;
+  const editRecurrenteTipoSelect = container.querySelector<HTMLSelectElement>("#edit-recurrente-tipo")!;
+  const editRecurrenteRepiteNField = container.querySelector<HTMLDivElement>("#edit-recurrente-repite-n-field")!;
+  const editRecurrenteRepiteNInput = container.querySelector<HTMLInputElement>("#edit-recurrente-repite-n")!;
+  const editRecurrenteMontoInput = container.querySelector<HTMLInputElement>("#edit-recurrente-monto")!;
+  const editRecurrenteModalError = container.querySelector<HTMLParagraphElement>("#edit-recurrente-error")!;
+  const editRecurrenteModalCancel = container.querySelector<HTMLButtonElement>("#edit-recurrente-cancel")!;
+
   let spreadsheetId = "";
+  let periodoActualFecha = "";
   let categorias: string[] = [];
   let gastosDelMes: GastoYCompra[] = [];
+  let gastadoEnPeriodo = 0;
   let pendientes: GastoYCompra[] = [];
+  let recurrentes: CompraRecurrente[] = [];
   let ahorrando: GastoYCompra[] = [];
   let filtroCategoria = "";
   let busy = false;
   let formCategoriaValue = "";
   let editCategoriaValue = "";
+  let editRecurrenteCategoriaValue = "";
   let editingGasto: GastoYCompra | null = null;
+  let editingRecurrente: CompraRecurrente | null = null;
 
   function refreshCombos(): void {
     categoriaCombo.refresh();
     editCategoriaCombo.refresh();
+    editRecurrenteCategoriaCombo.refresh();
     renderFiltroCategoriaOptions();
   }
 
@@ -189,6 +278,20 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
       `<option value="">Todas</option>` + categorias.map((c) => `<option value="${c}">${c}</option>`).join("");
     if (categorias.includes(selected)) filtroCategoriaSelect.value = selected;
   }
+
+  function actualizarVisibilidadRecurrencia(): void {
+    const esAdicional = recurrenciaSelect.value === "Adicional";
+    fechaField.hidden = !esAdicional;
+    fechaInput.required = esAdicional;
+    pendienteField.hidden = !esAdicional;
+    repiteNField.hidden = recurrenciaSelect.value !== "Personalizado";
+    montoLabel.textContent = esAdicional ? "Monto" : "Monto de referencia";
+    submitBtn.textContent = esAdicional ? "Guardar gasto" : "Guardar compra recurrente";
+  }
+  recurrenciaSelect.addEventListener("change", actualizarVisibilidadRecurrencia);
+  editRecurrenteTipoSelect.addEventListener("change", () => {
+    editRecurrenteRepiteNField.hidden = editRecurrenteTipoSelect.value !== "Personalizado";
+  });
 
   function openCategoriaModal(onDone: (nombre: string) => void): void {
     categoriaModalInput.value = "";
@@ -243,7 +346,8 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
 
   async function handleDeleteCategoria(categoria: string): Promise<void> {
     const enUso = [...gastosDelMes, ...pendientes, ...ahorrando].some((g) => g.categoria === categoria);
-    if (enUso) {
+    const enUsoRecurrente = recurrentes.some((c) => c.categoria === categoria);
+    if (enUso || enUsoRecurrente) {
       await showAlert(
         `No puedes eliminar "${categoria}" porque tienes gastos con esta categoría. Edítalos o elimínalos primero.`,
         "No se puede eliminar",
@@ -261,6 +365,7 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
       categorias = categorias.filter((c) => c !== categoria);
       if (formCategoriaValue === categoria) formCategoriaValue = categorias[0] ?? "";
       if (editCategoriaValue === categoria) editCategoriaValue = categorias[0] ?? "";
+      if (editRecurrenteCategoriaValue === categoria) editRecurrenteCategoriaValue = categorias[0] ?? "";
       refreshCombos();
     } catch (err) {
       await showAlert(err instanceof Error ? err.message : "No se pudo eliminar la categoría.", "Error");
@@ -296,6 +401,21 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
     deleteLabel: "Eliminar categoría",
   });
   container.querySelector("#edit-categoria-mount")!.appendChild(editCategoriaCombo.el);
+
+  const editRecurrenteCategoriaCombo: OptionCombo = createOptionCombo({
+    getOptions: () => categorias,
+    getValue: () => editRecurrenteCategoriaValue,
+    onSelect: (categoria) => {
+      editRecurrenteCategoriaValue = categoria;
+      editRecurrenteCategoriaCombo.refresh();
+    },
+    onRequestNuevo: () => openCategoriaModal((nombre) => { editRecurrenteCategoriaValue = nombre; }),
+    onRequestDelete: (categoria) => void handleDeleteCategoria(categoria),
+    placeholder: "Selecciona una categoría",
+    addLabel: "+ Nueva categoría…",
+    deleteLabel: "Eliminar categoría",
+  });
+  container.querySelector("#edit-recurrente-categoria-mount")!.appendChild(editRecurrenteCategoriaCombo.el);
 
   function pickFacturaFile(): Promise<File | null> {
     return new Promise((resolve) => {
@@ -394,6 +514,75 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
     editModal.showModal();
   }
 
+  function openEditRecurrenteModal(compra: CompraRecurrente): void {
+    editingRecurrente = compra;
+    editRecurrenteNombreInput.value = compra.nombre;
+    editRecurrenteCategoriaValue = compra.categoria;
+    editRecurrenteCategoriaCombo.refresh();
+    editRecurrenteTipoSelect.value = compra.recurrencia;
+    editRecurrenteRepiteNField.hidden = compra.recurrencia !== "Personalizado";
+    editRecurrenteRepiteNInput.value = compra.repiteCadaN > 0 ? String(compra.repiteCadaN) : "";
+    editRecurrenteMontoInput.value = String(compra.monto);
+    editRecurrenteModalError.hidden = true;
+
+    const controller = new AbortController();
+    const { signal } = controller;
+
+    editRecurrenteModal.addEventListener("cancel", () => controller.abort(), { signal });
+    editRecurrenteModalCancel.addEventListener(
+      "click",
+      () => {
+        controller.abort();
+        editRecurrenteModal.close();
+      },
+      { signal },
+    );
+
+    editRecurrenteForm.addEventListener(
+      "submit",
+      async (e) => {
+        e.preventDefault();
+        const nombre = editRecurrenteNombreInput.value.trim();
+        const monto = Number(editRecurrenteMontoInput.value);
+        const recurrencia = editRecurrenteTipoSelect.value as RecurrenciaCompra;
+        const repiteCadaN = Number(editRecurrenteRepiteNInput.value) || 0;
+        if (!nombre || !monto || monto <= 0) {
+          editRecurrenteModalError.hidden = false;
+          editRecurrenteModalError.textContent = "Ingresa un nombre y un monto válido.";
+          return;
+        }
+        if (recurrencia === "Personalizado" && repiteCadaN < 2) {
+          editRecurrenteModalError.hidden = false;
+          editRecurrenteModalError.textContent = "Indica cada cuántos periodos se repite (2 o más).";
+          return;
+        }
+        if (!editingRecurrente) return;
+        const confirmBtn = editRecurrenteForm.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+        confirmBtn.disabled = true;
+        try {
+          await actualizarCompraRecurrente(spreadsheetId, editingRecurrente, {
+            nombre,
+            categoria: editRecurrenteCategoriaValue,
+            monto,
+            recurrencia,
+            repiteCadaN,
+          });
+          controller.abort();
+          editRecurrenteModal.close();
+          await reload();
+        } catch (err) {
+          editRecurrenteModalError.hidden = false;
+          editRecurrenteModalError.textContent = err instanceof Error ? err.message : "No se pudo guardar el cambio.";
+        } finally {
+          confirmBtn.disabled = false;
+        }
+      },
+      { signal },
+    );
+
+    editRecurrenteModal.showModal();
+  }
+
   function facturaCellHtml(gasto: GastoYCompra): string {
     if (gasto.linkFactura) {
       return `<a href="${gasto.linkFactura}" target="_blank" rel="noopener" class="icon-btn icon-btn--edit" aria-label="Ver factura" title="Ver factura">${eyeIcon}</a>`;
@@ -458,6 +647,68 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
     }
   }
 
+  function renderRecurrentes(): void {
+    recurrentesCard.hidden = recurrentes.length === 0;
+    recurrentesListEl.innerHTML = "";
+    if (recurrentes.length === 0) return;
+
+    for (const compra of recurrentes) {
+      const due = esCompraDue(compra);
+      const subtitulo = due
+        ? "Toca registrarla en este periodo"
+        : compra.recurrencia === "Personalizado"
+          ? `cada ${compra.repiteCadaN} periodos · faltan ${Math.max(compra.repiteCadaN - compra.contadorPeriodos, 1)}`
+          : "cada periodo";
+
+      const item = document.createElement("div");
+      item.className = "record-row";
+      item.innerHTML = `
+        <div class="record-row__main">
+          <span class="record-row__title">
+            ${due ? "Toca tu compra recurrente: " : ""}${compra.nombre}
+            ${compra.categoria ? ` <span class="badge">${compra.categoria}</span>` : ""}
+            <span class="badge ${RECURRENCIA_BADGE[compra.recurrencia]}">${compra.recurrencia}</span>
+          </span>
+          <span class="record-row__subtitle">${subtitulo}</span>
+        </div>
+        <div class="record-row__amount">${formatMoney(compra.monto)}</div>
+        ${
+          due
+            ? `<button type="button" class="btn-secondary" data-action="registrar">Registrar ahora</button><button type="button" class="btn-secondary" data-action="posponer">Posponer</button>`
+            : ""
+        }
+        <button type="button" class="icon-btn icon-btn--edit" data-action="editar" aria-label="Editar" title="Editar">${editIcon}</button>
+        <button type="button" class="icon-btn icon-btn--delete" data-action="eliminar" aria-label="Eliminar" title="Eliminar">${trashIcon}</button>
+      `;
+
+      item.querySelector('[data-action="registrar"]')?.addEventListener("click", async () => {
+        const resultado = await showCompletarGastoDialog(compra.nombre, compra.monto);
+        if (!resultado) return;
+        await runAction(async () => {
+          const gasto = await registrarCompraRecurrente(spreadsheetId, compra, resultado);
+          await attachFacturaFlow(gasto, true);
+        });
+      });
+      item.querySelector('[data-action="posponer"]')?.addEventListener("click", (e) => {
+        const btn = e.currentTarget as HTMLButtonElement;
+        btn.disabled = true;
+        btn.textContent = "Pospuesta";
+      });
+      item.querySelector('[data-action="editar"]')!.addEventListener("click", () => openEditRecurrenteModal(compra));
+      item.querySelector('[data-action="eliminar"]')!.addEventListener("click", async () => {
+        const ok = await showConfirm(`¿Eliminar la compra recurrente "${compra.nombre}"?`, {
+          title: "Eliminar compra recurrente",
+          confirmLabel: "Eliminar",
+          danger: true,
+        });
+        if (!ok) return;
+        void runAction(() => eliminarCompraRecurrente(spreadsheetId, compra));
+      });
+
+      recurrentesListEl.appendChild(item);
+    }
+  }
+
   function renderAhorrando(): void {
     ahorrandoCard.hidden = ahorrando.length === 0;
     if (ahorrando.length === 0) {
@@ -480,7 +731,7 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
 
   function renderHistorial(): void {
     const visibles = filtroCategoria ? gastosDelMes.filter((g) => g.categoria === filtroCategoria) : gastosDelMes;
-    totalMesEl.textContent = formatMoney(sumGastos(gastosDelMes));
+    totalPeriodoEl.textContent = formatMoney(gastadoEnPeriodo);
 
     if (visibles.length === 0) {
       listEl.innerHTML = `<p class="empty-state">${gastosDelMes.length === 0 ? "Aún no registras gastos este mes." : "No hay gastos con esa categoría."}</p>`;
@@ -562,12 +813,15 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
   }
 
   async function reload(): Promise<void> {
-    [gastosDelMes, pendientes, ahorrando] = await Promise.all([
+    [gastosDelMes, pendientes, ahorrando, recurrentes] = await Promise.all([
       listGastosDelMes(spreadsheetId),
       listPendientes(spreadsheetId),
       listAhorrando(spreadsheetId),
+      listComprasRecurrentes(spreadsheetId),
     ]);
+    gastadoEnPeriodo = sumGastos(await listGastosDelPeriodo(spreadsheetId, periodoActualFecha));
     renderPendientes();
+    renderRecurrentes();
     renderAhorrando();
     renderHistorial();
   }
@@ -581,11 +835,14 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
     e.preventDefault();
     formError.hidden = true;
 
+    const recurrencia = recurrenciaSelect.value as "Adicional" | RecurrenciaCompra;
     const nombre = nombreInput.value.trim();
     const monto = Number(montoInput.value);
-    if (!nombre || !monto || monto <= 0 || !fechaInput.value) {
+    const repiteCadaN = Number(repiteNInput.value) || 0;
+
+    if (!nombre || !monto || monto <= 0) {
       formError.hidden = false;
-      formError.textContent = "Completa fecha, nombre y un monto válido.";
+      formError.textContent = "Ingresa un nombre y un monto válido.";
       return;
     }
     if (!formCategoriaValue) {
@@ -593,25 +850,46 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
       formError.textContent = "Elige o crea una categoría.";
       return;
     }
+    if (recurrencia === "Adicional" && !fechaInput.value) {
+      formError.hidden = false;
+      formError.textContent = "Elige una fecha.";
+      return;
+    }
+    if (recurrencia === "Personalizado" && repiteCadaN < 2) {
+      formError.hidden = false;
+      formError.textContent = "Indica cada cuántos periodos se repite (2 o más).";
+      return;
+    }
 
     submitBtn.disabled = true;
     try {
-      const estado = estadoSelect.value as EstadoGasto;
-      const creado = await crearGasto(spreadsheetId, {
-        fecha: fechaInput.value,
-        categoria: formCategoriaValue,
-        nombre,
-        monto,
-        estado,
-      });
+      if (recurrencia === "Adicional") {
+        const estado = estadoSelect.value as EstadoGasto;
+        const creado = await crearGasto(spreadsheetId, {
+          fecha: fechaInput.value,
+          categoria: formCategoriaValue,
+          nombre,
+          monto,
+          estado,
+        });
+        if (estado === "Pagado") await attachFacturaFlow(creado, true);
+      } else {
+        await crearCompraRecurrente(spreadsheetId, {
+          nombre,
+          categoria: formCategoriaValue,
+          monto,
+          recurrencia,
+          repiteCadaN,
+        });
+      }
       nombreInput.value = "";
       montoInput.value = "";
       fechaInput.value = todayISO();
       estadoSelect.value = "Pagado";
+      repiteNInput.value = "";
+      recurrenciaSelect.value = "Adicional";
+      actualizarVisibilidadRecurrencia();
       await reload();
-      if (estado === "Pagado") {
-        await attachFacturaFlow(creado, true);
-      }
     } catch (err) {
       formError.hidden = false;
       formError.textContent = err instanceof Error ? err.message : "No se pudo guardar el gasto.";
@@ -623,8 +901,14 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
   try {
     const ensured = await ensureSpreadsheet();
     spreadsheetId = ensured.spreadsheetId;
-    categorias = await listCategorias(spreadsheetId);
+    const [categoriasList, configPeriodo] = await Promise.all([
+      listCategorias(spreadsheetId),
+      obtenerConfigPeriodo(spreadsheetId),
+    ]);
+    categorias = categoriasList;
     formCategoriaValue = categorias[0] ?? "";
+    periodoActualFecha = configPeriodo.fechaUltimoReinicio;
+    periodoBadge.textContent = formatPeriodoBadge(configPeriodo);
     refreshCombos();
     await reload();
   } catch (err) {

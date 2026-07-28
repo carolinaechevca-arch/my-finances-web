@@ -32,6 +32,13 @@ export interface IngresoFijo {
    * "Viernes", uno de DIAS_SEMANA). Vacío para Mensual/UnicoMes.
    */
   diaPago: string;
+  /**
+   * Solo aplica a "UnicoMes" ("Adicional" en el copy): queda en TRUE cuando
+   * se archiva al reiniciar el periodo global (ver domain/periodo.ts). La
+   * fila no se borra —Histórico sigue reconstruyendo periodos pasados a
+   * partir de "mes"— pero deja de listarse como vigente.
+   */
+  cerrado: boolean;
 }
 
 function parseIngreso(r: SheetRow): IngresoFijo {
@@ -46,6 +53,7 @@ function parseIngreso(r: SheetRow): IngresoFijo {
     id = "",
     frecuencia = "",
     diaPago = "",
+    cerrado = "",
   ] = r.values;
   return {
     id,
@@ -59,6 +67,7 @@ function parseIngreso(r: SheetRow): IngresoFijo {
     fechaCreacion,
     frecuencia: frecuencia === "Quincenal" || frecuencia === "Semanal" ? frecuencia : "Mensual",
     diaPago,
+    cerrado: cerrado.toUpperCase() === "TRUE",
   };
 }
 
@@ -159,22 +168,46 @@ export async function eliminarTipoIngreso(spreadsheetId: string, nombre: string)
 }
 
 /**
- * Ingresos que cuentan para el mes dado: todos los "Fijo" (recurren mes a
- * mes hasta que se pausan o se eliminan) más los "UnicoMes" que fueron
- * creados para ese mes específico. Un "UnicoMes" de un mes anterior deja de
- * aparecer aquí en cuanto cambia el mes: su fila sigue existiendo en la hoja
- * como histórico, pero ya no se lista ni se suma como vigente.
+ * Ingresos vigentes en el periodo actual: todos los "Fijo" (se reaplican
+ * solos en cada reinicio de periodo, salvo que estén pausados) más los
+ * "UnicoMes" ("Adicional") que todavía no se hayan archivado en el último
+ * reinicio (ver domain/periodo.ts). Un "Adicional" archivado deja de
+ * aparecer aquí, pero su fila sigue existiendo en la hoja como histórico.
  */
-export async function listIngresosVigentes(spreadsheetId: string, date: Date = new Date()): Promise<IngresoFijo[]> {
+export async function listIngresosVigentes(spreadsheetId: string): Promise<IngresoFijo[]> {
   const todos = await listTodosLosIngresos(spreadsheetId);
-  const mes = monthKey(date);
-  return todos.filter((i) => i.recurrencia === "Fijo" || i.mes === mes);
+  return todos.filter((i) => i.recurrencia === "Fijo" || !i.cerrado);
 }
 
-/** Todos los ingresos registrados alguna vez, sin filtrar por mes vigente — para reconstrucción histórica. */
+/** Todos los ingresos registrados alguna vez, sin filtrar por vigencia — para reconstrucción histórica. */
 export async function listTodosLosIngresos(spreadsheetId: string): Promise<IngresoFijo[]> {
-  const rows = await listRecords(spreadsheetId, INGRESOS_FIJOS_SHEET, 10);
+  const rows = await listRecords(spreadsheetId, INGRESOS_FIJOS_SHEET, 11);
   return rows.map(parseIngreso);
+}
+
+/**
+ * Archiva (Cerrado=TRUE) todos los ingresos "Adicional" que sigan vigentes,
+ * al reiniciar el periodo global — no borra la fila, solo deja de listarla
+ * como vigente. Ver domain/periodo.ts.
+ */
+export async function archivarIngresosAdicionalesAbiertos(spreadsheetId: string): Promise<void> {
+  const todos = await listTodosLosIngresos(spreadsheetId);
+  const abiertos = todos.filter((i) => i.recurrencia === "UnicoMes" && !i.cerrado);
+  for (const ingreso of abiertos) {
+    await updateRecord(spreadsheetId, INGRESOS_FIJOS_SHEET, ingreso.row, [
+      ingreso.tipo,
+      ingreso.monto,
+      ingreso.notas,
+      ingreso.recurrencia,
+      ingreso.mes,
+      ingreso.activo ? "TRUE" : "FALSE",
+      ingreso.fechaCreacion,
+      ingreso.id,
+      ingreso.frecuencia,
+      ingreso.diaPago,
+      "TRUE",
+    ]);
+  }
 }
 
 /**
@@ -219,6 +252,7 @@ export async function crearIngreso(
     crypto.randomUUID(),
     frecuencia,
     diaPago,
+    "FALSE",
   ]);
 }
 
@@ -237,6 +271,7 @@ export async function setIngresoActivo(spreadsheetId: string, ingreso: IngresoFi
     ingreso.id,
     ingreso.frecuencia,
     ingreso.diaPago,
+    ingreso.cerrado ? "TRUE" : "FALSE",
   ]);
 }
 
@@ -289,6 +324,7 @@ export async function actualizarIngreso(
     ingreso.id,
     cambios.recurrencia === "Fijo" ? cambios.frecuencia : ingreso.frecuencia,
     cambios.recurrencia === "Fijo" ? cambios.diaPago : ingreso.diaPago,
+    ingreso.cerrado ? "TRUE" : "FALSE",
   ]);
 }
 
