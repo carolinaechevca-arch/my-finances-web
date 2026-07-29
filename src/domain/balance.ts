@@ -1,13 +1,14 @@
 import { listDeudas, listTodosLosEventos, type Deuda, type EventoAbono } from "./deudas";
 import { todayISO } from "./format";
-import { listGastosFijosVigentes, sumGastosFijosTotal, type GastoFijo } from "./gastos";
+import { listGastosFijosVigentes, sumGastosFijosPagado, type GastoFijo } from "./gastos";
 import { listGastosDelPeriodo, sumGastos, type GastoYCompra } from "./gastos-y-compras";
 import { listIngresosVigentes, sumIngresosActivos, type IngresoFijo } from "./ingresos";
 import { listTodosLosMovimientos, type MovimientoMeta } from "./metas";
 
 export interface DisponibleDetalle {
   ingresos: number;
-  gastosFijos: number;
+  /** Solo lo realmente marcado como Pagado este periodo (no el total comprometido). */
+  gastosFijosPagados: number;
   gastosVariables: number;
   /** Solo lo realmente abonado este periodo a deudas propias (no la cuota programada) — aplica igual a "Con cuotas" y "Deuda simple". */
   abonosDeudas: number;
@@ -36,9 +37,10 @@ export interface DisponibleInputs {
  * `calcularDisponible` (más abajo) es el atajo que sí hace los fetches, para
  * páginas livianas como Ingresos que no cargan estos datos por su cuenta.
  *
- * Gastos Fijos sigue siendo el total *comprometido* del periodo (aunque no
- * se haya pagado aún — reserva presupuesto a propósito). Todo lo demás
- * (deudas, ahorros) cuenta solo el movimiento de dinero *real* ya ocurrido.
+ * Todo cuenta solo el movimiento de dinero *real* ya ocurrido: un gasto fijo
+ * pendiente NO resta hasta que se marca como Pagado (igual que Gastos y
+ * Compras), un abono a una deuda resta solo cuando se registra (no la cuota
+ * programada), un aporte a ahorros resta al aportarlo, etc.
  */
 export function calcularDisponibleDesde(inputs: DisponibleInputs, periodoInicio: string): DisponibleDetalle {
   const hoy = todayISO();
@@ -61,15 +63,21 @@ export function calcularDisponibleDesde(inputs: DisponibleInputs, periodoInicio:
     .reduce((s, m) => s + m.monto, 0);
 
   const ingresosTotal = sumIngresosActivos(inputs.ingresos);
-  const gastosFijosTotal = sumGastosFijosTotal(inputs.gastosFijosDelPeriodo);
+  const gastosFijosPagadosTotal = sumGastosFijosPagado(inputs.gastosFijosDelPeriodo);
   const gastosVariablesTotal = sumGastos(inputs.gastosVariablesDelPeriodo);
 
   const disponible =
-    ingresosTotal - gastosFijosTotal - gastosVariablesTotal - abonosDeudas + cobrosMeDeben - aportesAhorros + retirosAhorros;
+    ingresosTotal -
+    gastosFijosPagadosTotal -
+    gastosVariablesTotal -
+    abonosDeudas +
+    cobrosMeDeben -
+    aportesAhorros +
+    retirosAhorros;
 
   return {
     ingresos: ingresosTotal,
-    gastosFijos: gastosFijosTotal,
+    gastosFijosPagados: gastosFijosPagadosTotal,
     gastosVariables: gastosVariablesTotal,
     abonosDeudas,
     cobrosMeDeben,

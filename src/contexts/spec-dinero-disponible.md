@@ -6,11 +6,12 @@
 
 El usuario pidió revisar que **todas las compras, gastos y ahorros que registra resten correctamente de su dinero disponible**. La auditoría encontró:
 
-- **Gastos Fijos y Gastos y Compras**: ya restaban correctamente (Gastos Fijos = total comprometido del periodo aunque no esté pagado aún; Gastos y Compras = solo lo ya marcado como Pagado). Sin cambios acá.
+- **Gastos Fijos**: restaban el *total comprometido* del periodo, incluso lo todavía Pendiente. **Corregido tras aclaración del usuario**: un gasto fijo pendiente no debe restar hasta que se marca como Pagado — igual que ya funcionaba Gastos y Compras.
+- **Gastos y Compras**: ya restaban correctamente (solo lo marcado como Pagado). Sin cambios.
 - **Ahorros (aportes a metas)**: no restaban de "disponible" en ningún lado. Hueco real, corregido.
 - **Deudas**: Inicio restaba la *cuota programada* de deudas "Con cuotas" (sin importar si ya se pagó), y una "Deuda simple" (sin cuota fija, ver `spec-deudas.md`) no restaba nada. Ingresos ni siquiera restaba deudas. Ambos corregidos y unificados.
 
-Antes de este cambio, Inicio e Ingresos calculaban "disponible" con **fórmulas distintas entre sí** — quedan unificadas en una sola función.
+Antes de este cambio, Inicio e Ingresos calculaban "disponible" con **fórmulas distintas entre sí** — quedan unificadas en una sola función. El principio final, confirmado con el usuario: **"disponible" solo se mueve con dinero que realmente ya entró o salió** — nada de montos programados/proyectados, en ningún módulo.
 
 ## 1. Nueva función única: `calcularDisponible` (`src/domain/balance.ts`)
 
@@ -18,15 +19,15 @@ Reemplaza los cálculos duplicados/inconsistentes de Inicio e Ingresos. Fórmula
 
 ```
 disponible = ingresos
-  − gastos fijos (total comprometido del periodo, sin cambio de lógica)
-  − gastos y compras (solo lo Pagado, sin cambio de lógica)
-  − abonos REALES a deudas propias (YoDebo) este periodo       [NUEVO — antes era la cuota programada]
-  + cobros REALES de deudas "Me Deben" este periodo             [NUEVO]
-  − aportes REALES a metas de ahorro este periodo               [NUEVO]
-  + retiros REALES de metas de ahorro este periodo               [NUEVO — no confirmado explícitamente, ver sección 5]
+  − gastos fijos REALMENTE PAGADOS este periodo (no el total comprometido)   [CORREGIDO]
+  − gastos y compras REALMENTE PAGADOS este periodo (sin cambio de lógica)
+  − abonos REALES a deudas propias (YoDebo) este periodo                    [NUEVO — antes era la cuota programada]
+  + cobros REALES de deudas "Me Deben" este periodo                         [NUEVO]
+  − aportes REALES a metas de ahorro este periodo                          [NUEVO]
+  + retiros REALES de metas de ahorro este periodo                         [NUEVO — no confirmado explícitamente, ver sección 5]
 ```
 
-- "Real" significa: el monto de los eventos (`Abono` en `AbonosDeudas`, movimientos en `MovimientosMetas`) cuya fecha cae dentro del periodo actual (`fechaUltimoReinicio` → hoy) — no lo programado/proyectado.
+- "Real" significa: el monto de eventos con fecha ya ocurrida dentro del periodo actual (`fechaUltimoReinicio` → hoy) — nunca lo programado/proyectado. Un gasto fijo "Pendiente" no resta nada hasta que lo marcas Pagado; en ese momento resta lo realmente pagado (`montoPagado`, que puede diferir del monto esperado).
 - Aplica igual a deudas "Con cuotas" y "Deuda simple": ambas se miden por abono real, no por cuota.
 - Usado por: la tarjeta "Balance" de Inicio, el stat "Balance disponible" de Ingresos, y el cálculo de traspaso al reiniciar periodo (sección 2).
 
