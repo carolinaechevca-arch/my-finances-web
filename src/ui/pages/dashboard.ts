@@ -71,7 +71,8 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
     <div class="page-title-row">
       <h1 class="page-title">${calendarMonthIcon} Cómo van mis finanzas</h1>
       <div style="display:flex;align-items:center;gap:10px">
-        <button type="button" class="btn-secondary" id="reiniciar-periodo-btn" hidden>Reiniciar periodo</button>
+        <button type="button" class="btn" id="reiniciar-periodo-btn" hidden>Reiniciar periodo</button>
+        <button type="button" class="btn-secondary" id="forzar-reinicio-btn" hidden style="font-size:12px;padding:6px 12px">Forzar reinicio de todas formas</button>
         <span class="month-badge">${formatFullDateLabel()}</span>
       </div>
     </div>
@@ -207,6 +208,7 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
   const comparativoTexto = container.querySelector<HTMLParagraphElement>("#comparativo-texto")!;
   const movimientosList = container.querySelector<HTMLDivElement>("#movimientos-list")!;
   const reiniciarPeriodoBtn = container.querySelector<HTMLButtonElement>("#reiniciar-periodo-btn")!;
+  const forzarReinicioBtn = container.querySelector<HTMLButtonElement>("#forzar-reinicio-btn")!;
 
   try {
     const { spreadsheetId, created } = await ensureSpreadsheet();
@@ -268,13 +270,8 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
     if (configPeriodo.frecuencia === "Manual") {
       reiniciarPeriodoBtn.hidden = false;
       const yaReinicioHoy = configPeriodo.fechaUltimoReinicio === todayISO();
-      if (yaReinicioHoy) {
-        reiniciarPeriodoBtn.disabled = true;
-        reiniciarPeriodoBtn.textContent = "Ya reiniciaste hoy";
-        reiniciarPeriodoBtn.title = "Solo se puede reiniciar el periodo una vez por día — vuelve a intentarlo mañana.";
-      }
-      reiniciarPeriodoBtn.addEventListener("click", async () => {
-        if (yaReinicioHoy) return;
+
+      async function correrReinicio(): Promise<void> {
         const ok = await showConfirm(
           "Esto reaplica tus ingresos \"Fijo\" y archiva los \"Adicional\" del periodo que termina. ¿Reiniciar el periodo ahora?",
           { title: "Reiniciar periodo", confirmLabel: "Reiniciar" },
@@ -289,17 +286,37 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
         }
 
         reiniciarPeriodoBtn.disabled = true;
+        forzarReinicioBtn.disabled = true;
         try {
           await ejecutarReinicioPeriodo(spreadsheetId, todayISO(), traspasoDeficit);
           await renderDashboard(container, onNavigate);
         } catch (err) {
           reiniciarPeriodoBtn.disabled = false;
+          forzarReinicioBtn.disabled = false;
           await showAlert(
             err instanceof Error ? err.message : "No se pudo reiniciar el periodo.",
             "Error al reiniciar el periodo",
           );
         }
-      });
+      }
+
+      if (yaReinicioHoy) {
+        reiniciarPeriodoBtn.disabled = true;
+        reiniciarPeriodoBtn.className = "btn-secondary";
+        reiniciarPeriodoBtn.textContent = "Ya reiniciaste hoy";
+        reiniciarPeriodoBtn.title = "Solo se puede reiniciar el periodo una vez por día — vuelve a intentarlo mañana.";
+        forzarReinicioBtn.hidden = false;
+        forzarReinicioBtn.addEventListener("click", async () => {
+          const ok = await showConfirm(
+            "Ya reiniciaste el periodo hoy. Reiniciarlo otra vez el mismo día puede contar abonos/gastos de hoy dos veces en el cálculo de disponible. ¿Reiniciar de todas formas?",
+            { title: "Forzar reinicio", confirmLabel: "Sí, forzar", danger: true },
+          );
+          if (!ok) return;
+          await correrReinicio();
+        });
+      } else {
+        reiniciarPeriodoBtn.addEventListener("click", correrReinicio);
+      }
     }
 
     const eventosPorDeuda = agruparEventosPorDeuda(eventosDeudas);
