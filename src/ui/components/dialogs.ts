@@ -1,3 +1,4 @@
+import deviceFloppyIcon from "../../icon/device-floppy.svg?raw";
 import { formatMoney, todayISO } from "../../domain/format";
 
 function createDialog(): HTMLDialogElement {
@@ -303,7 +304,7 @@ export function showAbonoDialog(
         <p class="empty-state" id="abono-error" hidden></p>
         <div class="modal__actions">
           <button type="button" class="btn-secondary" data-action="cancel">Cancelar</button>
-          <button type="button" class="btn" data-action="confirm">Guardar</button>
+          <button type="button" class="btn" data-action="confirm">${deviceFloppyIcon} Guardar</button>
         </div>
       </div>
     `;

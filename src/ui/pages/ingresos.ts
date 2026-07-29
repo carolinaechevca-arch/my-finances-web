@@ -1,5 +1,8 @@
 import cashBanknotePlusIcon from "../../icon/cash-banknote-plus.svg?raw";
+import deviceFloppyIcon from "../../icon/device-floppy.svg?raw";
 import editIcon from "../../icon/edit.svg?raw";
+import eyeIcon from "../../icon/eye.svg?raw";
+import eyeOffIcon from "../../icon/eye-off.svg?raw";
 import trashIcon from "../../icon/trash-x.svg?raw";
 import { ensureSpreadsheet } from "../../api/spreadsheet-bootstrap";
 import { calcularDisponible } from "../../domain/balance";
@@ -43,17 +46,26 @@ export async function renderIngresos(container: HTMLElement): Promise<void> {
       <span class="month-badge" id="periodo-badge">Cargando…</span>
     </div>
     <div class="card-grid" style="max-width:820px">
-      <div class="card stat-card stat-card--primary">
-        <div class="stat-card__value" id="ingresos-total">—</div>
-        <div class="stat-card__label">Total vigente</div>
+      <div class="card" style="background:var(--color-primary);color:white;display:flex;flex-direction:column;gap:6px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+          <span style="font-size:13px;font-weight:600;opacity:0.85">Total vigente</span>
+          <button type="button" class="icon-btn" id="ingresos-total-eye" aria-label="Mostrar u ocultar" title="Mostrar u ocultar" style="color:white">${eyeIcon}</button>
+        </div>
+        <div style="font-size:28px;font-weight:800" id="ingresos-total">—</div>
       </div>
-      <div class="card stat-card">
-        <div class="stat-card__value" id="ingresos-total-fijo">—</div>
-        <div class="stat-card__label">Ingresos fijos recurrentes</div>
+      <div class="card" style="display:flex;flex-direction:column;gap:6px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+          <span class="empty-state" style="font-weight:600">Ingresos fijos recurrentes</span>
+          <button type="button" class="icon-btn" id="ingresos-fijo-eye" aria-label="Mostrar u ocultar" title="Mostrar u ocultar" style="color:var(--color-text-muted)">${eyeIcon}</button>
+        </div>
+        <div style="font-size:28px;font-weight:800;color:var(--color-primary)" id="ingresos-total-fijo">—</div>
       </div>
-      <div class="card stat-card">
-        <div class="stat-card__value" id="ingresos-balance">—</div>
-        <div class="stat-card__label">Balance disponible</div>
+      <div class="card" style="display:flex;flex-direction:column;gap:6px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+          <span class="empty-state" style="font-weight:600">Balance disponible</span>
+          <button type="button" class="icon-btn" id="ingresos-balance-eye" aria-label="Mostrar u ocultar" title="Mostrar u ocultar" style="color:var(--color-text-muted)">${eyeIcon}</button>
+        </div>
+        <div style="font-size:28px;font-weight:800;color:var(--color-primary)" id="ingresos-balance">—</div>
       </div>
     </div>
 
@@ -79,7 +91,7 @@ export async function renderIngresos(container: HTMLElement): Promise<void> {
           <label for="ingreso-notas">Notas (opcional)</label>
           <input id="ingreso-notas" type="text" />
         </div>
-        <button type="submit" class="btn">Guardar ingreso</button>
+        <button type="submit" class="btn">${deviceFloppyIcon} Guardar</button>
       </form>
       <p class="empty-state" id="ingreso-form-error" hidden></p>
     </div>
@@ -139,7 +151,7 @@ export async function renderIngresos(container: HTMLElement): Promise<void> {
         <p class="empty-state" id="edit-modal-error" hidden></p>
         <div class="modal__actions">
           <button type="button" class="btn-secondary" id="edit-modal-cancel">Cancelar</button>
-          <button type="submit" class="btn">Guardar cambios</button>
+          <button type="submit" class="btn">${deviceFloppyIcon} Guardar</button>
         </div>
       </form>
     </dialog>
@@ -149,6 +161,9 @@ export async function renderIngresos(container: HTMLElement): Promise<void> {
   const totalEl = container.querySelector<HTMLDivElement>("#ingresos-total")!;
   const totalFijoEl = container.querySelector<HTMLDivElement>("#ingresos-total-fijo")!;
   const balanceEl = container.querySelector<HTMLDivElement>("#ingresos-balance")!;
+  const totalEyeBtn = container.querySelector<HTMLButtonElement>("#ingresos-total-eye")!;
+  const fijoEyeBtn = container.querySelector<HTMLButtonElement>("#ingresos-fijo-eye")!;
+  const balanceEyeBtn = container.querySelector<HTMLButtonElement>("#ingresos-balance-eye")!;
   const recurrenciaSelect = container.querySelector<HTMLSelectElement>("#ingreso-recurrencia")!;
   const montoInput = container.querySelector<HTMLInputElement>("#ingreso-monto")!;
   const notasInput = container.querySelector<HTMLInputElement>("#ingreso-notas")!;
@@ -177,6 +192,9 @@ export async function renderIngresos(container: HTMLElement): Promise<void> {
   let currentIngresos: IngresoFijo[] = [];
   let periodoInicio = "";
   let balanceDisponible = 0;
+  let showTotal = true;
+  let showFijo = true;
+  let showBalance = true;
   let sortOrder: SortOrder = "tipo";
   let busy = false;
   let formTipoValue = "";
@@ -363,11 +381,31 @@ export async function renderIngresos(container: HTMLElement): Promise<void> {
     editModal.showModal();
   }
 
+  function actualizarOjo(btn: HTMLButtonElement, visible: boolean): void {
+    btn.innerHTML = visible ? eyeIcon : eyeOffIcon;
+  }
+
+  totalEyeBtn.addEventListener("click", () => {
+    showTotal = !showTotal;
+    actualizarOjo(totalEyeBtn, showTotal);
+    renderList();
+  });
+  fijoEyeBtn.addEventListener("click", () => {
+    showFijo = !showFijo;
+    actualizarOjo(fijoEyeBtn, showFijo);
+    renderList();
+  });
+  balanceEyeBtn.addEventListener("click", () => {
+    showBalance = !showBalance;
+    actualizarOjo(balanceEyeBtn, showBalance);
+    renderList();
+  });
+
   function renderList(): void {
     const totalIngresos = sumIngresosActivos(currentIngresos);
-    totalEl.textContent = formatMoney(totalIngresos);
-    totalFijoEl.textContent = formatMoney(sumIngresosFijosRecurrentes(currentIngresos));
-    balanceEl.textContent = formatMoney(balanceDisponible);
+    totalEl.textContent = showTotal ? formatMoney(totalIngresos) : "••••••";
+    totalFijoEl.textContent = showFijo ? formatMoney(sumIngresosFijosRecurrentes(currentIngresos)) : "••••••";
+    balanceEl.textContent = showBalance ? formatMoney(balanceDisponible) : "••••••";
 
     if (currentIngresos.length === 0) {
       listEl.innerHTML = `<p class="empty-state">Aún no tienes ingresos vigentes. Agrega el primero arriba.</p>`;

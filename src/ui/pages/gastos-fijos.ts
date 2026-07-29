@@ -1,5 +1,5 @@
 import cashMinusIcon from "../../icon/cash-minus.svg?raw";
-import chartPieIcon from "../../icon/chart-pie.svg?raw";
+import deviceFloppyIcon from "../../icon/device-floppy.svg?raw";
 import editIcon from "../../icon/edit.svg?raw";
 import trashIcon from "../../icon/trash-x.svg?raw";
 import { ensureSpreadsheet } from "../../api/spreadsheet-bootstrap";
@@ -84,11 +84,6 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
     </button>
 
     <div class="card" style="margin-bottom:20px">
-      <div class="card__title"><span class="card__icon-badge">${chartPieIcon}</span>Gasto por categoría</div>
-      <div id="gf-categorias-resumen"></div>
-    </div>
-
-    <div class="card" style="margin-bottom:20px">
       <h2 style="margin-top:0">Agregar gasto fijo</h2>
       <form id="gasto-form" class="form">
         <div class="field">
@@ -114,7 +109,7 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
         </div>
         <div class="field"><label for="gf-monto">Monto</label><input id="gf-monto" type="number" min="0" step="0.01" required /></div>
         <div class="field"><label for="gf-dia">Día de pago</label><input id="gf-dia" type="number" min="1" max="31" /></div>
-        <button type="submit" class="btn">Guardar gasto fijo</button>
+        <button type="submit" class="btn">${deviceFloppyIcon} Guardar</button>
       </form>
       <p class="empty-state" id="gasto-form-error" hidden></p>
     </div>
@@ -185,7 +180,7 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
         <p class="empty-state" id="edit-modal-error" hidden></p>
         <div class="modal__actions">
           <button type="button" class="btn-secondary" id="edit-modal-cancel">Cancelar</button>
-          <button type="submit" class="btn">Guardar cambios</button>
+          <button type="submit" class="btn">${deviceFloppyIcon} Guardar</button>
         </div>
       </form>
     </dialog>
@@ -197,7 +192,6 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
   const pagadoEl = container.querySelector<HTMLDivElement>("#gf-pagado")!;
   const progresoFillEl = container.querySelector<HTMLDivElement>("#gf-progreso-fill")!;
   const progresoPctEl = container.querySelector<HTMLSpanElement>("#gf-progreso-pct")!;
-  const categoriasResumenEl = container.querySelector<HTMLDivElement>("#gf-categorias-resumen")!;
   const diferenciaBtn = container.querySelector<HTMLButtonElement>("#gf-diferencia-btn")!;
   const diferenciaValorEl = container.querySelector<HTMLSpanElement>("#gf-diferencia-valor")!;
   const diferenciaModal = container.querySelector<HTMLDialogElement>("#diferencia-modal")!;
@@ -467,43 +461,23 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
   diferenciaBtn.addEventListener("click", openDiferenciaModal);
   diferenciaModalClose.addEventListener("click", () => diferenciaModal.close());
 
-  function renderCategorias(): void {
-    const porCategoria = new Map<string, number>();
-    for (const g of currentDelPeriodo) {
-      porCategoria.set(g.categoria || "Sin categoría", (porCategoria.get(g.categoria || "Sin categoría") ?? 0) + g.monto);
-    }
-    const ordenadas = [...porCategoria.entries()].sort((a, b) => b[1] - a[1]);
-    const max = ordenadas[0]?.[1] ?? 0;
-
-    categoriasResumenEl.innerHTML =
-      ordenadas.length === 0
-        ? `<p class="empty-state">Aún no registras gastos fijos en este periodo.</p>`
-        : ordenadas
-            .map(
-              ([categoria, monto]) => `
-                <div style="margin-bottom:10px">
-                  <div style="display:flex;justify-content:space-between;margin-bottom:4px">
-                    <span>${categoria}</span>
-                    <span class="empty-state">${formatMoney(monto)}</span>
-                  </div>
-                  <div class="progress-bar"><div class="progress-bar__fill" style="width:${max > 0 ? (monto / max) * 100 : 0}%"></div></div>
-                </div>
-              `,
-            )
-            .join("");
-  }
-
   function renderList(): void {
-    const total = sumGastosFijosTotal(currentDelPeriodo);
-    const pagadoMonto = sumGastosFijosPagado(currentDelPeriodo);
+    // Un gasto fijo pausado no cuenta en el resumen (ni Total, ni Pagado, ni Pendiente):
+    // pausarlo significa "no voy a pagar este" para el periodo actual, no solo "no se reaplica el próximo".
+    const activos = currentDelPeriodo.filter((g) => !g.pausado);
+    const total = sumGastosFijosTotal(activos);
+    const pagadoMonto = sumGastosFijosPagado(activos);
     const progresoPct = total > 0 ? (pagadoMonto / total) * 100 : 0;
     totalEl.textContent = formatMoney(total);
-    pendienteEl.textContent = formatMoney(sumGastosFijosPendientes(currentDelPeriodo));
+    pendienteEl.textContent = formatMoney(sumGastosFijosPendientes(activos));
     pagadoEl.textContent = formatMoney(pagadoMonto);
     progresoFillEl.style.width = `${progresoPct}%`;
     progresoPctEl.textContent = `${progresoPct.toFixed(0)}% pagado`;
-    diferenciaValorEl.textContent = formatMoney(sumDiferenciasPago(currentDelPeriodo));
-    renderCategorias();
+
+    const diferencia = sumDiferenciasPago(currentDelPeriodo);
+    const signo = diferencia > 0 ? "+" : diferencia < 0 ? "-" : "";
+    diferenciaValorEl.textContent = `${signo}${formatMoney(Math.abs(diferencia))}`;
+    diferenciaValorEl.style.color = diferencia > 0 ? "var(--color-danger)" : diferencia < 0 ? "var(--color-success)" : "";
 
     const todos: GastoFijoFila[] = [
       ...currentDelPeriodo.map((g) => ({ ...g, enEspera: false })),
@@ -545,7 +519,7 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
 
         const activoCell =
           gasto.recurrencia !== "Adicional"
-            ? `<button type="button" class="btn-toggle ${gasto.pausado ? "is-off" : ""}" data-row="${gasto.row}" data-action="pausar">${gasto.pausado ? "Pausado" : "Activo"}</button>`
+            ? `<button type="button" class="btn-toggle-filled ${gasto.pausado ? "is-off" : ""}" data-row="${gasto.row}" data-action="pausar">${gasto.pausado ? "Pausado" : "Activo"}</button>`
             : `<span class="empty-state">—</span>`;
 
         const estadoCell = gasto.enEspera
@@ -558,7 +532,7 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
             <td data-label="Categoría">${gasto.categoria ? `<span class="badge">${gasto.categoria}</span>` : "—"}</td>
             <td data-label="Recurrencia">${recurrenciaCell}</td>
             <td data-label="Activo">${activoCell}</td>
-            <td data-label="Día de pago">${gasto.diaPago || "—"}${diaBadge}</td>
+            <td data-label="Día de pago" class="dia-pago-cell"><span class="dia-pago-num">${gasto.diaPago || "—"}</span>${diaBadge}</td>
             <td data-label="Estado">${estadoCell}</td>
             <td data-label="Monto" class="text-right amount-cell">${formatMoney(gasto.enEspera || !pagado ? gasto.monto : (gasto.montoPagado ?? gasto.monto))}${diferenciaHtml}</td>
             <td class="actions-cell">

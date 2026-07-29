@@ -8,19 +8,20 @@ Se agrega un selector de **"Modo de deuda"** al formulario de agregar, con 2 opc
 
 | Modo | Descripción |
 |---|---|
-| **Con cuotas** *(comportamiento actual, sin cambios)* | Monto de la cuota, Número de cuotas, Monto original — el total y el interés se derivan de `montoOriginal` vs. `montoCuota × numCuotas`. |
-| **Deuda simple** *(nuevo)* | Solo un **monto total** + abonos libres, sin cronograma de cuotas — para deudas informales. |
+| **Con cuotas** | Monto de la cuota, Número de cuotas — **no se pide "Monto original"**: el total a pagar es simplemente `montoCuota × numCuotas`. No se trackea interés (`montoOriginal` se guarda internamente igual a ese total, sin distinción de interés). |
+| **Deuda simple** | Solo un **monto total** + abonos libres, sin cronograma de cuotas — para deudas informales. |
 
 **Confirmado: este modo aplica igual a "Deudas" (yo debo) y a "Me Deben"**, ya que ambas comparten el mismo módulo (`deudas-shared.ts`) — el selector se agrega una sola vez en el formulario genérico y funciona igual en ambas direcciones.
 
 ## 2. Formulario "Agregar deuda/Me deben" según el modo
 
-**Con cuotas** *(sin cambios respecto a hoy)*:
-- Contraparte, Tipo, Monto de la cuota, Número de cuotas, Monto original, Día de pago (opcional), Fecha de inicio, Notas.
+**Con cuotas**:
+- Contraparte, Tipo, Monto de la cuota, Número de cuotas, Día de pago (opcional), Fecha de inicio, Notas.
+- **Sin "Monto original"** — se quitó del formulario (creación y edición) porque no se quiere trackear interés por separado; el total se deriva de cuota × número de cuotas.
 
-**Deuda simple** *(nuevo)*:
+**Deuda simple**:
 - Contraparte, Tipo, **Monto total**, Fecha de inicio, **Día de pago (opcional)**, Notas.
-- Sin Monto de cuota, sin Número de cuotas, sin Monto original (el "Monto total" es directamente el saldo inicial de la deuda).
+- Sin Monto de cuota, sin Número de cuotas (el "Monto total" es directamente el saldo inicial de la deuda).
 
 > ⚠️ **Nota de coherencia a resolver:** el usuario confirmó que el campo "Día de pago" sí existe (opcional) en Deuda simple, pero también confirmó por separado que **no debe haber alertas de vencido/próximo** para este modo (sección 4). Se interpretó que el campo "Día de pago" en Deuda simple es **puramente informativo/de referencia personal** (ej. "sueles abonar el día 15"), sin disparar ningún badge de alerta ni entrar en el cálculo de "Pago vencido/próximo". **Confirmar si esta interpretación es correcta**, o si en realidad sí se esperaba algún tipo de alerta cuando se define ese día.
 
@@ -39,14 +40,14 @@ Sigue existiendo igual que hoy (si ya hay una deuda activa con la misma contrapa
 - **Deuda simple** *(nuevo comportamiento)*: **sin insignia de vencido/próximo** — confirmado que no aplica, no hay fecha de pago fija que dispare esa lógica. Solo puede mostrar insignia neutra "Activa" o verde "Pagada".
 
 **Cuerpo:**
-- **Con cuotas** *(sin cambios)*: barra de progreso, grilla de stats (Saldo restante / Total a pagar / Interés total / Cuotas pagadas), línea "Próximo pago: día N · Cuota $X", frase de proyección ("A este ritmo, se termina de pagar en aproximadamente N meses…").
+- **Con cuotas**: barra de progreso, grilla de stats (Saldo restante / Total a pagar / Cuotas pagadas — **sin "Interés total"**, ya no se trackea), línea "Próximo pago: día N · Cuota $X", frase de proyección ("A este ritmo, se termina de pagar en aproximadamente N meses…").
 - **Deuda simple** *(nuevo)*: barra de progreso (saldo restante vs. monto total), grilla de stats simplificada — **Saldo restante / Monto total / Abonos registrados** (se quita "Interés total" y "Cuotas pagadas", que no aplican sin cuotas). **Sin línea de "Próximo pago"** y **sin frase de proyección de meses** (no hay una cuota fija sobre la cual proyectar). *(Se podría agregar un dato suave como "Llevas N abonos" — no fue solicitado explícitamente, queda como posible extra si se quiere.)*
 
 **Pie (botones)** — igual en ambos modos: "Registrar abono" (monto/fecha/nota), "Ver historial" (línea de tiempo de abonos), "Marcar como pagada" / "Reabrir".
 
 ## 5. Sección "Pagadas" y modal "Historial"
 
-Sin cambios — funcionan igual para ambos modos (una deuda simple pagada también aparece en la colapsable "Pagadas" con su nombre, tipo, monto original/total y total pagado).
+Funcionan igual para ambos modos (una deuda pagada también aparece en la colapsable "Pagadas" con su nombre, tipo, monto total y total pagado — el resumen usa "Monto total" en vez de "Monto original" para ambos modos).
 
 ## 6. Modal "Editar deuda"
 

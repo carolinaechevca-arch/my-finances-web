@@ -1,7 +1,6 @@
 import { appendRecord, listRecords, updateRecord } from "../api/records";
 import { CONFIG_PERIODO_SHEET, HISTORIAL_PERIODOS_SHEET } from "../api/spreadsheet-bootstrap";
 import { calcularDisponible } from "./balance";
-import { avanzarComprasRecurrentes } from "./compras-recurrentes";
 import { crearDeuda } from "./deudas";
 import { formatMonthLabel, parseDateInput, todayISO } from "./format";
 import { reaplicarGastosFijos } from "./gastos";
@@ -106,7 +105,6 @@ export async function ejecutarReinicioPeriodo(
 
   await archivarIngresosAdicionalesAbiertos(spreadsheetId);
   await reaplicarGastosFijos(spreadsheetId, nuevaFecha);
-  await avanzarComprasRecurrentes(spreadsheetId);
 
   if (disponible > 0) {
     await crearIngreso(spreadsheetId, "Sobrante de periodo", disponible, "Traspasado automáticamente del periodo anterior", "UnicoMes");

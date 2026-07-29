@@ -1,3 +1,5 @@
+import chevronDownIcon from "../../icon/chevron-down.svg?raw";
+import deviceFloppyIcon from "../../icon/device-floppy.svg?raw";
 import editIcon from "../../icon/edit.svg?raw";
 import eyeIcon from "../../icon/eye.svg?raw";
 import shoppingCartIcon from "../../icon/shopping-cart.svg?raw";
@@ -5,15 +7,13 @@ import trashIcon from "../../icon/trash-x.svg?raw";
 import { uploadGastoFactura } from "../../api/drive";
 import { ensureSpreadsheet } from "../../api/spreadsheet-bootstrap";
 import {
-  actualizarCompraRecurrente,
-  crearCompraRecurrente,
-  eliminarCompraRecurrente,
-  esCompraDue,
-  listComprasRecurrentes,
-  registrarCompraRecurrente,
-  type CompraRecurrente,
-  type RecurrenciaCompra,
-} from "../../domain/compras-recurrentes";
+  actualizarArchivado,
+  crearArchivado,
+  eliminarArchivado,
+  listArchivados,
+  registrarArchivado,
+  type Archivado,
+} from "../../domain/archivados";
 import {
   actualizarGasto,
   adjuntarFactura,
@@ -39,10 +39,7 @@ import { showAlert, showCompletarGastoDialog, showConfirm, showConvertirMetaDial
 import { loaderHtml } from "../components/loader";
 import { createOptionCombo, type OptionCombo } from "../components/tipo-combo";
 
-const RECURRENCIA_BADGE: Record<RecurrenciaCompra, string> = {
-  Fijo: "badge--fijo",
-  Personalizado: "badge--personalizado",
-};
+const CHECK_SVG = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5" /></svg>`;
 
 export async function renderGastosPersonales(container: HTMLElement): Promise<void> {
   container.innerHTML = `
@@ -51,60 +48,60 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
       <span class="month-badge" id="periodo-badge">Cargando…</span>
     </div>
     <div class="card-grid" style="max-width:560px">
-      <div class="card stat-card stat-card--primary">
-        <div class="stat-card__value" id="gc-total-periodo">—</div>
-        <div class="stat-card__label">Gastado en el periodo</div>
+      <div class="card" style="background:var(--color-primary);color:white;display:flex;flex-direction:column;gap:8px">
+        <span style="font-size:14px;font-weight:600;opacity:0.85">Gastado en el periodo</span>
+        <div style="font-size:32px;font-weight:800" id="gc-total-periodo">—</div>
       </div>
-      <div class="card stat-card">
-        <div class="stat-card__value" id="gc-pendientes-total">—</div>
-        <div class="stat-card__label">Pendientes por pagar</div>
+      <div class="card" style="display:flex;flex-direction:column;gap:8px">
+        <span class="empty-state" style="font-weight:600">Pendientes</span>
+        <div style="font-size:28px;font-weight:800;color:var(--color-danger)" id="gc-pendientes-total">—</div>
       </div>
     </div>
 
     <div class="card" style="margin-bottom:20px">
       <h2 style="margin-top:0">Agregar gasto o compra</h2>
       <form id="gasto-form" class="form">
-        <div class="field">
-          <label for="gc-recurrencia">Tipo de recurrencia</label>
-          <select id="gc-recurrencia">
-            <option value="Adicional">Adicional</option>
-            <option value="Fijo">Fijo</option>
-            <option value="Personalizado">Personalizado</option>
-          </select>
-        </div>
-        <div class="field" id="gc-repite-n-field" hidden>
-          <label for="gc-repite-n">¿Cada cuántos periodos se repite?</label>
-          <input id="gc-repite-n" type="number" min="2" step="1" />
-        </div>
-        <div class="field" id="gc-fecha-field"><label for="gc-fecha">Fecha</label><input id="gc-fecha" type="date" value="${todayISO()}" required /></div>
+        <div class="field"><label for="gc-fecha">Fecha</label><input id="gc-fecha" type="date" value="${todayISO()}" required /></div>
         <div class="field">
           <label>Categoría</label>
           <div id="gc-categoria-mount"></div>
         </div>
         <div class="field"><label for="gc-nombre">Nombre</label><input id="gc-nombre" type="text" placeholder="Ej. Mercado Éxito" required /></div>
-        <div class="field"><label for="gc-monto" id="gc-monto-label">Monto</label><input id="gc-monto" type="number" min="0" step="0.01" required /></div>
-        <div class="field" id="gc-pendiente-field">
-          <label for="gc-pendiente-check">¿Ya lo hiciste?</label>
-          <select id="gc-pendiente-check">
-            <option value="Pagado">Sí, ya lo pagué</option>
-            <option value="Pendiente">No, es una compra pendiente</option>
-          </select>
+        <div class="field"><label for="gc-monto">Monto</label><input id="gc-monto" type="number" min="0" step="0.01" required /></div>
+        <div class="field">
+          <div class="segmented" id="gc-pendiente-toggle">
+            <button type="button" class="segmented__btn" data-value="Pendiente">Pendiente</button>
+            <button type="button" class="segmented__btn" data-value="Pagado">Ya lo pagué</button>
+          </div>
         </div>
-        <button type="submit" class="btn" id="gasto-submit-btn">Guardar gasto</button>
+        <div class="field">
+          <label>Archivar</label>
+          <button type="button" class="archive-toggle" id="gc-archivar-toggle" title="Archivar para agregarla la próxima vez">
+            <span class="archive-toggle__box" id="gc-archivar-box"></span>
+          </button>
+        </div>
+        <button type="submit" class="btn" id="gasto-submit-btn">${deviceFloppyIcon} Guardar</button>
       </form>
       <p class="empty-state" id="gasto-form-error" hidden></p>
     </div>
 
     <div class="card" style="margin-bottom:20px">
-      <h2 style="margin-top:0">Pendientes por pagar</h2>
+      <h2 style="margin-top:0">Pendientes</h2>
       <p class="empty-state" style="margin-top:-8px;margin-bottom:14px">Compras planeadas que aún no se han hecho. Se mantienen aquí mes a mes hasta que las marques como realizadas.</p>
       <div id="pendientes-list">${loaderHtml()}</div>
     </div>
 
-    <div class="card" id="recurrentes-card" style="margin-bottom:20px" hidden>
-      <h2 style="margin-top:0">Compras recurrentes pendientes de registrar</h2>
-      <p class="empty-state" style="margin-top:-8px;margin-bottom:14px">Recordatorios de compras que se repiten (como champú o maquillaje) — nunca son obligatorias, puedes posponerlas sin problema.</p>
-      <div id="recurrentes-list"></div>
+    <div class="card" id="archivados-card" style="margin-bottom:20px" hidden>
+      <div class="accordion-header" style="margin-bottom:0">
+        <button type="button" class="accordion-toggle" id="archivados-toggle">
+          ${chevronDownIcon}
+          <h2 style="margin:0">Archivados</h2>
+        </button>
+      </div>
+      <div id="archivados-body" hidden>
+        <p class="empty-state" style="margin-top:12px;margin-bottom:14px">Compras que haces normalmente, guardadas para la próxima vez.</p>
+        <div id="archivados-list"></div>
+      </div>
     </div>
 
     <div class="card" id="ahorrando-card" style="margin-bottom:20px" hidden>
@@ -114,8 +111,11 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
     </div>
 
     <div class="card">
-      <div class="table-toolbar">
-        <h2 style="margin:0">Historial — ${formatMonthLabel()}</h2>
+      <div class="accordion-header">
+        <button type="button" class="accordion-toggle" id="historial-toggle">
+          ${chevronDownIcon}
+          <h2 style="margin:0">Historial — ${formatMonthLabel()}</h2>
+        </button>
         <div class="field field--inline">
           <label for="gc-filtro-categoria">Categoría</label>
           <select id="gc-filtro-categoria">
@@ -123,7 +123,9 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
           </select>
         </div>
       </div>
-      <div id="gc-list">${loaderHtml()}</div>
+      <div id="historial-body" hidden>
+        <div id="gc-list">${loaderHtml()}</div>
+      </div>
     </div>
 
     <input type="file" id="factura-input" accept="image/*,application/pdf" capture="environment" hidden />
@@ -163,35 +165,24 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
         <p class="empty-state" id="edit-modal-error" hidden></p>
         <div class="modal__actions">
           <button type="button" class="btn-secondary" id="edit-modal-cancel">Cancelar</button>
-          <button type="submit" class="btn">Guardar cambios</button>
+          <button type="submit" class="btn">${deviceFloppyIcon} Guardar</button>
         </div>
       </form>
     </dialog>
 
     <dialog id="edit-recurrente-modal" class="modal">
       <form class="modal__form" id="edit-recurrente-form">
-        <h2 class="modal__title">Editar compra recurrente</h2>
+        <h2 class="modal__title">Editar archivado</h2>
         <div class="field"><label for="edit-recurrente-nombre">Nombre</label><input id="edit-recurrente-nombre" type="text" required /></div>
         <div class="field">
           <label>Categoría</label>
           <div id="edit-recurrente-categoria-mount"></div>
         </div>
-        <div class="field">
-          <label for="edit-recurrente-tipo">Tipo de recurrencia</label>
-          <select id="edit-recurrente-tipo">
-            <option value="Fijo">Fijo</option>
-            <option value="Personalizado">Personalizado</option>
-          </select>
-        </div>
-        <div class="field" id="edit-recurrente-repite-n-field" hidden>
-          <label for="edit-recurrente-repite-n">¿Cada cuántos periodos se repite?</label>
-          <input id="edit-recurrente-repite-n" type="number" min="2" step="1" />
-        </div>
         <div class="field"><label for="edit-recurrente-monto">Monto de referencia</label><input id="edit-recurrente-monto" type="number" min="0" step="0.01" required /></div>
         <p class="empty-state" id="edit-recurrente-error" hidden></p>
         <div class="modal__actions">
           <button type="button" class="btn-secondary" id="edit-recurrente-cancel">Cancelar</button>
-          <button type="submit" class="btn">Guardar cambios</button>
+          <button type="submit" class="btn">${deviceFloppyIcon} Guardar</button>
         </div>
       </form>
     </dialog>
@@ -201,26 +192,27 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
   const totalPeriodoEl = container.querySelector<HTMLDivElement>("#gc-total-periodo")!;
   const pendientesTotalEl = container.querySelector<HTMLDivElement>("#gc-pendientes-total")!;
   const pendientesListEl = container.querySelector<HTMLDivElement>("#pendientes-list")!;
-  const recurrentesCard = container.querySelector<HTMLDivElement>("#recurrentes-card")!;
-  const recurrentesListEl = container.querySelector<HTMLDivElement>("#recurrentes-list")!;
+  const archivadosCard = container.querySelector<HTMLDivElement>("#archivados-card")!;
+  const archivadosListEl = container.querySelector<HTMLDivElement>("#archivados-list")!;
+  const archivadosToggle = container.querySelector<HTMLButtonElement>("#archivados-toggle")!;
+  const archivadosBody = container.querySelector<HTMLDivElement>("#archivados-body")!;
   const ahorrandoCard = container.querySelector<HTMLDivElement>("#ahorrando-card")!;
   const ahorrandoListEl = container.querySelector<HTMLDivElement>("#ahorrando-list")!;
   const listEl = container.querySelector<HTMLDivElement>("#gc-list")!;
   const filtroCategoriaSelect = container.querySelector<HTMLSelectElement>("#gc-filtro-categoria")!;
+  const historialToggle = container.querySelector<HTMLButtonElement>("#historial-toggle")!;
+  const historialBody = container.querySelector<HTMLDivElement>("#historial-body")!;
 
   const form = container.querySelector<HTMLFormElement>("#gasto-form")!;
   const formError = container.querySelector<HTMLParagraphElement>("#gasto-form-error")!;
   const submitBtn = container.querySelector<HTMLButtonElement>("#gasto-submit-btn")!;
-  const recurrenciaSelect = container.querySelector<HTMLSelectElement>("#gc-recurrencia")!;
-  const repiteNField = container.querySelector<HTMLDivElement>("#gc-repite-n-field")!;
-  const repiteNInput = container.querySelector<HTMLInputElement>("#gc-repite-n")!;
-  const fechaField = container.querySelector<HTMLDivElement>("#gc-fecha-field")!;
   const fechaInput = container.querySelector<HTMLInputElement>("#gc-fecha")!;
   const nombreInput = container.querySelector<HTMLInputElement>("#gc-nombre")!;
-  const montoLabel = container.querySelector<HTMLLabelElement>("#gc-monto-label")!;
   const montoInput = container.querySelector<HTMLInputElement>("#gc-monto")!;
-  const pendienteField = container.querySelector<HTMLDivElement>("#gc-pendiente-field")!;
-  const estadoSelect = container.querySelector<HTMLSelectElement>("#gc-pendiente-check")!;
+  const pendienteToggle = container.querySelector<HTMLDivElement>("#gc-pendiente-toggle")!;
+  const pendienteToggleBtns = pendienteToggle.querySelectorAll<HTMLButtonElement>(".segmented__btn");
+  const archivarToggle = container.querySelector<HTMLButtonElement>("#gc-archivar-toggle")!;
+  const archivarBox = container.querySelector<HTMLSpanElement>("#gc-archivar-box")!;
 
   const facturaInput = container.querySelector<HTMLInputElement>("#factura-input")!;
 
@@ -242,9 +234,6 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
   const editRecurrenteModal = container.querySelector<HTMLDialogElement>("#edit-recurrente-modal")!;
   const editRecurrenteForm = container.querySelector<HTMLFormElement>("#edit-recurrente-form")!;
   const editRecurrenteNombreInput = container.querySelector<HTMLInputElement>("#edit-recurrente-nombre")!;
-  const editRecurrenteTipoSelect = container.querySelector<HTMLSelectElement>("#edit-recurrente-tipo")!;
-  const editRecurrenteRepiteNField = container.querySelector<HTMLDivElement>("#edit-recurrente-repite-n-field")!;
-  const editRecurrenteRepiteNInput = container.querySelector<HTMLInputElement>("#edit-recurrente-repite-n")!;
   const editRecurrenteMontoInput = container.querySelector<HTMLInputElement>("#edit-recurrente-monto")!;
   const editRecurrenteModalError = container.querySelector<HTMLParagraphElement>("#edit-recurrente-error")!;
   const editRecurrenteModalCancel = container.querySelector<HTMLButtonElement>("#edit-recurrente-cancel")!;
@@ -255,15 +244,40 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
   let gastosDelMes: GastoYCompra[] = [];
   let gastadoEnPeriodo = 0;
   let pendientes: GastoYCompra[] = [];
-  let recurrentes: CompraRecurrente[] = [];
+  let archivados: Archivado[] = [];
   let ahorrando: GastoYCompra[] = [];
   let filtroCategoria = "";
   let busy = false;
   let formCategoriaValue = "";
   let editCategoriaValue = "";
   let editRecurrenteCategoriaValue = "";
+  let archivarChecked = false;
   let editingGasto: GastoYCompra | null = null;
-  let editingRecurrente: CompraRecurrente | null = null;
+  let editingArchivado: Archivado | null = null;
+  let estadoValue: EstadoGasto = "Pagado";
+
+  function renderPendienteToggle(): void {
+    pendienteToggleBtns.forEach((btn) => {
+      btn.classList.toggle("is-active", btn.dataset.value === estadoValue);
+    });
+  }
+  pendienteToggleBtns.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      estadoValue = btn.dataset.value as EstadoGasto;
+      renderPendienteToggle();
+    });
+  });
+  renderPendienteToggle();
+
+  function renderArchivarToggle(): void {
+    archivarToggle.classList.toggle("is-active", archivarChecked);
+    archivarBox.innerHTML = archivarChecked ? CHECK_SVG : "";
+  }
+  archivarToggle.addEventListener("click", () => {
+    archivarChecked = !archivarChecked;
+    renderArchivarToggle();
+  });
+  renderArchivarToggle();
 
   function refreshCombos(): void {
     categoriaCombo.refresh();
@@ -278,20 +292,6 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
       `<option value="">Todas</option>` + categorias.map((c) => `<option value="${c}">${c}</option>`).join("");
     if (categorias.includes(selected)) filtroCategoriaSelect.value = selected;
   }
-
-  function actualizarVisibilidadRecurrencia(): void {
-    const esAdicional = recurrenciaSelect.value === "Adicional";
-    fechaField.hidden = !esAdicional;
-    fechaInput.required = esAdicional;
-    pendienteField.hidden = !esAdicional;
-    repiteNField.hidden = recurrenciaSelect.value !== "Personalizado";
-    montoLabel.textContent = esAdicional ? "Monto" : "Monto de referencia";
-    submitBtn.textContent = esAdicional ? "Guardar gasto" : "Guardar compra recurrente";
-  }
-  recurrenciaSelect.addEventListener("change", actualizarVisibilidadRecurrencia);
-  editRecurrenteTipoSelect.addEventListener("change", () => {
-    editRecurrenteRepiteNField.hidden = editRecurrenteTipoSelect.value !== "Personalizado";
-  });
 
   function openCategoriaModal(onDone: (nombre: string) => void): void {
     categoriaModalInput.value = "";
@@ -346,8 +346,8 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
 
   async function handleDeleteCategoria(categoria: string): Promise<void> {
     const enUso = [...gastosDelMes, ...pendientes, ...ahorrando].some((g) => g.categoria === categoria);
-    const enUsoRecurrente = recurrentes.some((c) => c.categoria === categoria);
-    if (enUso || enUsoRecurrente) {
+    const enUsoArchivado = archivados.some((a) => a.categoria === categoria);
+    if (enUso || enUsoArchivado) {
       await showAlert(
         `No puedes eliminar "${categoria}" porque tienes gastos con esta categoría. Edítalos o elimínalos primero.`,
         "No se puede eliminar",
@@ -514,15 +514,12 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
     editModal.showModal();
   }
 
-  function openEditRecurrenteModal(compra: CompraRecurrente): void {
-    editingRecurrente = compra;
-    editRecurrenteNombreInput.value = compra.nombre;
-    editRecurrenteCategoriaValue = compra.categoria;
+  function openEditArchivadoModal(archivado: Archivado): void {
+    editingArchivado = archivado;
+    editRecurrenteNombreInput.value = archivado.nombre;
+    editRecurrenteCategoriaValue = archivado.categoria;
     editRecurrenteCategoriaCombo.refresh();
-    editRecurrenteTipoSelect.value = compra.recurrencia;
-    editRecurrenteRepiteNField.hidden = compra.recurrencia !== "Personalizado";
-    editRecurrenteRepiteNInput.value = compra.repiteCadaN > 0 ? String(compra.repiteCadaN) : "";
-    editRecurrenteMontoInput.value = String(compra.monto);
+    editRecurrenteMontoInput.value = String(archivado.monto);
     editRecurrenteModalError.hidden = true;
 
     const controller = new AbortController();
@@ -544,28 +541,19 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
         e.preventDefault();
         const nombre = editRecurrenteNombreInput.value.trim();
         const monto = Number(editRecurrenteMontoInput.value);
-        const recurrencia = editRecurrenteTipoSelect.value as RecurrenciaCompra;
-        const repiteCadaN = Number(editRecurrenteRepiteNInput.value) || 0;
         if (!nombre || !monto || monto <= 0) {
           editRecurrenteModalError.hidden = false;
           editRecurrenteModalError.textContent = "Ingresa un nombre y un monto válido.";
           return;
         }
-        if (recurrencia === "Personalizado" && repiteCadaN < 2) {
-          editRecurrenteModalError.hidden = false;
-          editRecurrenteModalError.textContent = "Indica cada cuántos periodos se repite (2 o más).";
-          return;
-        }
-        if (!editingRecurrente) return;
+        if (!editingArchivado) return;
         const confirmBtn = editRecurrenteForm.querySelector<HTMLButtonElement>('button[type="submit"]')!;
         confirmBtn.disabled = true;
         try {
-          await actualizarCompraRecurrente(spreadsheetId, editingRecurrente, {
+          await actualizarArchivado(spreadsheetId, editingArchivado, {
             nombre,
             categoria: editRecurrenteCategoriaValue,
             monto,
-            recurrencia,
-            repiteCadaN,
           });
           controller.abort();
           editRecurrenteModal.close();
@@ -647,65 +635,51 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
     }
   }
 
-  function renderRecurrentes(): void {
-    recurrentesCard.hidden = recurrentes.length === 0;
-    recurrentesListEl.innerHTML = "";
-    if (recurrentes.length === 0) return;
+  function renderArchivados(): void {
+    archivadosCard.hidden = archivados.length === 0;
+    archivadosListEl.innerHTML = "";
+    if (archivados.length === 0) return;
 
-    for (const compra of recurrentes) {
-      const due = esCompraDue(compra);
-      const subtitulo = due
-        ? "Toca registrarla en este periodo"
-        : compra.recurrencia === "Personalizado"
-          ? `cada ${compra.repiteCadaN} periodos · faltan ${Math.max(compra.repiteCadaN - compra.contadorPeriodos, 1)}`
-          : "cada periodo";
-
+    for (const archivado of archivados) {
       const item = document.createElement("div");
       item.className = "record-row";
       item.innerHTML = `
         <div class="record-row__main">
           <span class="record-row__title">
-            ${due ? "Toca tu compra recurrente: " : ""}${compra.nombre}
-            ${compra.categoria ? ` <span class="badge">${compra.categoria}</span>` : ""}
-            <span class="badge ${RECURRENCIA_BADGE[compra.recurrencia]}">${compra.recurrencia}</span>
+            ${archivado.nombre}
+            ${archivado.categoria ? ` <span class="badge">${archivado.categoria}</span>` : ""}
           </span>
-          <span class="record-row__subtitle">${subtitulo}</span>
         </div>
-        <div class="record-row__amount">${formatMoney(compra.monto)}</div>
-        ${
-          due
-            ? `<button type="button" class="btn-secondary" data-action="registrar">Registrar ahora</button><button type="button" class="btn-secondary" data-action="posponer">Posponer</button>`
-            : ""
-        }
+        <div class="record-row__amount">${formatMoney(archivado.monto)}</div>
+        <button type="button" class="btn-secondary" data-action="a-pagado">Ya la compré</button>
+        <button type="button" class="btn-secondary" data-action="a-pendiente">Pasar a pendientes</button>
         <button type="button" class="icon-btn icon-btn--edit" data-action="editar" aria-label="Editar" title="Editar">${editIcon}</button>
         <button type="button" class="icon-btn icon-btn--delete" data-action="eliminar" aria-label="Eliminar" title="Eliminar">${trashIcon}</button>
       `;
 
-      item.querySelector('[data-action="registrar"]')?.addEventListener("click", async () => {
-        const resultado = await showCompletarGastoDialog(compra.nombre, compra.monto);
+      item.querySelector('[data-action="a-pagado"]')!.addEventListener("click", async () => {
+        const resultado = await showCompletarGastoDialog(archivado.nombre, archivado.monto);
         if (!resultado) return;
         await runAction(async () => {
-          const gasto = await registrarCompraRecurrente(spreadsheetId, compra, resultado);
+          const gasto = await registrarArchivado(spreadsheetId, archivado, { ...resultado, estado: "Pagado" });
           await attachFacturaFlow(gasto, true);
         });
       });
-      item.querySelector('[data-action="posponer"]')?.addEventListener("click", (e) => {
-        const btn = e.currentTarget as HTMLButtonElement;
-        btn.disabled = true;
-        btn.textContent = "Pospuesta";
+      item.querySelector('[data-action="a-pendiente"]')!.addEventListener("click", () => {
+        void runAction(() => registrarArchivado(spreadsheetId, archivado, { monto: archivado.monto, fecha: todayISO(), estado: "Pendiente" }).then(() => {}));
       });
-      item.querySelector('[data-action="editar"]')!.addEventListener("click", () => openEditRecurrenteModal(compra));
+      item.querySelector('[data-action="editar"]')!.addEventListener("click", () => openEditArchivadoModal(archivado));
       item.querySelector('[data-action="eliminar"]')!.addEventListener("click", async () => {
-        const ok = await showConfirm(`¿Eliminar la compra recurrente "${compra.nombre}"?`, {
-          title: "Eliminar compra recurrente",
+        const ok = await showConfirm(`¿Eliminar "${archivado.nombre}" de archivados?`, {
+          title: "Eliminar archivado",
           confirmLabel: "Eliminar",
           danger: true,
         });
         if (!ok) return;
-        void runAction(() => eliminarCompraRecurrente(spreadsheetId, compra));
+        void runAction(() => eliminarArchivado(spreadsheetId, archivado));
       });
 
-      recurrentesListEl.appendChild(item);
+      archivadosListEl.appendChild(item);
     }
   }
 
@@ -813,15 +787,15 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
   }
 
   async function reload(): Promise<void> {
-    [gastosDelMes, pendientes, ahorrando, recurrentes] = await Promise.all([
+    [gastosDelMes, pendientes, ahorrando, archivados] = await Promise.all([
       listGastosDelMes(spreadsheetId),
       listPendientes(spreadsheetId),
       listAhorrando(spreadsheetId),
-      listComprasRecurrentes(spreadsheetId),
+      listArchivados(spreadsheetId),
     ]);
     gastadoEnPeriodo = sumGastos(await listGastosDelPeriodo(spreadsheetId, periodoActualFecha));
     renderPendientes();
-    renderRecurrentes();
+    renderArchivados();
     renderAhorrando();
     renderHistorial();
   }
@@ -831,14 +805,22 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
     renderHistorial();
   });
 
+  historialToggle.addEventListener("click", () => {
+    historialBody.hidden = !historialBody.hidden;
+    historialToggle.classList.toggle("is-open", !historialBody.hidden);
+  });
+
+  archivadosToggle.addEventListener("click", () => {
+    archivadosBody.hidden = !archivadosBody.hidden;
+    archivadosToggle.classList.toggle("is-open", !archivadosBody.hidden);
+  });
+
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     formError.hidden = true;
 
-    const recurrencia = recurrenciaSelect.value as "Adicional" | RecurrenciaCompra;
     const nombre = nombreInput.value.trim();
     const monto = Number(montoInput.value);
-    const repiteCadaN = Number(repiteNInput.value) || 0;
 
     if (!nombre || !monto || monto <= 0) {
       formError.hidden = false;
@@ -850,45 +832,33 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
       formError.textContent = "Elige o crea una categoría.";
       return;
     }
-    if (recurrencia === "Adicional" && !fechaInput.value) {
+    if (!fechaInput.value) {
       formError.hidden = false;
       formError.textContent = "Elige una fecha.";
-      return;
-    }
-    if (recurrencia === "Personalizado" && repiteCadaN < 2) {
-      formError.hidden = false;
-      formError.textContent = "Indica cada cuántos periodos se repite (2 o más).";
       return;
     }
 
     submitBtn.disabled = true;
     try {
-      if (recurrencia === "Adicional") {
-        const estado = estadoSelect.value as EstadoGasto;
-        const creado = await crearGasto(spreadsheetId, {
-          fecha: fechaInput.value,
-          categoria: formCategoriaValue,
-          nombre,
-          monto,
-          estado,
-        });
-        if (estado === "Pagado") await attachFacturaFlow(creado, true);
-      } else {
-        await crearCompraRecurrente(spreadsheetId, {
-          nombre,
-          categoria: formCategoriaValue,
-          monto,
-          recurrencia,
-          repiteCadaN,
-        });
+      const estado = estadoValue;
+      const creado = await crearGasto(spreadsheetId, {
+        fecha: fechaInput.value,
+        categoria: formCategoriaValue,
+        nombre,
+        monto,
+        estado,
+      });
+      if (estado === "Pagado") await attachFacturaFlow(creado, true);
+      if (archivarChecked) {
+        await crearArchivado(spreadsheetId, { nombre, categoria: formCategoriaValue, monto });
       }
       nombreInput.value = "";
       montoInput.value = "";
       fechaInput.value = todayISO();
-      estadoSelect.value = "Pagado";
-      repiteNInput.value = "";
-      recurrenciaSelect.value = "Adicional";
-      actualizarVisibilidadRecurrencia();
+      estadoValue = "Pagado";
+      renderPendienteToggle();
+      archivarChecked = false;
+      renderArchivarToggle();
       await reload();
     } catch (err) {
       formError.hidden = false;

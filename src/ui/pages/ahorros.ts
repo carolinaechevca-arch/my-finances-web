@@ -1,3 +1,4 @@
+import deviceFloppyIcon from "../../icon/device-floppy.svg?raw";
 import editIcon from "../../icon/edit.svg?raw";
 import moneybagPlusIcon from "../../icon/moneybag-plus.svg?raw";
 import trashIcon from "../../icon/trash-x.svg?raw";
@@ -53,7 +54,7 @@ export async function renderAhorros(container: HTMLElement): Promise<void> {
         </div>
         <div class="field"><label for="mt-monto">Monto objetivo</label><input id="mt-monto" type="number" min="0" step="0.01" required /></div>
         <div class="field"><label for="mt-fecha-limite">Fecha límite (opcional)</label><input id="mt-fecha-limite" type="date" /></div>
-        <button type="submit" class="btn">Guardar meta</button>
+        <button type="submit" class="btn">${deviceFloppyIcon} Guardar</button>
       </form>
       <p class="empty-state" id="meta-form-error" hidden></p>
     </div>
@@ -89,7 +90,7 @@ export async function renderAhorros(container: HTMLElement): Promise<void> {
         <p class="empty-state" id="edit-modal-error" hidden></p>
         <div class="modal__actions">
           <button type="button" class="btn-secondary" id="edit-modal-cancel">Cancelar</button>
-          <button type="submit" class="btn">Guardar cambios</button>
+          <button type="submit" class="btn">${deviceFloppyIcon} Guardar</button>
         </div>
       </form>
     </dialog>

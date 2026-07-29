@@ -1,3 +1,4 @@
+import deviceFloppyIcon from "../../icon/device-floppy.svg?raw";
 import editIcon from "../../icon/edit.svg?raw";
 import trashIcon from "../../icon/trash-x.svg?raw";
 import { ensureSpreadsheet } from "../../api/spreadsheet-bootstrap";
@@ -74,11 +75,11 @@ export async function renderDeudasModulo(container: HTMLElement, config: ModuloD
         </div>
         <div class="field" id="dd-cuota-field"><label for="dd-cuota">Monto de la cuota</label><input id="dd-cuota" type="number" min="0" step="0.01" /></div>
         <div class="field" id="dd-num-cuotas-field"><label for="dd-num-cuotas">Número de cuotas</label><input id="dd-num-cuotas" type="number" min="1" step="1" /></div>
-        <div class="field"><label for="dd-monto" id="dd-monto-label">Monto original</label><input id="dd-monto" type="number" min="0" step="0.01" required /></div>
+        <div class="field" id="dd-monto-field"><label for="dd-monto">Monto total</label><input id="dd-monto" type="number" min="0" step="0.01" /></div>
         <div class="field"><label for="dd-dia-pago">Día de pago (opcional)</label><input id="dd-dia-pago" type="number" min="1" max="31" /></div>
         <div class="field"><label for="dd-fecha-inicio">Fecha de inicio</label><input id="dd-fecha-inicio" type="date" value="${todayISO()}" required /></div>
         <div class="field"><label for="dd-notas">Notas (opcional)</label><input id="dd-notas" type="text" /></div>
-        <button type="submit" class="btn">Guardar deuda</button>
+        <button type="submit" class="btn">${deviceFloppyIcon} Guardar</button>
       </form>
       <p class="empty-state" id="deuda-form-error" hidden></p>
     </div>
@@ -107,14 +108,14 @@ export async function renderDeudasModulo(container: HTMLElement, config: ModuloD
         </div>
         <div class="field" id="edit-cuota-field"><label for="edit-cuota">Monto de la cuota</label><input id="edit-cuota" type="number" min="0" step="0.01" /></div>
         <div class="field" id="edit-num-cuotas-field"><label for="edit-num-cuotas">Número de cuotas</label><input id="edit-num-cuotas" type="number" min="1" step="1" /></div>
-        <div class="field"><label for="edit-monto" id="edit-monto-label">Monto original</label><input id="edit-monto" type="number" min="0" step="0.01" required /></div>
+        <div class="field" id="edit-monto-field"><label for="edit-monto">Monto total</label><input id="edit-monto" type="number" min="0" step="0.01" /></div>
         <div class="field"><label for="edit-dia-pago">Día de pago (opcional)</label><input id="edit-dia-pago" type="number" min="1" max="31" /></div>
         <div class="field"><label for="edit-fecha-inicio">Fecha de inicio</label><input id="edit-fecha-inicio" type="date" required /></div>
         <div class="field"><label for="edit-notas">Notas</label><input id="edit-notas" type="text" /></div>
         <p class="empty-state" id="edit-modal-error" hidden></p>
         <div class="modal__actions">
           <button type="button" class="btn-secondary" id="edit-modal-cancel">Cancelar</button>
-          <button type="submit" class="btn">Guardar cambios</button>
+          <button type="submit" class="btn">${deviceFloppyIcon} Guardar</button>
         </div>
       </form>
     </dialog>
@@ -171,7 +172,7 @@ export async function renderDeudasModulo(container: HTMLElement, config: ModuloD
   const modoSelect = container.querySelector<HTMLSelectElement>("#dd-modo")!;
   const cuotaField = container.querySelector<HTMLDivElement>("#dd-cuota-field")!;
   const numCuotasField = container.querySelector<HTMLDivElement>("#dd-num-cuotas-field")!;
-  const montoLabel = container.querySelector<HTMLLabelElement>("#dd-monto-label")!;
+  const montoField = container.querySelector<HTMLDivElement>("#dd-monto-field")!;
   const montoInput = container.querySelector<HTMLInputElement>("#dd-monto")!;
   const cuotaInput = container.querySelector<HTMLInputElement>("#dd-cuota")!;
   const numCuotasInput = container.querySelector<HTMLInputElement>("#dd-num-cuotas")!;
@@ -183,7 +184,8 @@ export async function renderDeudasModulo(container: HTMLElement, config: ModuloD
     const esSimple = modoSelect.value === "Simple";
     cuotaField.hidden = esSimple;
     numCuotasField.hidden = esSimple;
-    montoLabel.textContent = esSimple ? "Monto total" : "Monto original";
+    montoField.hidden = !esSimple;
+    montoInput.required = esSimple;
   }
   modoSelect.addEventListener("change", actualizarVisibilidadModo);
   actualizarVisibilidadModo();
@@ -195,7 +197,7 @@ export async function renderDeudasModulo(container: HTMLElement, config: ModuloD
   const editModoTexto = container.querySelector<HTMLParagraphElement>("#edit-modo-texto")!;
   const editCuotaField = container.querySelector<HTMLDivElement>("#edit-cuota-field")!;
   const editNumCuotasField = container.querySelector<HTMLDivElement>("#edit-num-cuotas-field")!;
-  const editMontoLabel = container.querySelector<HTMLLabelElement>("#edit-monto-label")!;
+  const editMontoField = container.querySelector<HTMLDivElement>("#edit-monto-field")!;
   const editMontoInput = container.querySelector<HTMLInputElement>("#edit-monto")!;
   const editCuotaInput = container.querySelector<HTMLInputElement>("#edit-cuota")!;
   const editNumCuotasInput = container.querySelector<HTMLInputElement>("#edit-num-cuotas")!;
@@ -490,7 +492,7 @@ export async function renderDeudasModulo(container: HTMLElement, config: ModuloD
       </div>
       ${
         pagada
-          ? `<p class="empty-state" style="margin:0">Monto original ${formatMoney(deuda.montoOriginal)} · Total pagado ${formatMoney(estado.totalAbonado)}</p>`
+          ? `<p class="empty-state" style="margin:0">Monto total ${formatMoney(estado.totalAPagar)} · Total pagado ${formatMoney(estado.totalAbonado)}</p>`
           : deuda.modo === "Simple"
             ? `
       <div class="progress-bar"><div class="progress-bar__fill" style="width:${estado.progresoPct}%"></div></div>
@@ -504,7 +506,6 @@ export async function renderDeudasModulo(container: HTMLElement, config: ModuloD
       <div class="deuda-card__stats">
         <div class="deuda-card__stat"><span class="deuda-card__stat-label">Saldo restante</span><span class="deuda-card__stat-value deuda-card__stat-value--total">${formatMoney(estado.saldoPendiente)}</span></div>
         <div class="deuda-card__stat"><span class="deuda-card__stat-label">Total a pagar</span><span class="deuda-card__stat-value">${formatMoney(estado.totalAPagar)}</span></div>
-        <div class="deuda-card__stat"><span class="deuda-card__stat-label">Interés total</span><span class="deuda-card__stat-value">${formatMoney(estado.interesTotal)}</span></div>
         <div class="deuda-card__stat"><span class="deuda-card__stat-label">Cuotas pagadas</span><span class="deuda-card__stat-value">${estado.cuotasPagadas} de ${deuda.numCuotas}</span></div>
       </div>
       <p class="empty-state" style="margin:10px 0 0">${deuda.diaPago ? `Próximo pago: día ${deuda.diaPago} · ` : ""}Cuota ${formatMoney(deuda.montoCuota)}</p>
@@ -613,7 +614,8 @@ export async function renderDeudasModulo(container: HTMLElement, config: ModuloD
     editModoTexto.textContent = esSimple ? "Deuda simple" : "Con cuotas";
     editCuotaField.hidden = esSimple;
     editNumCuotasField.hidden = esSimple;
-    editMontoLabel.textContent = esSimple ? "Monto total" : "Monto original";
+    editMontoField.hidden = !esSimple;
+    editMontoInput.required = esSimple;
     editMontoInput.value = String(deuda.montoOriginal);
     editCuotaInput.value = String(deuda.montoCuota);
     editNumCuotasInput.value = String(deuda.numCuotas);
@@ -633,18 +635,26 @@ export async function renderDeudasModulo(container: HTMLElement, config: ModuloD
       async (e) => {
         e.preventDefault();
         const contraparte = editContraparteValue;
-        const monto = Number(editMontoInput.value);
-        if (!contraparte || !monto || monto <= 0 || !editFechaInicioInput.value) {
+        if (!contraparte || !editFechaInicioInput.value) {
           editModalError.hidden = false;
-          editModalError.textContent = "Completa la contraparte, la fecha y un monto válido.";
+          editModalError.textContent = "Completa la contraparte y la fecha.";
           return;
         }
         if (!editingDeuda) return;
-        if (editingDeuda.modo === "Cuotas" && (!Number(editCuotaInput.value) || !Number(editNumCuotasInput.value))) {
+        const esSimple = editingDeuda.modo === "Simple";
+        if (esSimple && (!Number(editMontoInput.value) || Number(editMontoInput.value) <= 0)) {
+          editModalError.hidden = false;
+          editModalError.textContent = "Ingresa un monto total válido.";
+          return;
+        }
+        if (!esSimple && (!Number(editCuotaInput.value) || !Number(editNumCuotasInput.value))) {
           editModalError.hidden = false;
           editModalError.textContent = "Completa el monto de la cuota y el número de cuotas.";
           return;
         }
+        const montoCuota = esSimple ? 0 : Number(editCuotaInput.value) || 0;
+        const numCuotas = esSimple ? 0 : Number(editNumCuotasInput.value) || 0;
+        const montoOriginal = esSimple ? Number(editMontoInput.value) : montoCuota * numCuotas;
         const confirmBtn = editForm.querySelector<HTMLButtonElement>('button[type="submit"]')!;
         confirmBtn.disabled = true;
         try {
@@ -652,9 +662,9 @@ export async function renderDeudasModulo(container: HTMLElement, config: ModuloD
             direccion: config.direccion,
             contraparte,
             tipo: editTipoValue,
-            montoOriginal: monto,
-            montoCuota: editingDeuda.modo === "Simple" ? 0 : Number(editCuotaInput.value) || 0,
-            numCuotas: editingDeuda.modo === "Simple" ? 0 : Number(editNumCuotasInput.value) || 0,
+            montoOriginal,
+            montoCuota,
+            numCuotas,
             diaPago: editDiaPagoInput.value.trim(),
             fechaInicio: editFechaInicioInput.value,
             notas: editNotasInput.value.trim(),
@@ -682,10 +692,9 @@ export async function renderDeudasModulo(container: HTMLElement, config: ModuloD
     formError.hidden = true;
 
     const contraparte = formContraparteValue;
-    const monto = Number(montoInput.value);
-    if (!contraparte || !monto || monto <= 0 || !fechaInicioInput.value) {
+    if (!contraparte || !fechaInicioInput.value) {
       formError.hidden = false;
-      formError.textContent = "Completa la contraparte, la fecha y un monto válido.";
+      formError.textContent = "Completa la contraparte y la fecha.";
       return;
     }
     if (!formTipoValue) {
@@ -693,20 +702,28 @@ export async function renderDeudasModulo(container: HTMLElement, config: ModuloD
       formError.textContent = "Elige o crea un tipo de deuda.";
       return;
     }
-    if (modoSelect.value === "Cuotas" && (!Number(cuotaInput.value) || !Number(numCuotasInput.value))) {
+    const modo = modoSelect.value as ModoDeuda;
+    const esSimple = modo === "Simple";
+    if (esSimple && (!Number(montoInput.value) || Number(montoInput.value) <= 0)) {
+      formError.hidden = false;
+      formError.textContent = "Ingresa un monto total válido.";
+      return;
+    }
+    if (!esSimple && (!Number(cuotaInput.value) || !Number(numCuotasInput.value))) {
       formError.hidden = false;
       formError.textContent = "Completa el monto de la cuota y el número de cuotas.";
       return;
     }
 
-    const modo = modoSelect.value as ModoDeuda;
+    const montoCuota = esSimple ? 0 : Number(cuotaInput.value) || 0;
+    const numCuotas = esSimple ? 0 : Number(numCuotasInput.value) || 0;
     const nueva: NuevaDeuda = {
       direccion: config.direccion,
       contraparte,
       tipo: formTipoValue,
-      montoOriginal: monto,
-      montoCuota: modo === "Simple" ? 0 : Number(cuotaInput.value) || 0,
-      numCuotas: modo === "Simple" ? 0 : Number(numCuotasInput.value) || 0,
+      montoOriginal: esSimple ? Number(montoInput.value) : montoCuota * numCuotas,
+      montoCuota,
+      numCuotas,
       diaPago: diaPagoInput.value.trim(),
       fechaInicio: fechaInicioInput.value,
       notas: notasInput.value.trim(),
