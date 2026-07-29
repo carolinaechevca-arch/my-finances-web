@@ -1,4 +1,4 @@
-import { CONFIG_DASHBOARD_SHEET, DEFAULT_DASHBOARD_CARD_ORDER } from "../api/spreadsheet-bootstrap";
+import { CONFIG_DASHBOARD_SHEET, DEFAULT_DASHBOARD_CARD_ORDER, ensureDefaultConfigDashboard } from "../api/spreadsheet-bootstrap";
 import { listRecords, updateRecord, type SheetRow } from "../api/records";
 
 export type DashboardCardId = (typeof DEFAULT_DASHBOARD_CARD_ORDER)[number];
@@ -43,10 +43,21 @@ function parseConfig(r: SheetRow): DashboardCardConfig | null {
   };
 }
 
-/** Config de las 11 tarjetas del dashboard, ordenadas según "orden". Asume que ensureSpreadsheet ya sembró los valores por defecto. */
+/**
+ * Config de las 11 tarjetas del dashboard, ordenadas según "orden". Se
+ * autosana si faltan tarjetas (ej. la hoja quedó vacía) antes de leer, en
+ * vez de asumir que `ensureSpreadsheet` ya la sembró — así nunca se queda
+ * en blanco silenciosamente si algo la vació después.
+ */
 export async function listDashboardConfig(spreadsheetId: string): Promise<DashboardCardConfig[]> {
   const rows = await listRecords(spreadsheetId, CONFIG_DASHBOARD_SHEET, 4);
   const configs = rows.map(parseConfig).filter((c): c is DashboardCardConfig => c !== null);
+  if (configs.length < DEFAULT_DASHBOARD_CARD_ORDER.length) {
+    await ensureDefaultConfigDashboard(spreadsheetId);
+    const rowsFrescas = await listRecords(spreadsheetId, CONFIG_DASHBOARD_SHEET, 4);
+    const configsFrescas = rowsFrescas.map(parseConfig).filter((c): c is DashboardCardConfig => c !== null);
+    return configsFrescas.sort((a, b) => a.orden - b.orden);
+  }
   return configs.sort((a, b) => a.orden - b.orden);
 }
 

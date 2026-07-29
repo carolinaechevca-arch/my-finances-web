@@ -639,7 +639,8 @@ async function ensureDireccionEnListasDeuda(spreadsheetId: string): Promise<void
  * hoja, para no pisar la personalización ya guardada si en el futuro se
  * agrega una tarjeta nueva a DEFAULT_DASHBOARD_CARD_ORDER.
  */
-async function ensureDefaultConfigDashboard(spreadsheetId: string): Promise<void> {
+/** Siembra las tarjetas que falten en ConfigDashboard (todas si está vacía, o solo las nuevas). Exportada para que `listDashboardConfig` pueda autosanarse si la hoja quedó vacía por algún motivo (ej. un "Limpiar todo" de una versión anterior que sí la borraba). */
+export async function ensureDefaultConfigDashboard(spreadsheetId: string): Promise<void> {
   const rows = await listRecords(spreadsheetId, CONFIG_DASHBOARD_SHEET, 4);
   const existentes = new Set(rows.map((r) => r.values[0]));
   const faltantes = DEFAULT_DASHBOARD_CARD_ORDER.filter((id) => !existentes.has(id));

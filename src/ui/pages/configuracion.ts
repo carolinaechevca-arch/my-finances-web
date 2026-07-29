@@ -410,7 +410,7 @@ async function montarListaSimple(section: HTMLDivElement, cfg: ListaSimpleConfig
     <div style="font-weight:700;margin-bottom:8px;font-size:14px">${cfg.titulo}</div>
     <div class="chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;min-height:26px"></div>
     <div style="display:flex;gap:6px">
-      <input type="text" placeholder="Nuevo…" style="flex:1;min-width:0" />
+      <input type="text" placeholder="Nuevo…" style="flex:1;min-width:0;padding:9px 12px;border-radius:var(--radius-sm);border:1px solid var(--color-border);background:var(--color-bg);color:var(--color-text);font-size:14px;font-family:inherit" />
       <button type="button" class="btn-secondary" style="padding:8px 12px;font-size:12px;white-space:nowrap">Agregar</button>
     </div>
     <p class="empty-state" hidden style="margin:6px 0 0;color:var(--color-danger)"></p>
