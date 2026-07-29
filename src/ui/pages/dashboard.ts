@@ -10,7 +10,7 @@ import moneybagPlusIcon from "../../icon/moneybag-plus.svg?raw";
 import pigMoneyIcon from "../../icon/pig-money.svg?raw";
 import trendingUpIcon from "../../icon/trending-up.svg?raw";
 import { ensureSpreadsheet } from "../../api/spreadsheet-bootstrap";
-import { calcularDisponible } from "../../domain/balance";
+import { calcularDisponibleDesde } from "../../domain/balance";
 import { listDashboardConfig } from "../../domain/dashboard-config";
 import { agruparEventosPorDeuda, calcularEstadoDeuda, estadoAlerta, listDeudas, listTodosLosEventos } from "../../domain/deudas";
 import { formatFullDateLabel, formatMoney, monthKey, parseDateInput, todayISO } from "../../domain/format";
@@ -25,6 +25,7 @@ import {
 } from "../../domain/gastos";
 import {
   listGastosDelMes,
+  listGastosDelPeriodo,
   listPendientes,
   sumGastos as sumGastosYCompras,
   type GastoYCompra,
@@ -203,6 +204,7 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
       gastosFijosMesAnterior,
       gastosYCompras,
       gastosYComprasMesAnterior,
+      gastosVariablesDelPeriodo,
       pendientes,
       deudasYoDebo,
       deudasMeDeben,
@@ -210,13 +212,13 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
       metas,
       movimientosMetas,
       dashboardConfig,
-      disponibleDetalle,
     ] = await Promise.all([
       listIngresosVigentes(spreadsheetId),
       listGastosFijosVigentes(spreadsheetId, configPeriodo.fechaUltimoReinicio),
       listGastosFijosDelMes(spreadsheetId, mesAnteriorDate()),
       listGastosDelMes(spreadsheetId),
       listGastosDelMes(spreadsheetId, mesAnteriorDate()),
+      listGastosDelPeriodo(spreadsheetId, configPeriodo.fechaUltimoReinicio),
       listPendientes(spreadsheetId),
       listDeudas(spreadsheetId, "YoDebo"),
       listDeudas(spreadsheetId, "MeDeben"),
@@ -224,8 +226,13 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
       listMetas(spreadsheetId),
       listTodosLosMovimientos(spreadsheetId),
       listDashboardConfig(spreadsheetId),
-      calcularDisponible(spreadsheetId, configPeriodo.fechaUltimoReinicio),
     ]);
+
+    // No vuelve a pedirle nada a Sheets: reutiliza lo que ya se cargó arriba para las demás tarjetas.
+    const disponibleDetalle = calcularDisponibleDesde(
+      { ingresos, gastosFijosDelPeriodo: gastosFijos, gastosVariablesDelPeriodo, deudasYoDebo, deudasMeDeben, eventosDeudas, movimientosMetas },
+      configPeriodo.fechaUltimoReinicio,
+    );
 
     if (ingresos.length === 0) ctaCard.hidden = false;
 

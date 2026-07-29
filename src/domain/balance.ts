@@ -1,9 +1,9 @@
-import { listDeudas, listTodosLosEventos } from "./deudas";
+import { listDeudas, listTodosLosEventos, type Deuda, type EventoAbono } from "./deudas";
 import { todayISO } from "./format";
-import { listGastosFijosVigentes, sumGastosFijosTotal } from "./gastos";
-import { listGastosDelPeriodo, sumGastos } from "./gastos-y-compras";
-import { listIngresosVigentes, sumIngresosActivos } from "./ingresos";
-import { listTodosLosMovimientos } from "./metas";
+import { listGastosFijosVigentes, sumGastosFijosTotal, type GastoFijo } from "./gastos";
+import { listGastosDelPeriodo, sumGastos, type GastoYCompra } from "./gastos-y-compras";
+import { listIngresosVigentes, sumIngresosActivos, type IngresoFijo } from "./ingresos";
+import { listTodosLosMovimientos, type MovimientoMeta } from "./metas";
 
 export interface DisponibleDetalle {
   ingresos: number;
@@ -18,50 +18,51 @@ export interface DisponibleDetalle {
   disponible: number;
 }
 
+export interface DisponibleInputs {
+  ingresos: IngresoFijo[];
+  /** Gastos fijos ya filtrados al periodo actual (`listGastosFijosVigentes(...).delPeriodo`). */
+  gastosFijosDelPeriodo: GastoFijo[];
+  /** Gastos y compras ya filtrados al periodo actual (`listGastosDelPeriodo`), no al mes calendario. */
+  gastosVariablesDelPeriodo: GastoYCompra[];
+  deudasYoDebo: Deuda[];
+  deudasMeDeben: Deuda[];
+  eventosDeudas: EventoAbono[];
+  movimientosMetas: MovimientoMeta[];
+}
+
 /**
- * Dinero disponible del periodo que arrancó en `periodoInicio` y sigue
- * corriendo hasta hoy. Único cálculo compartido por Inicio, Ingresos, y el
- * traspaso automático al reiniciar periodo (ver domain/periodo.ts) — antes
- * cada pantalla tenía su propia fórmula, ligeramente distintas entre sí.
+ * Cálculo puro (sin I/O) de dinero disponible — para páginas como Inicio que
+ * ya tienen todo esto cargado y no necesitan volver a pedírselo a Sheets.
+ * `calcularDisponible` (más abajo) es el atajo que sí hace los fetches, para
+ * páginas livianas como Ingresos que no cargan estos datos por su cuenta.
  *
  * Gastos Fijos sigue siendo el total *comprometido* del periodo (aunque no
  * se haya pagado aún — reserva presupuesto a propósito). Todo lo demás
  * (deudas, ahorros) cuenta solo el movimiento de dinero *real* ya ocurrido.
  */
-export async function calcularDisponible(spreadsheetId: string, periodoInicio: string): Promise<DisponibleDetalle> {
+export function calcularDisponibleDesde(inputs: DisponibleInputs, periodoInicio: string): DisponibleDetalle {
   const hoy = todayISO();
-  const [ingresos, gastosFijosVigentes, gastosVariables, deudasYoDebo, deudasMeDeben, eventosDeudas, movimientosMetas] =
-    await Promise.all([
-      listIngresosVigentes(spreadsheetId),
-      listGastosFijosVigentes(spreadsheetId, periodoInicio),
-      listGastosDelPeriodo(spreadsheetId, periodoInicio),
-      listDeudas(spreadsheetId, "YoDebo"),
-      listDeudas(spreadsheetId, "MeDeben"),
-      listTodosLosEventos(spreadsheetId),
-      listTodosLosMovimientos(spreadsheetId),
-    ]);
-
-  const idsYoDebo = new Set(deudasYoDebo.map((d) => d.id));
-  const idsMeDeben = new Set(deudasMeDeben.map((d) => d.id));
+  const idsYoDebo = new Set(inputs.deudasYoDebo.map((d) => d.id));
+  const idsMeDeben = new Set(inputs.deudasMeDeben.map((d) => d.id));
   const enPeriodo = (fecha: string) => fecha >= periodoInicio && fecha <= hoy;
 
-  const abonosDeudas = eventosDeudas
+  const abonosDeudas = inputs.eventosDeudas
     .filter((e) => e.tipo === "Abono" && idsYoDebo.has(e.idDeuda) && enPeriodo(e.fecha))
     .reduce((s, e) => s + e.monto, 0);
-  const cobrosMeDeben = eventosDeudas
+  const cobrosMeDeben = inputs.eventosDeudas
     .filter((e) => e.tipo === "Abono" && idsMeDeben.has(e.idDeuda) && enPeriodo(e.fecha))
     .reduce((s, e) => s + e.monto, 0);
 
-  const aportesAhorros = movimientosMetas
+  const aportesAhorros = inputs.movimientosMetas
     .filter((m) => m.tipo !== "Retiro" && enPeriodo(m.fecha))
     .reduce((s, m) => s + m.monto, 0);
-  const retirosAhorros = movimientosMetas
+  const retirosAhorros = inputs.movimientosMetas
     .filter((m) => m.tipo === "Retiro" && enPeriodo(m.fecha))
     .reduce((s, m) => s + m.monto, 0);
 
-  const ingresosTotal = sumIngresosActivos(ingresos);
-  const gastosFijosTotal = sumGastosFijosTotal(gastosFijosVigentes.delPeriodo);
-  const gastosVariablesTotal = sumGastos(gastosVariables);
+  const ingresosTotal = sumIngresosActivos(inputs.ingresos);
+  const gastosFijosTotal = sumGastosFijosTotal(inputs.gastosFijosDelPeriodo);
+  const gastosVariablesTotal = sumGastos(inputs.gastosVariablesDelPeriodo);
 
   const disponible =
     ingresosTotal - gastosFijosTotal - gastosVariablesTotal - abonosDeudas + cobrosMeDeben - aportesAhorros + retirosAhorros;
@@ -76,4 +77,37 @@ export async function calcularDisponible(spreadsheetId: string, periodoInicio: s
     retirosAhorros,
     disponible,
   };
+}
+
+/**
+ * Dinero disponible del periodo que arrancó en `periodoInicio` y sigue
+ * corriendo hasta hoy — pide todo lo que necesita a Sheets desde cero. Si ya
+ * tienes estos datos cargados (ej. Inicio, que carga todo esto igual para
+ * sus propias tarjetas), usa `calcularDisponibleDesde` en su lugar para no
+ * duplicar llamadas a la API.
+ */
+export async function calcularDisponible(spreadsheetId: string, periodoInicio: string): Promise<DisponibleDetalle> {
+  const [ingresos, gastosFijosVigentes, gastosVariablesDelPeriodo, deudasYoDebo, deudasMeDeben, eventosDeudas, movimientosMetas] =
+    await Promise.all([
+      listIngresosVigentes(spreadsheetId),
+      listGastosFijosVigentes(spreadsheetId, periodoInicio),
+      listGastosDelPeriodo(spreadsheetId, periodoInicio),
+      listDeudas(spreadsheetId, "YoDebo"),
+      listDeudas(spreadsheetId, "MeDeben"),
+      listTodosLosEventos(spreadsheetId),
+      listTodosLosMovimientos(spreadsheetId),
+    ]);
+
+  return calcularDisponibleDesde(
+    {
+      ingresos,
+      gastosFijosDelPeriodo: gastosFijosVigentes.delPeriodo,
+      gastosVariablesDelPeriodo,
+      deudasYoDebo,
+      deudasMeDeben,
+      eventosDeudas,
+      movimientosMetas,
+    },
+    periodoInicio,
+  );
 }

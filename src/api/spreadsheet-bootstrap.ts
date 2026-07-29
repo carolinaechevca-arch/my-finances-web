@@ -170,6 +170,51 @@ export const SHEET_DEFINITIONS: SheetDefinition[] = [
 let ensurePromise: Promise<{ spreadsheetId: string; created: boolean }> | null = null;
 
 /**
+ * Sube esto cada vez que se agregue una hoja/columna nueva a
+ * SHEET_DEFINITIONS o un `ensure*` de migración nuevo. Se guarda junto con
+ * el spreadsheetId en localStorage (ver `leerCache`/`guardarCache`): mientras
+ * no cambie, `ensureSpreadsheet()` confía en que la Hoja ya está al día y se
+ * salta las ~20 verificaciones (una llamada a Sheets cada una) que si no
+ * corren en serie en cada carga de la app. Al subir la versión, todos los
+ * usuarios corren la migración completa una vez más y vuelven a quedar
+ * rápidos.
+ */
+const SCHEMA_VERSION = 1;
+const CACHE_KEY = "mf_spreadsheet_cache";
+
+interface SpreadsheetCache {
+  spreadsheetId: string;
+  schemaVersion: number;
+}
+
+function leerCache(): SpreadsheetCache | null {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    return raw ? (JSON.parse(raw) as SpreadsheetCache) : null;
+  } catch {
+    return null;
+  }
+}
+
+function guardarCache(spreadsheetId: string): void {
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify({ spreadsheetId, schemaVersion: SCHEMA_VERSION }));
+  } catch {
+    // Si localStorage no está disponible, no pasa nada grave: simplemente se vuelve a verificar cada vez.
+  }
+}
+
+/** Se llama al cerrar sesión: evita que si luego alguien inicia sesión con otra cuenta de Google en el mismo navegador, herede el spreadsheetId de la cuenta anterior. */
+export function limpiarCacheSpreadsheet(): void {
+  ensurePromise = null;
+  try {
+    localStorage.removeItem(CACHE_KEY);
+  } catch {
+    // Ignorado a propósito, ver comentario en guardarCache.
+  }
+}
+
+/**
  * Busca el spreadsheet "MisFinanzas" en el Drive del usuario; si no existe,
  * lo crea con todas las hojas y encabezados. Si ya existe pero le faltan
  * hojas (porque se agregaron después, como Ingresos), las completa sin
@@ -190,6 +235,11 @@ export function ensureSpreadsheet(): Promise<{ spreadsheetId: string; created: b
 }
 
 async function ensureSpreadsheetInternal(): Promise<{ spreadsheetId: string; created: boolean }> {
+  const cache = leerCache();
+  if (cache && cache.schemaVersion === SCHEMA_VERSION) {
+    return { spreadsheetId: cache.spreadsheetId, created: false };
+  }
+
   const existingId = await findFileByName(SPREADSHEET_TITLE, SPREADSHEET_MIME);
   if (existingId) {
     await ensureSheets(existingId);
@@ -212,6 +262,7 @@ async function ensureSpreadsheetInternal(): Promise<{ spreadsheetId: string; cre
     await ensureConfigPeriodoDiaSemana(existingId);
     await ensureDefaultHistorialPeriodos(existingId);
     await ensureGastosFijosPeriodoColumnas(existingId);
+    guardarCache(existingId);
     return { spreadsheetId: existingId, created: false };
   }
   const spreadsheetId = await createSpreadsheet(SPREADSHEET_TITLE, SHEET_DEFINITIONS);
@@ -220,6 +271,7 @@ async function ensureSpreadsheetInternal(): Promise<{ spreadsheetId: string; cre
   await ensureDefaultConfigDashboard(spreadsheetId);
   await ensureDefaultConfigPeriodo(spreadsheetId);
   await ensureDefaultHistorialPeriodos(spreadsheetId);
+  guardarCache(spreadsheetId);
   return { spreadsheetId, created: true };
 }
 

@@ -3,6 +3,8 @@
 // directly in the browser and used to call the Sheets/Drive REST APIs.
 // See: https://developers.google.com/identity/oauth2/web/guides/use-token-model
 
+import { limpiarCacheSpreadsheet } from "../api/spreadsheet-bootstrap";
+
 const SCOPES = [
   "openid",
   "email",
@@ -295,6 +297,7 @@ export async function signOut(): Promise<void> {
     refreshTimer = null;
   }
   clearStoredSession();
+  limpiarCacheSpreadsheet();
   marcarSesionCerradaManualmente();
   if (!token || !window.google) return;
   await new Promise<void>((resolve) => window.google!.accounts.oauth2.revoke(token, () => resolve()));
