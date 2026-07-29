@@ -48,7 +48,7 @@ Confirmado con el usuario: **el dinero disponible que sobra o falta al cerrar un
 - `domain/balance.ts` — `calcularDisponible(spreadsheetId, periodoInicio)`, sin dependencia de UI.
 - `domain/periodo.ts` — `ejecutarReinicioPeriodo(spreadsheetId, nuevaFecha, traspasoDeficit?)` calcula el disponible del periodo que cierra (con `calcularDisponible`), y luego **primero** mueve la fecha de reinicio (`ConfigPeriodo`) y registra el traspaso del sobrante/déficit, y **solo después** archiva ingresos "Adicional" abiertos y reaplica Gastos Fijos (que pueden ser muchas escrituras seguidas, una por cada serie). Ese orden es a propósito: si la API de Sheets corta la operación a mitad de camino por el límite de peticiones por minuto, el periodo ya quedó bien movido — lo único que puede quedar a medias son los efectos secundarios (visibles y corregibles a mano), no la fecha del periodo en sí.
 - `src/ui/components/dialogs.ts` — `showTraspasoNegativoDialog(montoDeficit)`, mismo patrón que los demás diálogos de la app (basado en promesas, `.modal`).
-- `dashboard.ts` — botón "Reiniciar periodo": si el disponible actual es negativo, muestra el diálogo de la sección 2 antes de ejecutar el reinicio.
+- `configuracion.ts` — botón "Reiniciar periodo" (antes vivía en `dashboard.ts`, se movió a Configuración): si el disponible actual es negativo, muestra el diálogo de la sección 2 antes de ejecutar el reinicio.
 
 ## 4. Impacto en otras pantallas
 

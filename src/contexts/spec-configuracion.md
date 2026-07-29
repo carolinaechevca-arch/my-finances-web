@@ -13,7 +13,7 @@
 - Selector con 4 opciones: **Semanal / Quincenal / Mensual / Manual**.
 - Es una configuración **única y global**, aplica a toda la app (Ingresos, Gastos Fijos, Gastos y Compras, Deudas, Me Deben, Ahorros, Histórico, Dashboard).
 - Persistencia: pestaña `ConfigPeriodo` en la Hoja de Google (`frecuencia | fechaUltimoReinicio`).
-- El botón de reinicio manual ("Reiniciar periodo") **no vive aquí** — vive en Inicio (Dashboard), y solo aparece cuando el modo es **Manual**. Ver `spec-inicio-dashboard.md` y `spec-ingresos.md` sección 1.
+- El botón de reinicio manual ("Reiniciar periodo") **vive aquí**, junto al selector de Frecuencia, y solo aparece cuando el modo es **Manual**. Si ya se reinició hoy, el botón queda deshabilitado ("Ya reiniciaste hoy", en blanco/`.btn-secondary`; activo se ve azul/`.btn`) y aparece un botón secundario "Forzar reinicio de todas formas" con una advertencia explícita, por si de verdad hace falta reiniciar dos veces el mismo día. Antes vivía en Inicio (Dashboard); se movió aquí. Ver `spec-ingresos.md` sección 1.
 - Reglas exactas de corte por modo (inicio de semana, días de corte de quincena, etc.) — pendientes de definir, ver `spec-ingresos.md` sección 1.
 
 ## 3. Tarjeta "Personalizar dashboard"

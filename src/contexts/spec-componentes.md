@@ -76,7 +76,7 @@
 
 ## 10. Notas transversales del proyecto (resumen de dependencias entre specs)
 
-- **Sistema de periodo global** (Semanal/Quincenal/Mensual/Manual) — definido en `spec-ingresos.md`, configurado en `spec-configuracion.md`, con botón de reinicio manual en `spec-inicio-dashboard.md`. Afecta a Ingresos, Gastos Fijos, Gastos y Compras, e Histórico.
+- **Sistema de periodo global** (Semanal/Quincenal/Mensual/Manual) — definido en `spec-ingresos.md`, configurado y con botón de reinicio manual en `spec-configuracion.md`. Afecta a Ingresos, Gastos Fijos, Gastos y Compras, e Histórico.
 - **Modelo de recurrencia (Fijo/Personalizado/Adicional)** — definido primero en Gastos Fijos (`spec-gastos-fijos.md`), reutilizado con matices en Gastos y Compras (`spec-gastos-y-compras.md`, donde nunca es obligatorio).
 - **Modelo de deuda (Con cuotas / Deuda simple)** — definido en `spec-deudas-me-deben.md`, aplica igual a Deudas y Me Deben.
 - **Personalización del Dashboard** — definida en `spec-inicio-dashboard.md`, configurada desde `spec-configuracion.md`.

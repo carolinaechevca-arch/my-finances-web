@@ -14,9 +14,10 @@ Confirmado con el usuario: **hoy toda la app gira en torno al mes calendario** (
 
 - **Configuración (nueva tarjeta "Periodo de la app"):** un selector con las 4 opciones — Semanal / Quincenal / Mensual / Manual.
 - **Modos automáticos (Semanal/Quincenal/Mensual):** el periodo se reinicia solo, sin intervención del usuario, al llegar la fecha de corte correspondiente.
-- **Modo Manual:** no hay reinicio automático. En su lugar, aparece un **botón "Reiniciar periodo"** en **Inicio (Dashboard)**, que:
+- **Modo Manual:** no hay reinicio automático. En su lugar, aparece un **botón "Reiniciar periodo"** en **Configuración**, junto al selector de Frecuencia, que:
   - Muestra una confirmación (`showConfirm`) antes de ejecutar.
   - Al confirmar, dispara **exactamente el mismo efecto** que el reinicio automático de los otros modos (ver sección 2).
+  - Solo se puede usar una vez por día calendario — si ya se reinició hoy, el botón queda deshabilitado ("Ya reiniciaste hoy") y aparece uno secundario "Forzar reinicio de todas formas" con advertencia, para el caso en que de verdad haga falta.
 - **Persistencia sugerida:** nueva pestaña global en la Hoja de Google, ej. `ConfigPeriodo`, con columnas:
   ```
   frecuencia | fechaUltimoReinicio
@@ -87,7 +88,7 @@ Este mismo patrón de insignia (contador de días) reemplaza la insignia de mes 
 
 **Se agrega:**
 - Sistema global de periodo (Semanal/Quincenal/Mensual/Manual) configurado en Configuración.
-- Botón "Reiniciar periodo" en Inicio, visible solo en modo Manual, con confirmación.
+- Botón "Reiniciar periodo" en Configuración, visible solo en modo Manual, con confirmación.
 - Lógica de reinicio de periodo: reaplicar "Fijo" (salvo pausados), limpiar "Adicional".
 - Nueva pestaña `ConfigPeriodo` en la Hoja de Google.
 
