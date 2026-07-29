@@ -44,11 +44,18 @@ async function listAll(spreadsheetId: string): Promise<GastoYCompra[]> {
  * Gastos ya realizados/pagados cuya fecha cae en el mes dado — son los que
  * cuentan para el total gastado ese mes. Los "Pendiente"/"Ahorrando" no
  * entran aquí porque todavía no salieron del monto libre.
+ *
+ * Versión pura (`filtrarGastosDelMes`) para páginas que ya tienen `listTodosLosGastos`
+ * cargado y no deben volver a pedirlo — evita repetir la misma lectura de Sheets
+ * varias veces en una sola pantalla (ver Gastos y Compras, Inicio).
  */
-export async function listGastosDelMes(spreadsheetId: string, date: Date = new Date()): Promise<GastoYCompra[]> {
-  const all = await listAll(spreadsheetId);
+export function filtrarGastosDelMes(all: GastoYCompra[], date: Date = new Date()): GastoYCompra[] {
   const mes = monthKey(date);
   return all.filter((g) => g.estado === "Pagado" && g.fecha && monthKey(parseDateInput(g.fecha)) === mes);
+}
+
+export async function listGastosDelMes(spreadsheetId: string, date: Date = new Date()): Promise<GastoYCompra[]> {
+  return filtrarGastosDelMes(await listAll(spreadsheetId), date);
 }
 
 /**
@@ -57,9 +64,12 @@ export async function listGastosDelMes(spreadsheetId: string, date: Date = new D
  * marca como pagados (momento en el que se les fija una fecha real y pasan
  * a contar en el total de ese mes) o los convierte en meta de ahorro.
  */
-export async function listPendientes(spreadsheetId: string): Promise<GastoYCompra[]> {
-  const all = await listAll(spreadsheetId);
+export function filtrarPendientes(all: GastoYCompra[]): GastoYCompra[] {
   return all.filter((g) => g.estado === "Pendiente");
+}
+
+export async function listPendientes(spreadsheetId: string): Promise<GastoYCompra[]> {
+  return filtrarPendientes(await listAll(spreadsheetId));
 }
 
 /**
@@ -68,15 +78,21 @@ export async function listPendientes(spreadsheetId: string): Promise<GastoYCompr
  * sigue siendo por mes calendario para la tabla de Historial (sin cambios,
  * ver spec-gastos-compras.md sección 6).
  */
-export async function listGastosDelPeriodo(spreadsheetId: string, fechaUltimoReinicio: string): Promise<GastoYCompra[]> {
-  const all = await listAll(spreadsheetId);
+export function filtrarGastosDelPeriodo(all: GastoYCompra[], fechaUltimoReinicio: string): GastoYCompra[] {
   return all.filter((g) => g.estado === "Pagado" && g.fecha >= fechaUltimoReinicio);
 }
 
+export async function listGastosDelPeriodo(spreadsheetId: string, fechaUltimoReinicio: string): Promise<GastoYCompra[]> {
+  return filtrarGastosDelPeriodo(await listAll(spreadsheetId), fechaUltimoReinicio);
+}
+
 /** Compras que se están gestionando como meta de ahorro (ver domain/metas.ts). */
-export async function listAhorrando(spreadsheetId: string): Promise<GastoYCompra[]> {
-  const all = await listAll(spreadsheetId);
+export function filtrarAhorrando(all: GastoYCompra[]): GastoYCompra[] {
   return all.filter((g) => g.estado === "Ahorrando");
+}
+
+export async function listAhorrando(spreadsheetId: string): Promise<GastoYCompra[]> {
+  return filtrarAhorrando(await listAll(spreadsheetId));
 }
 
 export async function buscarGastoPorId(spreadsheetId: string, id: string): Promise<GastoYCompra | undefined> {

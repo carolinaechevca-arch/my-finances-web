@@ -5,8 +5,11 @@ import eyeIcon from "../../icon/eye.svg?raw";
 import eyeOffIcon from "../../icon/eye-off.svg?raw";
 import trashIcon from "../../icon/trash-x.svg?raw";
 import { ensureSpreadsheet } from "../../api/spreadsheet-bootstrap";
-import { calcularDisponible } from "../../domain/balance";
+import { calcularDisponibleDesde } from "../../domain/balance";
+import { listDeudas, listTodosLosEventos } from "../../domain/deudas";
 import { formatMoney } from "../../domain/format";
+import { listGastosFijosVigentes } from "../../domain/gastos";
+import { listGastosDelPeriodo } from "../../domain/gastos-y-compras";
 import {
   actualizarIngreso,
   crearIngreso,
@@ -20,6 +23,7 @@ import {
   sumIngresosFijosRecurrentes,
   type IngresoFijo,
 } from "../../domain/ingresos";
+import { listTodosLosMovimientos } from "../../domain/metas";
 import { formatPeriodoBadge, obtenerConfigPeriodo } from "../../domain/periodo";
 import { showAlert, showConfirm } from "../components/dialogs";
 import { loaderHtml } from "../components/loader";
@@ -491,11 +495,30 @@ export async function renderIngresos(container: HTMLElement): Promise<void> {
   }
 
   async function reload(): Promise<void> {
-    const [ingresosList, detalle] = await Promise.all([
-      listIngresosVigentes(spreadsheetId),
-      calcularDisponible(spreadsheetId, periodoInicio),
-    ]);
+    const [ingresosList, gastosFijosVigentes, gastosVariablesDelPeriodo, deudasYoDebo, deudasMeDeben, eventosDeudas, movimientosMetas] =
+      await Promise.all([
+        listIngresosVigentes(spreadsheetId),
+        listGastosFijosVigentes(spreadsheetId, periodoInicio),
+        listGastosDelPeriodo(spreadsheetId, periodoInicio),
+        listDeudas(spreadsheetId, "YoDebo"),
+        listDeudas(spreadsheetId, "MeDeben"),
+        listTodosLosEventos(spreadsheetId),
+        listTodosLosMovimientos(spreadsheetId),
+      ]);
     currentIngresos = ingresosList;
+    // No vuelve a pedirle nada a Sheets: calcula el disponible con lo que ya se cargó arriba.
+    const detalle = calcularDisponibleDesde(
+      {
+        ingresos: ingresosList,
+        gastosFijosDelPeriodo: gastosFijosVigentes.delPeriodo,
+        gastosVariablesDelPeriodo,
+        deudasYoDebo,
+        deudasMeDeben,
+        eventosDeudas,
+        movimientosMetas,
+      },
+      periodoInicio,
+    );
     balanceDisponible = detalle.disponible;
     renderList();
   }

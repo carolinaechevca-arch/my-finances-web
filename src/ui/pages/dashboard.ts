@@ -15,18 +15,20 @@ import { listDashboardConfig } from "../../domain/dashboard-config";
 import { agruparEventosPorDeuda, calcularEstadoDeuda, estadoAlerta, listDeudas, listTodosLosEventos } from "../../domain/deudas";
 import { formatFullDateLabel, formatMoney, monthKey, parseDateInput, todayISO } from "../../domain/format";
 import {
+  calcularGastosFijosVigentes,
   estadoAlertaGastoFijo,
-  listGastosFijosDelMes,
-  listGastosFijosVigentes,
+  filtrarGastosFijosDelMes,
+  listTodosLosGastosFijos,
   sumGastosFijosPagado,
   sumGastosFijosPendientes,
   sumGastosFijosTotal,
   type GastoFijo,
 } from "../../domain/gastos";
 import {
-  listGastosDelMes,
-  listGastosDelPeriodo,
-  listPendientes,
+  filtrarGastosDelMes,
+  filtrarGastosDelPeriodo,
+  filtrarPendientes,
+  listTodosLosGastos,
   sumGastos as sumGastosYCompras,
   type GastoYCompra,
 } from "../../domain/gastos-y-compras";
@@ -200,12 +202,8 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
 
     const [
       ingresos,
-      { delPeriodo: gastosFijos },
-      gastosFijosMesAnterior,
-      gastosYCompras,
-      gastosYComprasMesAnterior,
-      gastosVariablesDelPeriodo,
-      pendientes,
+      todosLosGastosFijos,
+      todosLosGastosYCompras,
       deudasYoDebo,
       deudasMeDeben,
       eventosDeudas,
@@ -214,12 +212,8 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
       dashboardConfig,
     ] = await Promise.all([
       listIngresosVigentes(spreadsheetId),
-      listGastosFijosVigentes(spreadsheetId, configPeriodo.fechaUltimoReinicio),
-      listGastosFijosDelMes(spreadsheetId, mesAnteriorDate()),
-      listGastosDelMes(spreadsheetId),
-      listGastosDelMes(spreadsheetId, mesAnteriorDate()),
-      listGastosDelPeriodo(spreadsheetId, configPeriodo.fechaUltimoReinicio),
-      listPendientes(spreadsheetId),
+      listTodosLosGastosFijos(spreadsheetId),
+      listTodosLosGastos(spreadsheetId),
       listDeudas(spreadsheetId, "YoDebo"),
       listDeudas(spreadsheetId, "MeDeben"),
       listTodosLosEventos(spreadsheetId),
@@ -227,6 +221,12 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
       listTodosLosMovimientos(spreadsheetId),
       listDashboardConfig(spreadsheetId),
     ]);
+    const { delPeriodo: gastosFijos } = calcularGastosFijosVigentes(todosLosGastosFijos, configPeriodo.fechaUltimoReinicio);
+    const gastosFijosMesAnterior = filtrarGastosFijosDelMes(todosLosGastosFijos, mesAnteriorDate());
+    const gastosYCompras = filtrarGastosDelMes(todosLosGastosYCompras);
+    const gastosYComprasMesAnterior = filtrarGastosDelMes(todosLosGastosYCompras, mesAnteriorDate());
+    const gastosVariablesDelPeriodo = filtrarGastosDelPeriodo(todosLosGastosYCompras, configPeriodo.fechaUltimoReinicio);
+    const pendientes = filtrarPendientes(todosLosGastosYCompras);
 
     // No vuelve a pedirle nada a Sheets: reutiliza lo que ya se cargó arriba para las demás tarjetas.
     const disponibleDetalle = calcularDisponibleDesde(

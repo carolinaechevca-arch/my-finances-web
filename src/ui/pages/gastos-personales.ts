@@ -21,11 +21,12 @@ import {
   crearGasto,
   eliminarCategoria,
   eliminarGasto,
-  listAhorrando,
+  filtrarAhorrando,
+  filtrarGastosDelMes,
+  filtrarGastosDelPeriodo,
+  filtrarPendientes,
   listCategorias,
-  listGastosDelMes,
-  listGastosDelPeriodo,
-  listPendientes,
+  listTodosLosGastos,
   marcarComoAhorrando,
   marcarComoPagado,
   sumGastos,
@@ -787,13 +788,15 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
   }
 
   async function reload(): Promise<void> {
-    [gastosDelMes, pendientes, ahorrando, archivados] = await Promise.all([
-      listGastosDelMes(spreadsheetId),
-      listPendientes(spreadsheetId),
-      listAhorrando(spreadsheetId),
+    const [todosLosGastos, archivadosList] = await Promise.all([
+      listTodosLosGastos(spreadsheetId),
       listArchivados(spreadsheetId),
     ]);
-    gastadoEnPeriodo = sumGastos(await listGastosDelPeriodo(spreadsheetId, periodoActualFecha));
+    gastosDelMes = filtrarGastosDelMes(todosLosGastos);
+    pendientes = filtrarPendientes(todosLosGastos);
+    ahorrando = filtrarAhorrando(todosLosGastos);
+    archivados = archivadosList;
+    gastadoEnPeriodo = sumGastos(filtrarGastosDelPeriodo(todosLosGastos, periodoActualFecha));
     renderPendientes();
     renderArchivados();
     renderAhorrando();

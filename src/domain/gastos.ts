@@ -90,10 +90,13 @@ export async function listTodosLosGastosFijos(spreadsheetId: string): Promise<Ga
 }
 
 /** Gastos fijos de un mes calendario específico — usado solo para comparativos históricos (ej. "vs. mes anterior" en Inicio), no para la vigencia actual. */
-export async function listGastosFijosDelMes(spreadsheetId: string, date: Date = new Date()): Promise<GastoFijo[]> {
-  const todos = await listTodosLosGastosFijos(spreadsheetId);
+export function filtrarGastosFijosDelMes(todos: GastoFijo[], date: Date = new Date()): GastoFijo[] {
   const mes = monthKey(date);
   return todos.filter((g) => g.mes === mes);
+}
+
+export async function listGastosFijosDelMes(spreadsheetId: string, date: Date = new Date()): Promise<GastoFijo[]> {
+  return filtrarGastosFijosDelMes(await listTodosLosGastosFijos(spreadsheetId), date);
 }
 
 export interface GastosFijosVigentes {
@@ -118,8 +121,7 @@ export interface GastosFijosVigentes {
  * en ninguna de las dos: deja de ser vigente de forma natural, sin borrar
  * su fila (Histórico sigue reconstruyéndolo).
  */
-export async function listGastosFijosVigentes(spreadsheetId: string, periodoActualId: string): Promise<GastosFijosVigentes> {
-  const todos = await listTodosLosGastosFijos(spreadsheetId);
+export function calcularGastosFijosVigentes(todos: GastoFijo[], periodoActualId: string): GastosFijosVigentes {
   const ultimaPorSerie = new Map<string, GastoFijo>();
   for (const g of todos) {
     const actual = ultimaPorSerie.get(g.serieId);
@@ -137,6 +139,10 @@ export async function listGastosFijosVigentes(spreadsheetId: string, periodoActu
     }
   }
   return { delPeriodo, enEspera };
+}
+
+export async function listGastosFijosVigentes(spreadsheetId: string, periodoActualId: string): Promise<GastosFijosVigentes> {
+  return calcularGastosFijosVigentes(await listTodosLosGastosFijos(spreadsheetId), periodoActualId);
 }
 
 export async function crearGastoFijo(
