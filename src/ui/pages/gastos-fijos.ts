@@ -62,18 +62,21 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
       <h1 class="page-title">${cashMinusIcon} Gastos Fijos</h1>
       <span class="month-badge" id="periodo-badge">Cargando…</span>
     </div>
-    <div class="card-grid" style="max-width:820px">
-      <div class="card stat-card stat-card--primary">
-        <div class="stat-card__value" id="gf-pendiente">—</div>
-        <div class="stat-card__label">Gastos pendientes</div>
+    <div class="card" style="margin-bottom:16px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:16px">
+        <div>
+          <div class="empty-state" style="margin-bottom:4px">Total gastos fijos</div>
+          <div style="font-size:32px;font-weight:700" id="gf-total">—</div>
+        </div>
+        <div style="text-align:right">
+          <div class="empty-state" style="margin-bottom:4px">Pagado</div>
+          <div style="font-size:32px;font-weight:700;color:var(--color-success)" id="gf-pagado">—</div>
+        </div>
       </div>
-      <div class="card stat-card">
-        <div class="stat-card__value" id="gf-total">—</div>
-        <div class="stat-card__label">Total gastos fijos</div>
-      </div>
-      <div class="card stat-card">
-        <div class="stat-card__value" id="gf-pagado">—</div>
-        <div class="stat-card__label">Pagado</div>
+      <div class="progress-bar" style="margin-top:16px"><div class="progress-bar__fill" id="gf-progreso-fill" style="width:0%"></div></div>
+      <div style="display:flex;justify-content:space-between;margin-top:8px;font-size:14px">
+        <span>Pendiente: <strong id="gf-pendiente" style="color:var(--color-danger)">—</strong></span>
+        <span class="empty-state" id="gf-progreso-pct">0% pagado</span>
       </div>
     </div>
     <button type="button" class="diff-pill" id="gf-diferencia-btn" style="margin-bottom:20px">
@@ -192,6 +195,8 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
   const totalEl = container.querySelector<HTMLDivElement>("#gf-total")!;
   const pendienteEl = container.querySelector<HTMLDivElement>("#gf-pendiente")!;
   const pagadoEl = container.querySelector<HTMLDivElement>("#gf-pagado")!;
+  const progresoFillEl = container.querySelector<HTMLDivElement>("#gf-progreso-fill")!;
+  const progresoPctEl = container.querySelector<HTMLSpanElement>("#gf-progreso-pct")!;
   const categoriasResumenEl = container.querySelector<HTMLDivElement>("#gf-categorias-resumen")!;
   const diferenciaBtn = container.querySelector<HTMLButtonElement>("#gf-diferencia-btn")!;
   const diferenciaValorEl = container.querySelector<HTMLSpanElement>("#gf-diferencia-valor")!;
@@ -489,9 +494,14 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
   }
 
   function renderList(): void {
-    totalEl.textContent = formatMoney(sumGastosFijosTotal(currentDelPeriodo));
+    const total = sumGastosFijosTotal(currentDelPeriodo);
+    const pagadoMonto = sumGastosFijosPagado(currentDelPeriodo);
+    const progresoPct = total > 0 ? (pagadoMonto / total) * 100 : 0;
+    totalEl.textContent = formatMoney(total);
     pendienteEl.textContent = formatMoney(sumGastosFijosPendientes(currentDelPeriodo));
-    pagadoEl.textContent = formatMoney(sumGastosFijosPagado(currentDelPeriodo));
+    pagadoEl.textContent = formatMoney(pagadoMonto);
+    progresoFillEl.style.width = `${progresoPct}%`;
+    progresoPctEl.textContent = `${progresoPct.toFixed(0)}% pagado`;
     diferenciaValorEl.textContent = formatMoney(sumDiferenciasPago(currentDelPeriodo));
     renderCategorias();
 
@@ -523,29 +533,31 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
             ? ` <span class="badge badge--today">Hoy</span>`
             : "";
 
+        const recurrenciaLabel = gasto.recurrencia === "Personalizado" ? `Cada ${gasto.repiteCadaN} periodos` : gasto.recurrencia;
         const recurrenciaCell = `
-          <span class="badge ${RECURRENCIA_BADGE[gasto.recurrencia]}">${gasto.recurrencia}</span>
+          <span class="badge ${RECURRENCIA_BADGE[gasto.recurrencia]}">${recurrenciaLabel}</span>
           ${
-            gasto.recurrencia !== "Adicional"
-              ? `<button type="button" class="btn-toggle ${gasto.pausado ? "is-off" : ""}" data-row="${gasto.row}" data-action="pausar">${gasto.pausado ? "Pausado" : "Activo"}</button>`
-              : ""
-          }
-          ${
-            gasto.recurrencia === "Personalizado"
-              ? `<div class="record-row__subtitle">cada ${gasto.repiteCadaN} periodos${gasto.enEspera && !gasto.pausado ? ` · <span class="badge badge--en-espera">En espera (faltan ${Math.max(gasto.repiteCadaN - gasto.contadorPeriodos, 1)})</span>` : ""}</div>`
+            gasto.recurrencia === "Personalizado" && gasto.enEspera && !gasto.pausado
+              ? `<span class="badge badge--en-espera">En espera (faltan ${Math.max(gasto.repiteCadaN - gasto.contadorPeriodos, 1)})</span>`
               : ""
           }
         `;
 
+        const activoCell =
+          gasto.recurrencia !== "Adicional"
+            ? `<button type="button" class="btn-toggle ${gasto.pausado ? "is-off" : ""}" data-row="${gasto.row}" data-action="pausar">${gasto.pausado ? "Pausado" : "Activo"}</button>`
+            : `<span class="empty-state">—</span>`;
+
         const estadoCell = gasto.enEspera
           ? `<span class="empty-state">—</span>`
-          : `<button type="button" class="btn-toggle ${pagado ? "" : "is-off"}" data-row="${gasto.row}" data-action="toggle">${pagado ? "Pagado" : "Pendiente"}</button>`;
+          : `<button type="button" class="btn-toggle ${pagado ? "" : "btn-toggle--pendiente"}" data-row="${gasto.row}" data-action="toggle">${pagado ? "Pagado" : "Pendiente"}</button>`;
 
         return `
           <tr data-row="${gasto.row}" class="${vencido ? "is-vencido" : esHoy ? "is-today" : ""}">
             <td data-label="Nombre">${gasto.nombre}</td>
             <td data-label="Categoría">${gasto.categoria ? `<span class="badge">${gasto.categoria}</span>` : "—"}</td>
             <td data-label="Recurrencia">${recurrenciaCell}</td>
+            <td data-label="Activo">${activoCell}</td>
             <td data-label="Día de pago">${gasto.diaPago || "—"}${diaBadge}</td>
             <td data-label="Estado">${estadoCell}</td>
             <td data-label="Monto" class="text-right amount-cell">${formatMoney(gasto.enEspera || !pagado ? gasto.monto : (gasto.montoPagado ?? gasto.monto))}${diferenciaHtml}</td>
@@ -566,6 +578,7 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
               <th>Nombre</th>
               <th>Categoría</th>
               <th>Recurrencia</th>
+              <th>Activo</th>
               <th>Día de pago</th>
               <th>Estado</th>
               <th class="text-right">Monto</th>

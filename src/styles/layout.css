@@ -788,6 +788,12 @@
   color: var(--color-text-muted);
 }
 
+/* Estado "Pendiente" de Gastos Fijos: distinto del gris de Pausado, para no confundir "sin pagar todavía" con "serie desactivada". */
+.btn-toggle.btn-toggle--pendiente {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
 .btn-toggle:disabled {
   opacity: 0.6;
   cursor: default;
