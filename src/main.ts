@@ -67,7 +67,10 @@ async function showApp(user: AuthUser): Promise<void> {
         void renderHistorico(shell.contentEl);
         break;
       case "configuracion":
-        void renderConfiguracion(shell.contentEl);
+        void renderConfiguracion(shell.contentEl, user, async () => {
+          await signOut();
+          showLogin();
+        });
         break;
       default:
         renderPlaceholder(shell.contentEl, sectionId);

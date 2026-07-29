@@ -26,25 +26,26 @@
 - **Persistencia:** pestaña `ConfigDashboard` en la Hoja de Google (`cardId | visible | color | orden`). Se crea automáticamente con valores por defecto (todas visibles, `balance` en Primario, resto en Neutro, orden actual) si no existe aún.
 - Botón "Restablecer a valores por defecto".
 
-## 4. Tarjeta "Preferencias de la app"
+## 4. Tarjeta "Preferencias de la app" *(implementado)*
 
-- Selector de tema (claro/oscuro/automático) — misma lógica que el interruptor flotante existente (`theme-toggle.ts`, `localStorage` key `mf-theme`), presentado también aquí como control adicional.
-- (Opcional) Selector de moneda/locale — por ahora fijo en COP/es-CO, solo texto informativo.
+- Selector de tema (claro/oscuro/automático), reutilizando la misma lógica del interruptor flotante existente (`theme-toggle.ts`, `localStorage` key `mf-theme`) — se le agregaron `getThemeMode()`/`setThemeMode()` exportados para que ambos controles compartan la lógica en vez de duplicarla. "Automático" = sin preferencia guardada, sigue el tema del sistema.
+- Selector de moneda/locale: **no es un selector**, solo texto informativo fijo ("Moneda: Peso colombiano (COP)"), como decía la nota original.
 
-## 5. Tarjeta "Categorías y tipos"
+## 5. Tarjeta "Categorías y tipos" *(implementado — solo crear/borrar, sin renombrar)*
 
-- Acceso centralizado para gestionar (crear/renombrar/borrar) los combos hoy dispersos por módulo: tipos de ingreso, categorías de gastos fijos, categorías de gastos y compras, tipos de deuda, tipos de meta.
-- Reutiliza `tipo-combo.ts` y los modales de "Nuevo tipo" ya existentes en cada módulo — no duplica lógica.
+- Acceso centralizado para gestionar los 6 listados hoy dispersos por módulo: tipos de ingreso, categorías de gastos fijos, categorías de gastos y compras, tipos de deuda (Yo debo), tipos de deuda (Me deben), tipos de meta. Cada uno en su propia mini-lista de chips con "×" para borrar y un input para agregar.
+- **Confirmado con el usuario: solo crear/borrar por ahora, sin renombrar** — ningún módulo de la app soporta renombrar categorías/tipos hoy (sería funcionalidad nueva de cero, no reutilización), así que se dejó fuera de esta pasada.
+- Reutiliza las funciones `crear*`/`eliminar*`/`list*` ya existentes de cada dominio (`gastos.ts`, `gastos-y-compras.ts`, `ingresos.ts`, `deudas.ts`, `metas.ts`) — no duplica lógica de negocio, solo la UI.
 
-## 6. Tarjeta "Tu cuenta"
+## 6. Tarjeta "Tu cuenta" *(implementado)*
 
-- Correo de la cuenta de Google conectada.
-- Enlace directo a la Hoja de Cálculo en Drive (mismo enlace que la tarjeta del dashboard).
-- Botón de cerrar sesión (redundante con el del pie del sidebar, o se podría mover aquí y quitarlo de allá — a decidir en implementación, no bloqueante).
+- Correo de la cuenta de Google conectada (`user.email`, pasado a `renderConfiguracion` desde `main.ts`).
+- Enlace directo a la Hoja de Cálculo en Drive (mismo formato de URL que la tarjeta del dashboard).
+- Botón de cerrar sesión — se agregó aquí como botón adicional; el del pie del sidebar **no se quitó** (quedan ambos).
 
-## 7. Tarjeta "Datos" (opcional)
+## 7. Tarjeta "Datos" *(implementado)*
 
-- Botón para exportar todos los datos a CSV (extensión del CSV anual de Histórico, pero para todo el histórico completo) — no implementado.
+- Botón "Exportar todo el histórico (CSV)" — extensión de `descargarResumenAnualCSV` (`descargarHistoricoCompletoCSV` en `domain/historico.ts`): una fila de totales por cada año con datos, más las facturas de todos los años combinadas en una sola tabla.
 
 ## 7.1 Tarjeta "Zona peligrosa" — "Limpiar todo" *(implementado)*
 

@@ -10,7 +10,21 @@ import {
   type DashboardCardColor,
   type DashboardCardConfig,
 } from "../../domain/dashboard-config";
+import { crearTipoDeuda, eliminarTipoDeuda, listTiposDeuda } from "../../domain/deudas";
 import { todayISO } from "../../domain/format";
+import {
+  crearCategoria as crearCategoriaGastoFijo,
+  eliminarCategoria as eliminarCategoriaGastoFijo,
+  listCategorias as listCategoriasGastoFijo,
+} from "../../domain/gastos";
+import {
+  crearCategoria as crearCategoriaGastoCompra,
+  eliminarCategoria as eliminarCategoriaGastoCompra,
+  listCategorias as listCategoriasGastoCompra,
+} from "../../domain/gastos-y-compras";
+import { crearTipoIngreso, eliminarTipoIngreso, listTiposIngreso } from "../../domain/ingresos";
+import { cargarSnapshotHistorico, descargarHistoricoCompletoCSV } from "../../domain/historico";
+import { crearTipoMeta, eliminarTipoMeta, listTiposMeta } from "../../domain/metas";
 import {
   ejecutarReinicioPeriodo,
   guardarDiaInicioSemana,
@@ -18,8 +32,10 @@ import {
   obtenerConfigPeriodo,
   type FrecuenciaPeriodo,
 } from "../../domain/periodo";
+import type { AuthUser } from "../../auth/google-auth";
 import { showAlert, showConfirm, showTraspasoNegativoDialog } from "../components/dialogs";
 import { loaderHtml } from "../components/loader";
+import { getThemeMode, setThemeMode, type ThemeMode } from "../theme-toggle";
 
 const DIAS_SEMANA = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
 
@@ -36,7 +52,7 @@ function filaDespuesDe(lista: HTMLElement, y: number): HTMLElement | null {
   ).el;
 }
 
-export async function renderConfiguracion(container: HTMLElement): Promise<void> {
+export async function renderConfiguracion(container: HTMLElement, user: AuthUser, onLogout: () => Promise<void>): Promise<void> {
   container.innerHTML = `
     <h1 class="page-title">${settingsIcon} Configuración</h1>
 
@@ -79,6 +95,46 @@ export async function renderConfiguracion(container: HTMLElement): Promise<void>
       </div>
     </div>
 
+    <div class="card" style="margin-top:20px">
+      <div class="card__title">Preferencias de la app</div>
+      <div class="field" style="max-width:260px">
+        <label for="tema-select">Tema</label>
+        <select id="tema-select">
+          <option value="auto">Automático (según el sistema)</option>
+          <option value="light">Claro</option>
+          <option value="dark">Oscuro</option>
+        </select>
+      </div>
+      <p class="empty-state" style="margin:14px 0 0">Moneda: Peso colombiano (COP)</p>
+    </div>
+
+    <div class="card" style="margin-top:20px">
+      <div class="card__title">Categorías y tipos</div>
+      <p class="empty-state" style="margin:0 0 16px">
+        Gestiona en un solo lugar las categorías y tipos que usas en cada módulo.
+      </p>
+      <div id="categorias-tipos-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:24px">
+        ${loaderHtml()}
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:20px">
+      <div class="card__title">Tu cuenta</div>
+      <p class="empty-state" style="margin:0 0 12px">Sesión iniciada como <strong id="cuenta-email" style="color:var(--color-text)"></strong></p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <a href="#" target="_blank" rel="noopener" class="btn-secondary" id="cuenta-sheet-link" style="text-decoration:none" hidden>Abrir Hoja de Cálculo en Drive</a>
+        <button type="button" class="btn-secondary" id="cuenta-logout-btn">Cerrar sesión</button>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:20px">
+      <div class="card__title">Datos</div>
+      <p class="empty-state" style="margin:0 0 16px">
+        Exporta todo tu historial (todos los años con datos) a un solo archivo CSV.
+      </p>
+      <button type="button" class="btn-secondary" id="exportar-todo-btn">⬇️ Exportar todo el histórico (CSV)</button>
+    </div>
+
     <div class="card" style="margin-top:20px;border:1px solid var(--color-danger)">
       <div class="card__title" style="color:var(--color-danger)">Zona peligrosa</div>
       <p class="empty-state" style="margin:0 0 16px">
@@ -97,9 +153,37 @@ export async function renderConfiguracion(container: HTMLElement): Promise<void>
   const restablecerBtn = container.querySelector<HTMLButtonElement>("#restablecer-dashboard-btn")!;
   const listEl = container.querySelector<HTMLDivElement>("#dashboard-config-list")!;
   const limpiarTodoBtn = container.querySelector<HTMLButtonElement>("#limpiar-todo-btn")!;
+  const categoriasTiposGrid = container.querySelector<HTMLDivElement>("#categorias-tipos-grid")!;
+  const cuentaEmail = container.querySelector<HTMLElement>("#cuenta-email")!;
+  const cuentaSheetLink = container.querySelector<HTMLAnchorElement>("#cuenta-sheet-link")!;
+  const cuentaLogoutBtn = container.querySelector<HTMLButtonElement>("#cuenta-logout-btn")!;
+  const exportarTodoBtn = container.querySelector<HTMLButtonElement>("#exportar-todo-btn")!;
+
+  const temaSelect = container.querySelector<HTMLSelectElement>("#tema-select")!;
+  temaSelect.value = getThemeMode();
+  temaSelect.addEventListener("change", () => {
+    setThemeMode(temaSelect.value as ThemeMode);
+  });
+
+  cuentaEmail.textContent = user.email;
+  cuentaLogoutBtn.addEventListener("click", () => void onLogout());
 
   try {
     const { spreadsheetId } = await ensureSpreadsheet();
+    cuentaSheetLink.href = `https://docs.google.com/spreadsheets/d/${spreadsheetId}`;
+    cuentaSheetLink.hidden = false;
+    exportarTodoBtn.addEventListener("click", async () => {
+      exportarTodoBtn.disabled = true;
+      try {
+        const snap = await cargarSnapshotHistorico(spreadsheetId);
+        descargarHistoricoCompletoCSV(snap);
+      } catch (err) {
+        await showAlert(err instanceof Error ? err.message : "No se pudo exportar el histórico.", "Error");
+      } finally {
+        exportarTodoBtn.disabled = false;
+      }
+    });
+
     const [configPeriodo, configsIniciales] = await Promise.all([
       obtenerConfigPeriodo(spreadsheetId),
       listDashboardConfig(spreadsheetId),
@@ -140,7 +224,7 @@ export async function renderConfiguracion(container: HTMLElement): Promise<void>
         forzarReinicioBtn.disabled = true;
         try {
           await ejecutarReinicioPeriodo(spreadsheetId, todayISO(), traspasoDeficit);
-          await renderConfiguracion(container);
+          await renderConfiguracion(container, user, onLogout);
         } catch (err) {
           reiniciarPeriodoBtn.disabled = false;
           forzarReinicioBtn.disabled = false;
@@ -171,6 +255,7 @@ export async function renderConfiguracion(container: HTMLElement): Promise<void>
     }
 
     montarLista(listEl, spreadsheetId, configs);
+    void montarCategoriasTipos(categoriasTiposGrid, spreadsheetId);
 
     restablecerBtn.addEventListener("click", async () => {
       const ok = await showConfirm(
@@ -191,7 +276,7 @@ export async function renderConfiguracion(container: HTMLElement): Promise<void>
       limpiarTodoBtn.disabled = true;
       try {
         await limpiarTodosLosDatos(spreadsheetId);
-        await renderConfiguracion(container);
+        await renderConfiguracion(container, user, onLogout);
       } catch (err) {
         limpiarTodoBtn.disabled = false;
         await showAlert(err instanceof Error ? err.message : "No se pudo limpiar los datos.", "Error");
@@ -262,4 +347,140 @@ function montarLista(listEl: HTMLDivElement, spreadsheetId: string, configs: Das
     if (after == null) listEl.appendChild(dragging);
     else listEl.insertBefore(dragging, after);
   });
+}
+
+interface ListaSimpleConfig {
+  titulo: string;
+  listar: () => Promise<string[]>;
+  crear: (nombre: string) => Promise<void>;
+  eliminar: (nombre: string) => Promise<void>;
+}
+
+/** Monta las 6 listas simples (crear/borrar) que hoy están dispersas por cada módulo, centralizadas aquí. */
+async function montarCategoriasTipos(grid: HTMLDivElement, spreadsheetId: string): Promise<void> {
+  const listas: ListaSimpleConfig[] = [
+    {
+      titulo: "Tipos de ingreso",
+      listar: () => listTiposIngreso(spreadsheetId),
+      crear: (n) => crearTipoIngreso(spreadsheetId, n),
+      eliminar: (n) => eliminarTipoIngreso(spreadsheetId, n),
+    },
+    {
+      titulo: "Categorías de gastos fijos",
+      listar: () => listCategoriasGastoFijo(spreadsheetId),
+      crear: (n) => crearCategoriaGastoFijo(spreadsheetId, n),
+      eliminar: (n) => eliminarCategoriaGastoFijo(spreadsheetId, n),
+    },
+    {
+      titulo: "Categorías de gastos y compras",
+      listar: () => listCategoriasGastoCompra(spreadsheetId),
+      crear: (n) => crearCategoriaGastoCompra(spreadsheetId, n),
+      eliminar: (n) => eliminarCategoriaGastoCompra(spreadsheetId, n),
+    },
+    {
+      titulo: "Tipos de deuda (Yo debo)",
+      listar: () => listTiposDeuda(spreadsheetId, "YoDebo"),
+      crear: (n) => crearTipoDeuda(spreadsheetId, "YoDebo", n),
+      eliminar: (n) => eliminarTipoDeuda(spreadsheetId, "YoDebo", n),
+    },
+    {
+      titulo: "Tipos de deuda (Me deben)",
+      listar: () => listTiposDeuda(spreadsheetId, "MeDeben"),
+      crear: (n) => crearTipoDeuda(spreadsheetId, "MeDeben", n),
+      eliminar: (n) => eliminarTipoDeuda(spreadsheetId, "MeDeben", n),
+    },
+    {
+      titulo: "Tipos de meta",
+      listar: () => listTiposMeta(spreadsheetId),
+      crear: (n) => crearTipoMeta(spreadsheetId, n),
+      eliminar: (n) => eliminarTipoMeta(spreadsheetId, n),
+    },
+  ];
+
+  grid.innerHTML = "";
+  for (const cfg of listas) {
+    const section = document.createElement("div");
+    grid.appendChild(section);
+    void montarListaSimple(section, cfg);
+  }
+}
+
+async function montarListaSimple(section: HTMLDivElement, cfg: ListaSimpleConfig): Promise<void> {
+  section.innerHTML = `
+    <div style="font-weight:700;margin-bottom:8px;font-size:14px">${cfg.titulo}</div>
+    <div class="chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;min-height:26px"></div>
+    <div style="display:flex;gap:6px">
+      <input type="text" placeholder="Nuevo…" style="flex:1;min-width:0" />
+      <button type="button" class="btn-secondary" style="padding:8px 12px;font-size:12px;white-space:nowrap">Agregar</button>
+    </div>
+    <p class="empty-state" hidden style="margin:6px 0 0;color:var(--color-danger)"></p>
+  `;
+  const chipsEl = section.querySelector<HTMLDivElement>(".chips")!;
+  const input = section.querySelector<HTMLInputElement>("input")!;
+  const addBtn = section.querySelector<HTMLButtonElement>("button")!;
+  const errorEl = section.querySelector<HTMLParagraphElement>("p")!;
+
+  let items: string[] = [];
+
+  function renderChips(): void {
+    if (items.length === 0) {
+      chipsEl.innerHTML = `<span class="empty-state" style="font-size:12px">Sin elementos.</span>`;
+      return;
+    }
+    chipsEl.innerHTML = items
+      .map(
+        (nombre) => `
+          <span class="badge" style="display:inline-flex;align-items:center;gap:4px;padding:4px 4px 4px 10px">
+            ${nombre}
+            <button type="button" data-nombre="${nombre}" aria-label="Eliminar ${nombre}" title="Eliminar" style="border:none;background:transparent;cursor:pointer;color:inherit;font-size:14px;line-height:1;padding:2px 4px;border-radius:4px">×</button>
+          </span>
+        `,
+      )
+      .join("");
+    chipsEl.querySelectorAll<HTMLButtonElement>("[data-nombre]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const nombre = btn.dataset.nombre!;
+        const ok = await showConfirm(`¿Eliminar "${nombre}"?`, { title: "Eliminar", confirmLabel: "Eliminar", danger: true });
+        if (!ok) return;
+        errorEl.hidden = true;
+        try {
+          await cfg.eliminar(nombre);
+          await reload();
+        } catch (err) {
+          errorEl.hidden = false;
+          errorEl.textContent = err instanceof Error ? err.message : "No se pudo eliminar.";
+        }
+      });
+    });
+  }
+
+  async function reload(): Promise<void> {
+    items = await cfg.listar();
+    renderChips();
+  }
+
+  addBtn.addEventListener("click", async () => {
+    const nombre = input.value.trim();
+    if (!nombre) return;
+    errorEl.hidden = true;
+    addBtn.disabled = true;
+    try {
+      await cfg.crear(nombre);
+      input.value = "";
+      await reload();
+    } catch (err) {
+      errorEl.hidden = false;
+      errorEl.textContent = err instanceof Error ? err.message : "No se pudo crear.";
+    } finally {
+      addBtn.disabled = false;
+    }
+  });
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      addBtn.click();
+    }
+  });
+
+  await reload();
 }

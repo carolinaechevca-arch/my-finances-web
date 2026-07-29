@@ -5,6 +5,7 @@ import trashIcon from "../../icon/trash-x.svg?raw";
 import { ensureSpreadsheet } from "../../api/spreadsheet-bootstrap";
 import { formatMoney } from "../../domain/format";
 import { formatPeriodoBadge, obtenerConfigPeriodo } from "../../domain/periodo";
+import { mountEyeToggle } from "../components/eye-toggle";
 import {
   actualizarGastoFijo,
   crearCategoria,
@@ -72,6 +73,7 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
           <div class="empty-state" style="margin-bottom:4px">Pagado</div>
           <div style="font-size:32px;font-weight:700;color:var(--color-success)" id="gf-pagado">—</div>
         </div>
+        <button type="button" class="icon-btn" id="gf-eye-btn" aria-label="Mostrar u ocultar" title="Mostrar u ocultar"></button>
       </div>
       <div class="progress-bar" style="margin-top:16px"><div class="progress-bar__fill" id="gf-progreso-fill" style="width:0%"></div></div>
       <div style="display:flex;justify-content:space-between;margin-top:8px;font-size:14px">
@@ -190,6 +192,7 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
   const totalEl = container.querySelector<HTMLDivElement>("#gf-total")!;
   const pendienteEl = container.querySelector<HTMLDivElement>("#gf-pendiente")!;
   const pagadoEl = container.querySelector<HTMLDivElement>("#gf-pagado")!;
+  const eyeBtn = container.querySelector<HTMLButtonElement>("#gf-eye-btn")!;
   const progresoFillEl = container.querySelector<HTMLDivElement>("#gf-progreso-fill")!;
   const progresoPctEl = container.querySelector<HTMLSpanElement>("#gf-progreso-pct")!;
   const diferenciaBtn = container.querySelector<HTMLButtonElement>("#gf-diferencia-btn")!;
@@ -238,6 +241,9 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
   let formCategoriaValue = "";
   let editCategoriaValue = "";
   let editingGasto: GastoFijo | null = null;
+  let latestTotal = 0;
+  let latestPagado = 0;
+  const eyeToggle = mountEyeToggle(eyeBtn, [totalEl, pagadoEl], () => [formatMoney(latestTotal), formatMoney(latestPagado)]);
 
   function refreshCombos(): void {
     categoriaCombo.refresh();
@@ -468,9 +474,10 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
     const total = sumGastosFijosTotal(activos);
     const pagadoMonto = sumGastosFijosPagado(activos);
     const progresoPct = total > 0 ? (pagadoMonto / total) * 100 : 0;
-    totalEl.textContent = formatMoney(total);
+    latestTotal = total;
+    latestPagado = pagadoMonto;
+    eyeToggle.refresh();
     pendienteEl.textContent = formatMoney(sumGastosFijosPendientes(activos));
-    pagadoEl.textContent = formatMoney(pagadoMonto);
     progresoFillEl.style.width = `${progresoPct}%`;
     progresoPctEl.textContent = `${progresoPct.toFixed(0)}% pagado`;
 

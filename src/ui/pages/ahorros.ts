@@ -29,6 +29,7 @@ import {
   type MovimientoMeta,
 } from "../../domain/metas";
 import { showAbonoDialog, showAlert, showConfirm, showRetiroDialog } from "../components/dialogs";
+import { mountEyeToggle } from "../components/eye-toggle";
 import { loaderHtml } from "../components/loader";
 import { createOptionCombo, type OptionCombo } from "../components/tipo-combo";
 
@@ -39,9 +40,12 @@ export async function renderAhorros(container: HTMLElement): Promise<void> {
     <div class="page-title-row">
       <h1 class="page-title">${moneybagPlusIcon} Ahorros y Metas</h1>
     </div>
-    <div class="card stat-card stat-card--primary" style="max-width:280px;margin-bottom:20px">
-      <div class="stat-card__value" id="ah-total">—</div>
-      <div class="stat-card__label">Total acumulado</div>
+    <div class="card" style="max-width:280px;margin-bottom:20px;background:var(--color-primary);color:white;display:flex;flex-direction:column;gap:8px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+        <span style="font-size:14px;font-weight:600;opacity:0.85">Total acumulado</span>
+        <button type="button" class="icon-btn" id="ah-total-eye" aria-label="Mostrar u ocultar" title="Mostrar u ocultar" style="color:white"></button>
+      </div>
+      <div style="font-size:32px;font-weight:800" id="ah-total">—</div>
     </div>
 
     <div class="card" style="margin-bottom:20px">
@@ -122,6 +126,7 @@ export async function renderAhorros(container: HTMLElement): Promise<void> {
   `;
 
   const totalEl = container.querySelector<HTMLDivElement>("#ah-total")!;
+  const totalEyeBtn = container.querySelector<HTMLButtonElement>("#ah-total-eye")!;
   const activasListEl = container.querySelector<HTMLDivElement>("#ah-activas-list")!;
   const cumplidasListEl = container.querySelector<HTMLDivElement>("#ah-cumplidas-list")!;
   const cumplidasCard = container.querySelector<HTMLDetailsElement>("#ah-cumplidas-card")!;
@@ -162,6 +167,10 @@ export async function renderAhorros(container: HTMLElement): Promise<void> {
   let sortOrder: SortOrder = "progreso";
   let busy = false;
   let editingMeta: Meta | null = null;
+
+  const totalEye = mountEyeToggle(totalEyeBtn, totalEl, () =>
+    formatMoney(metas.reduce((s, m) => s + calcularAcumulado(movimientosPorMeta.get(m.id) ?? []), 0)),
+  );
 
   function refreshCombos(): void {
     tipoCombo.refresh();
@@ -410,9 +419,7 @@ export async function renderAhorros(container: HTMLElement): Promise<void> {
     const activasTodas = metas.filter((m) => m.estado !== "Cumplida");
     const cumplidas = metas.filter((m) => m.estado === "Cumplida");
 
-    totalEl.textContent = formatMoney(
-      metas.reduce((s, m) => s + calcularAcumulado(movimientosPorMeta.get(m.id) ?? []), 0),
-    );
+    totalEye.refresh();
 
     const ordenadas = [...activasTodas].sort((a, b) => {
       if (sortOrder === "fecha-limite") {

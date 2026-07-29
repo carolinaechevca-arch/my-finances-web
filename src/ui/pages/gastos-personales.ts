@@ -37,6 +37,7 @@ import { formatMonthLabel, formatMoney, parseDateInput, todayISO } from "../../d
 import { crearMeta } from "../../domain/metas";
 import { formatPeriodoBadge, obtenerConfigPeriodo } from "../../domain/periodo";
 import { showAlert, showCompletarGastoDialog, showConfirm, showConvertirMetaDialog } from "../components/dialogs";
+import { mountEyeToggle } from "../components/eye-toggle";
 import { loaderHtml } from "../components/loader";
 import { createOptionCombo, type OptionCombo } from "../components/tipo-combo";
 
@@ -50,11 +51,17 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
     </div>
     <div class="card-grid" style="max-width:560px">
       <div class="card" style="background:var(--color-primary);color:white;display:flex;flex-direction:column;gap:8px">
-        <span style="font-size:14px;font-weight:600;opacity:0.85">Gastado en el periodo</span>
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+          <span style="font-size:14px;font-weight:600;opacity:0.85">Gastado en el periodo</span>
+          <button type="button" class="icon-btn" id="gc-total-eye" aria-label="Mostrar u ocultar" title="Mostrar u ocultar" style="color:white"></button>
+        </div>
         <div style="font-size:32px;font-weight:800" id="gc-total-periodo">—</div>
       </div>
       <div class="card" style="display:flex;flex-direction:column;gap:8px">
-        <span class="empty-state" style="font-weight:600">Pendientes</span>
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+          <span class="empty-state" style="font-weight:600">Pendientes</span>
+          <button type="button" class="icon-btn" id="gc-pendientes-eye" aria-label="Mostrar u ocultar" title="Mostrar u ocultar"></button>
+        </div>
         <div style="font-size:28px;font-weight:800;color:var(--color-danger)" id="gc-pendientes-total">—</div>
       </div>
     </div>
@@ -192,6 +199,8 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
   const periodoBadge = container.querySelector<HTMLSpanElement>("#periodo-badge")!;
   const totalPeriodoEl = container.querySelector<HTMLDivElement>("#gc-total-periodo")!;
   const pendientesTotalEl = container.querySelector<HTMLDivElement>("#gc-pendientes-total")!;
+  const totalPeriodoEyeBtn = container.querySelector<HTMLButtonElement>("#gc-total-eye")!;
+  const pendientesEyeBtn = container.querySelector<HTMLButtonElement>("#gc-pendientes-eye")!;
   const pendientesListEl = container.querySelector<HTMLDivElement>("#pendientes-list")!;
   const archivadosCard = container.querySelector<HTMLDivElement>("#archivados-card")!;
   const archivadosListEl = container.querySelector<HTMLDivElement>("#archivados-list")!;
@@ -256,6 +265,9 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
   let editingGasto: GastoYCompra | null = null;
   let editingArchivado: Archivado | null = null;
   let estadoValue: EstadoGasto = "Pagado";
+
+  const totalPeriodoEye = mountEyeToggle(totalPeriodoEyeBtn, totalPeriodoEl, () => formatMoney(gastadoEnPeriodo));
+  const pendientesEye = mountEyeToggle(pendientesEyeBtn, pendientesTotalEl, () => formatMoney(sumGastos(pendientes)));
 
   function renderPendienteToggle(): void {
     pendienteToggleBtns.forEach((btn) => {
@@ -580,7 +592,7 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
   }
 
   function renderPendientes(): void {
-    pendientesTotalEl.textContent = formatMoney(sumGastos(pendientes));
+    pendientesEye.refresh();
 
     if (pendientes.length === 0) {
       pendientesListEl.innerHTML = `<p class="empty-state">No tienes compras pendientes registradas.</p>`;
@@ -706,7 +718,7 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
 
   function renderHistorial(): void {
     const visibles = filtroCategoria ? gastosDelMes.filter((g) => g.categoria === filtroCategoria) : gastosDelMes;
-    totalPeriodoEl.textContent = formatMoney(gastadoEnPeriodo);
+    totalPeriodoEye.refresh();
 
     if (visibles.length === 0) {
       listEl.innerHTML = `<p class="empty-state">${gastosDelMes.length === 0 ? "Aún no registras gastos este mes." : "No hay gastos con esa categoría."}</p>`;

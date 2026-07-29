@@ -3,10 +3,29 @@ import moonIcon from "../icon/moon.svg?raw";
 
 const STORAGE_KEY = "mf-theme";
 
+export type ThemeMode = "light" | "dark" | "auto";
+
 export function initTheme(): void {
   const saved = localStorage.getItem(STORAGE_KEY);
   if (saved === "light" || saved === "dark") {
     document.documentElement.setAttribute("data-theme", saved);
+  }
+}
+
+/** Modo guardado explícitamente por el usuario ("light"/"dark"), o "auto" si sigue el tema del sistema. */
+export function getThemeMode(): ThemeMode {
+  const saved = localStorage.getItem(STORAGE_KEY);
+  return saved === "light" || saved === "dark" ? saved : "auto";
+}
+
+/** Fija el modo: "auto" quita la preferencia guardada y vuelve a seguir el tema del sistema. */
+export function setThemeMode(mode: ThemeMode): void {
+  if (mode === "auto") {
+    localStorage.removeItem(STORAGE_KEY);
+    document.documentElement.removeAttribute("data-theme");
+  } else {
+    localStorage.setItem(STORAGE_KEY, mode);
+    document.documentElement.setAttribute("data-theme", mode);
   }
 }
 

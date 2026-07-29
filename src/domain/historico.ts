@@ -248,6 +248,31 @@ export function descargarResumenAnualCSV(resumen: ResumenAnual): void {
   URL.revokeObjectURL(url);
 }
 
+/** Extensión de `descargarResumenAnualCSV` para todo el histórico: una fila de totales por cada año con datos, más todas las facturas de todos los años. Usado por "Exportar todo el histórico" en Configuración. */
+export function descargarHistoricoCompletoCSV(snap: HistoricoSnapshot): void {
+  const anios = listAniosDisponibles(snap);
+  const resumenes = anios.map((anio) => resumenAnual(snap, anio));
+
+  const lineas = [
+    ["Histórico completo — Mis Finanzas"],
+    [],
+    ["Año", "Total ingresos", "Total gastos", "Total ahorrado", "Total pagado en deudas"],
+    ...resumenes.map((r) => [r.anio, String(r.totalIngresos), String(r.totalGastos), String(r.totalAhorrado), String(r.totalPagadoDeudas)]),
+    [],
+    ["Facturas registradas (todos los años)"],
+    ["Fecha", "Nombre", "Monto", "Link"],
+    ...resumenes.flatMap((r) => r.facturas).map((f) => [f.fecha, f.nombre, String(f.monto), f.link]),
+  ];
+  const csv = lineas.map((fila) => fila.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "historico-completo.csv";
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 // --- A partir de acá: versiones por PERIODO (Semanal/Quincenal/Mensual/Manual) de lo de arriba,     ---
 // --- usadas por el navegador y los gráficos de Histórico. "Resumen anual" sigue usando lo de arriba, ---
 // --- por mes/año calendario real — confirmado que no cambia con el sistema de periodo.               ---

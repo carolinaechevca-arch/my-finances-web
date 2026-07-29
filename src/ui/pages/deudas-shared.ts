@@ -35,6 +35,7 @@ import {
 import { formatMoney, todayISO } from "../../domain/format";
 import { obtenerConfigPeriodo } from "../../domain/periodo";
 import { showAbonoDialog, showAlert, showConfirm, showMergeChoice } from "../components/dialogs";
+import { mountEyeToggle } from "../components/eye-toggle";
 import { loaderHtml } from "../components/loader";
 import { createOptionCombo, type OptionCombo } from "../components/tipo-combo";
 
@@ -56,11 +57,17 @@ export async function renderDeudasModulo(container: HTMLElement, config: ModuloD
     </div>
     <div class="card-grid" style="max-width:560px;margin-bottom:20px">
       <div class="card" style="background:var(--color-primary);color:white;display:flex;flex-direction:column;gap:8px">
-        <span style="font-size:14px;font-weight:600;opacity:0.85">${config.totalLabel}</span>
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+          <span style="font-size:14px;font-weight:600;opacity:0.85">${config.totalLabel}</span>
+          <button type="button" class="icon-btn" id="dd-total-eye" aria-label="Mostrar u ocultar" title="Mostrar u ocultar" style="color:white"></button>
+        </div>
         <div style="font-size:32px;font-weight:800" id="dd-total">—</div>
       </div>
       <div class="card" style="display:flex;flex-direction:column;gap:8px">
-        <span class="empty-state" style="font-weight:600">${config.periodoLabel}</span>
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+          <span class="empty-state" style="font-weight:600">${config.periodoLabel}</span>
+          <button type="button" class="icon-btn" id="dd-periodo-eye" aria-label="Mostrar u ocultar" title="Mostrar u ocultar"></button>
+        </div>
         <div style="font-size:28px;font-weight:800;color:var(--color-success)" id="dd-periodo-total">—</div>
       </div>
     </div>
@@ -173,6 +180,8 @@ export async function renderDeudasModulo(container: HTMLElement, config: ModuloD
 
   const totalEl = container.querySelector<HTMLDivElement>("#dd-total")!;
   const periodoTotalEl = container.querySelector<HTMLDivElement>("#dd-periodo-total")!;
+  const totalEyeBtn = container.querySelector<HTMLButtonElement>("#dd-total-eye")!;
+  const periodoEyeBtn = container.querySelector<HTMLButtonElement>("#dd-periodo-eye")!;
   const activasListEl = container.querySelector<HTMLDivElement>("#dd-activas-list")!;
   const pagadasListEl = container.querySelector<HTMLDivElement>("#dd-pagadas-list")!;
   const pagadasCard = container.querySelector<HTMLDetailsElement>("#dd-pagadas-card")!;
@@ -246,6 +255,9 @@ export async function renderDeudasModulo(container: HTMLElement, config: ModuloD
   let formTipoValue = "";
   let editContraparteValue = "";
   let editTipoValue = "";
+
+  const totalEye = mountEyeToggle(totalEyeBtn, totalEl, () => formatMoney(sumSaldoPendiente(deudas, eventosPorDeuda)));
+  const periodoEye = mountEyeToggle(periodoEyeBtn, periodoTotalEl, () => formatMoney(sumAbonadoEnPeriodo(deudas, eventos, periodoInicio)));
 
 /** Nombres disponibles = los guardados en la hoja de gestión + los que ya aparecen en deudas existentes. */
   function contrapartesDisponibles(): string[] {
@@ -572,8 +584,8 @@ export async function renderDeudasModulo(container: HTMLElement, config: ModuloD
     const activas = deudas.filter((d) => d.estado === "Activa");
     const pagadas = deudas.filter((d) => d.estado === "Pagada");
 
-    totalEl.textContent = formatMoney(sumSaldoPendiente(deudas, eventosPorDeuda));
-    periodoTotalEl.textContent = formatMoney(sumAbonadoEnPeriodo(deudas, eventos, periodoInicio));
+    totalEye.refresh();
+    periodoEye.refresh();
 
     activasListEl.innerHTML = "";
     if (activas.length === 0) {
