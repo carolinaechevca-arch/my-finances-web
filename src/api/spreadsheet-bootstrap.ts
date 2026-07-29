@@ -1,6 +1,6 @@
 import { findFileByName } from "./drive";
 import { appendRecords, listRecords, updateRecord } from "./records";
-import { addSheets, createSpreadsheet, getSheetNames, getValues, updateValues, type SheetDefinition } from "./sheets";
+import { addSheets, batchClearValues, createSpreadsheet, getSheetNames, getValues, updateValues, type SheetDefinition } from "./sheets";
 
 export const SPREADSHEET_TITLE = "MisFinanzas";
 
@@ -273,6 +273,23 @@ async function ensureSpreadsheetInternal(): Promise<{ spreadsheetId: string; cre
   await ensureDefaultHistorialPeriodos(spreadsheetId);
   guardarCache(spreadsheetId);
   return { spreadsheetId, created: true };
+}
+
+/**
+ * Borra TODOS los datos de todas las hojas (deja los encabezados) y vuelve a
+ * sembrar los valores por defecto (categorías, tipos de deuda, config de
+ * dashboard/periodo, historial inicial) — como si el spreadsheet se acabara
+ * de crear. Usado por "Limpiar todo" en Configuración; el llamador es
+ * responsable de pedir confirmación antes de invocar esto, es irreversible.
+ */
+export async function limpiarTodosLosDatos(spreadsheetId: string): Promise<void> {
+  const rangos = SHEET_DEFINITIONS.map((s) => `${s.name}!A2:Z`);
+  await batchClearValues(spreadsheetId, rangos);
+  await ensureDefaultTipos(spreadsheetId);
+  await ensureDefaultTiposDeuda(spreadsheetId);
+  await ensureDefaultConfigDashboard(spreadsheetId);
+  await ensureDefaultConfigPeriodo(spreadsheetId);
+  await ensureDefaultHistorialPeriodos(spreadsheetId);
 }
 
 async function ensureSheets(spreadsheetId: string): Promise<void> {

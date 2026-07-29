@@ -44,7 +44,13 @@
 
 ## 7. Tarjeta "Datos" (opcional)
 
-- Botón para exportar todos los datos a CSV (extensión del CSV anual de Histórico, pero para todo el histórico completo).
+- Botón para exportar todos los datos a CSV (extensión del CSV anual de Histórico, pero para todo el histórico completo) — no implementado.
+
+## 7.1 Tarjeta "Zona peligrosa" — "Limpiar todo" *(implementado)*
+
+- Botón `.btn-danger` "Limpiar todo" con modal de confirmación (`showConfirm`, `danger: true`), que explica exactamente qué se borra y aclara que no se puede deshacer.
+- Borra el contenido de **todas** las hojas (`limpiarTodosLosDatos` en `src/api/spreadsheet-bootstrap.ts`, vía `values:batchClear` — un solo request para todos los rangos, no una petición por hoja) y vuelve a sembrar los valores por defecto (categorías, tipos de deuda, config de dashboard/periodo, historial inicial) — como si el spreadsheet se acabara de crear.
+- Tras limpiar, se vuelve a renderizar la página completa de Configuración.
 
 ## 8. Pendiente / dependencias externas
 

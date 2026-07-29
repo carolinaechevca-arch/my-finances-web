@@ -1,5 +1,5 @@
 import settingsIcon from "../../icon/settings.svg?raw";
-import { ensureSpreadsheet } from "../../api/spreadsheet-bootstrap";
+import { ensureSpreadsheet, limpiarTodosLosDatos } from "../../api/spreadsheet-bootstrap";
 import {
   actualizarDashboardCard,
   DASHBOARD_CARD_LABELS,
@@ -15,7 +15,7 @@ import {
   obtenerConfigPeriodo,
   type FrecuenciaPeriodo,
 } from "../../domain/periodo";
-import { showConfirm } from "../components/dialogs";
+import { showAlert, showConfirm } from "../components/dialogs";
 import { loaderHtml } from "../components/loader";
 
 const DIAS_SEMANA = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
@@ -71,6 +71,14 @@ export async function renderConfiguracion(container: HTMLElement): Promise<void>
         ${loaderHtml()}
       </div>
     </div>
+
+    <div class="card" style="margin-top:20px;border:1px solid var(--color-danger)">
+      <div class="card__title" style="color:var(--color-danger)">Zona peligrosa</div>
+      <p class="empty-state" style="margin:0 0 16px">
+        Borra todos tus ingresos, gastos fijos, gastos y compras, deudas, abonos, ahorros, categorías y tipos, y restablece los valores por defecto. Esta acción no se puede deshacer.
+      </p>
+      <button type="button" class="btn-danger" id="limpiar-todo-btn">Limpiar todo</button>
+    </div>
   `;
 
   const periodoSelect = container.querySelector<HTMLSelectElement>("#periodo-frecuencia")!;
@@ -78,6 +86,7 @@ export async function renderConfiguracion(container: HTMLElement): Promise<void>
   const diaSemanaSelect = container.querySelector<HTMLSelectElement>("#periodo-dia-semana")!;
   const restablecerBtn = container.querySelector<HTMLButtonElement>("#restablecer-dashboard-btn")!;
   const listEl = container.querySelector<HTMLDivElement>("#dashboard-config-list")!;
+  const limpiarTodoBtn = container.querySelector<HTMLButtonElement>("#limpiar-todo-btn")!;
 
   try {
     const { spreadsheetId } = await ensureSpreadsheet();
@@ -108,6 +117,22 @@ export async function renderConfiguracion(container: HTMLElement): Promise<void>
       if (!ok) return;
       configs = await restablecerDashboardConfig(spreadsheetId, configs);
       montarLista(listEl, spreadsheetId, configs);
+    });
+
+    limpiarTodoBtn.addEventListener("click", async () => {
+      const ok = await showConfirm(
+        "Esto borra TODOS tus datos — ingresos, gastos fijos, gastos y compras, deudas, abonos, ahorros, categorías y tipos — y restablece los valores por defecto. No se puede deshacer.",
+        { title: "Limpiar todo", confirmLabel: "Sí, borrar todo", danger: true },
+      );
+      if (!ok) return;
+      limpiarTodoBtn.disabled = true;
+      try {
+        await limpiarTodosLosDatos(spreadsheetId);
+        await renderConfiguracion(container);
+      } catch (err) {
+        limpiarTodoBtn.disabled = false;
+        await showAlert(err instanceof Error ? err.message : "No se pudo limpiar los datos.", "Error");
+      }
     });
   } catch (err) {
     listEl.innerHTML = "";

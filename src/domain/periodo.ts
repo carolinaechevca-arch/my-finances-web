@@ -94,6 +94,15 @@ export type TraspasoDeficit = "adicional" | "deuda";
  * ver spec-dinero-disponible.md). También registra la fecha en
  * HistorialPeriodos, para que Histórico pueda navegar este periodo más
  * adelante con su fecha real.
+ *
+ * Orden importante: mover la fecha de reinicio y traspasar el sobrante van
+ * PRIMERO, antes de archivar ingresos y reaplicar Gastos Fijos (que pueden
+ * ser muchas escrituras seguidas — una por cada ingreso/gasto fijo). Así, si
+ * la API de Sheets corta a mitad de camino (límite de peticiones por
+ * minuto), el periodo ya quedó movido correctamente y no se queda contando
+ * "este periodo" desde una fecha vieja — lo que sí puede quedar a medias son
+ * los efectos secundarios (reaplicar algún gasto fijo, archivar algún
+ * ingreso), visibles y corregibles a mano si hace falta.
  */
 export async function ejecutarReinicioPeriodo(
   spreadsheetId: string,
@@ -103,8 +112,8 @@ export async function ejecutarReinicioPeriodo(
   const config = await obtenerConfigPeriodo(spreadsheetId);
   const { disponible } = await calcularDisponible(spreadsheetId, config.fechaUltimoReinicio);
 
-  await archivarIngresosAdicionalesAbiertos(spreadsheetId);
-  await reaplicarGastosFijos(spreadsheetId, nuevaFecha);
+  await updateRecord(spreadsheetId, CONFIG_PERIODO_SHEET, 2, [config.frecuencia, nuevaFecha, String(config.diaInicioSemana)]);
+  await appendRecord(spreadsheetId, HISTORIAL_PERIODOS_SHEET, [nuevaFecha]);
 
   if (disponible > 0) {
     await crearIngreso(spreadsheetId, "Sobrante de periodo", disponible, "Traspasado automáticamente del periodo anterior", "UnicoMes");
@@ -133,8 +142,8 @@ export async function ejecutarReinicioPeriodo(
     }
   }
 
-  await updateRecord(spreadsheetId, CONFIG_PERIODO_SHEET, 2, [config.frecuencia, nuevaFecha, String(config.diaInicioSemana)]);
-  await appendRecord(spreadsheetId, HISTORIAL_PERIODOS_SHEET, [nuevaFecha]);
+  await archivarIngresosAdicionalesAbiertos(spreadsheetId);
+  await reaplicarGastosFijos(spreadsheetId, nuevaFecha);
 }
 
 /** Revisa si toca reiniciar en modo automático y lo ejecuta. Se llama una sola vez al cargar la app. */

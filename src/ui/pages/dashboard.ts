@@ -43,7 +43,7 @@ import {
   listMetas,
   listTodosLosMovimientos,
 } from "../../domain/metas";
-import { showConfirm, showTraspasoNegativoDialog } from "../components/dialogs";
+import { showAlert, showConfirm, showTraspasoNegativoDialog } from "../components/dialogs";
 import { loaderHtml } from "../components/loader";
 
 function hace(fecha: string): string {
@@ -267,7 +267,14 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
 
     if (configPeriodo.frecuencia === "Manual") {
       reiniciarPeriodoBtn.hidden = false;
+      const yaReinicioHoy = configPeriodo.fechaUltimoReinicio === todayISO();
+      if (yaReinicioHoy) {
+        reiniciarPeriodoBtn.disabled = true;
+        reiniciarPeriodoBtn.textContent = "Ya reiniciaste hoy";
+        reiniciarPeriodoBtn.title = "Solo se puede reiniciar el periodo una vez por día — vuelve a intentarlo mañana.";
+      }
       reiniciarPeriodoBtn.addEventListener("click", async () => {
+        if (yaReinicioHoy) return;
         const ok = await showConfirm(
           "Esto reaplica tus ingresos \"Fijo\" y archiva los \"Adicional\" del periodo que termina. ¿Reiniciar el periodo ahora?",
           { title: "Reiniciar periodo", confirmLabel: "Reiniciar" },
@@ -282,8 +289,16 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
         }
 
         reiniciarPeriodoBtn.disabled = true;
-        await ejecutarReinicioPeriodo(spreadsheetId, todayISO(), traspasoDeficit);
-        await renderDashboard(container, onNavigate);
+        try {
+          await ejecutarReinicioPeriodo(spreadsheetId, todayISO(), traspasoDeficit);
+          await renderDashboard(container, onNavigate);
+        } catch (err) {
+          reiniciarPeriodoBtn.disabled = false;
+          await showAlert(
+            err instanceof Error ? err.message : "No se pudo reiniciar el periodo.",
+            "Error al reiniciar el periodo",
+          );
+        }
       });
     }
 

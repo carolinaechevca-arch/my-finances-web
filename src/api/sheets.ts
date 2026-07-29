@@ -124,3 +124,11 @@ async function batchUpdateValues(
     body: JSON.stringify({ valueInputOption: "USER_ENTERED", data }),
   });
 }
+
+/** Borra el contenido de varios rangos en una sola petición (deja los encabezados intactos si el rango empieza en la fila 2). */
+export async function batchClearValues(spreadsheetId: string, ranges: string[]): Promise<void> {
+  await authedFetch(`${SHEETS_BASE}/${spreadsheetId}/values:batchClear`, {
+    method: "POST",
+    body: JSON.stringify({ ranges }),
+  });
+}
