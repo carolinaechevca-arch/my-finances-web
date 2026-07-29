@@ -49,7 +49,8 @@
 ## 7.1 Tarjeta "Zona peligrosa" — "Limpiar todo" *(implementado)*
 
 - Botón `.btn-danger` "Limpiar todo" con modal de confirmación (`showConfirm`, `danger: true`), que explica exactamente qué se borra y aclara que no se puede deshacer.
-- Borra el contenido de **todas** las hojas (`limpiarTodosLosDatos` en `src/api/spreadsheet-bootstrap.ts`, vía `values:batchClear` — un solo request para todos los rangos, no una petición por hoja) y vuelve a sembrar los valores por defecto (categorías, tipos de deuda, config de dashboard/periodo, historial inicial) — como si el spreadsheet se acabara de crear.
+- Borra el contenido de las hojas de **datos financieros** (`limpiarTodosLosDatos` en `src/api/spreadsheet-bootstrap.ts`, vía `values:batchClear` — un solo request para todos los rangos, no una petición por hoja) y vuelve a sembrar los valores por defecto (categorías, tipos de deuda, historial inicial) — como si el spreadsheet se acabara de crear.
+- **`ConfigDashboard` y `ConfigPeriodo` quedan excluidas a propósito** — son preferencias de la app (personalización del dashboard, frecuencia del periodo), no datos financieros; "Limpiar todo" no debe reiniciarlas (confirmado con el usuario tras un reporte de que se le borraba la frecuencia configurada). Para restablecer el dashboard existe el botón aparte "Restablecer a valores por defecto".
 - Tras limpiar, se vuelve a renderizar la página completa de Configuración.
 
 ## 8. Pendiente / dependencias externas

@@ -276,19 +276,25 @@ async function ensureSpreadsheetInternal(): Promise<{ spreadsheetId: string; cre
 }
 
 /**
- * Borra TODOS los datos de todas las hojas (deja los encabezados) y vuelve a
- * sembrar los valores por defecto (categorías, tipos de deuda, config de
- * dashboard/periodo, historial inicial) — como si el spreadsheet se acabara
- * de crear. Usado por "Limpiar todo" en Configuración; el llamador es
- * responsable de pedir confirmación antes de invocar esto, es irreversible.
+ * Borra TODOS los datos financieros de todas las hojas (deja los
+ * encabezados) y vuelve a sembrar los valores por defecto (categorías,
+ * tipos de deuda, historial inicial) — como si el spreadsheet se acabara de
+ * crear, salvo las preferencias de la app. Usado por "Limpiar todo" en
+ * Configuración; el llamador es responsable de pedir confirmación antes de
+ * invocar esto, es irreversible.
+ *
+ * `ConfigDashboard` y `ConfigPeriodo` quedan fuera a propósito: son
+ * preferencias de la app (personalización del dashboard, frecuencia del
+ * periodo), no datos financieros — "Limpiar todo" no debe tocarlas. Para
+ * restablecer el dashboard a sus valores por defecto ya existe el botón
+ * "Restablecer a valores por defecto" en su propia tarjeta.
  */
 export async function limpiarTodosLosDatos(spreadsheetId: string): Promise<void> {
-  const rangos = SHEET_DEFINITIONS.map((s) => `${s.name}!A2:Z`);
+  const excluidas = new Set([CONFIG_DASHBOARD_SHEET, CONFIG_PERIODO_SHEET]);
+  const rangos = SHEET_DEFINITIONS.filter((s) => !excluidas.has(s.name)).map((s) => `${s.name}!A2:Z`);
   await batchClearValues(spreadsheetId, rangos);
   await ensureDefaultTipos(spreadsheetId);
   await ensureDefaultTiposDeuda(spreadsheetId);
-  await ensureDefaultConfigDashboard(spreadsheetId);
-  await ensureDefaultConfigPeriodo(spreadsheetId);
   await ensureDefaultHistorialPeriodos(spreadsheetId);
 }
 
