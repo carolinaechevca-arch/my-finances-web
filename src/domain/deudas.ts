@@ -1,5 +1,6 @@
 import { ABONOS_DEUDAS_SHEET, CONTRAPARTES_SHEET, DEUDAS_SHEET, TIPOS_DEUDA_SHEET } from "../api/spreadsheet-bootstrap";
 import { appendRecord, deleteRecord, listRecords, updateRecord, type SheetRow } from "../api/records";
+import { todayISO } from "./format";
 
 export type Direccion = "YoDebo" | "MeDeben";
 export type EstadoDeuda = "Activa" | "Pagada";
@@ -316,6 +317,19 @@ export function sumSaldoPendiente(deudas: Deuda[], eventosPorDeuda: Map<string, 
   return deudas
     .filter((d) => d.estado === "Activa")
     .reduce((s, d) => s + calcularEstadoDeuda(d, eventosPorDeuda.get(d.id) ?? []).saldoPendiente, 0);
+}
+
+/**
+ * Suma de abonos reales (no cuotas programadas) registrados dentro de
+ * [periodoInicio, hoy] para el conjunto de deudas dado. En "Deudas" (YoDebo)
+ * es lo que se ha pagado en el periodo; en "Me Deben" es lo que han pagado.
+ */
+export function sumAbonadoEnPeriodo(deudas: Deuda[], eventos: EventoAbono[], periodoInicio: string): number {
+  const ids = new Set(deudas.map((d) => d.id));
+  const hoy = todayISO();
+  return eventos
+    .filter((e) => e.tipo === "Abono" && ids.has(e.idDeuda) && e.fecha >= periodoInicio && e.fecha <= hoy)
+    .reduce((s, e) => s + e.monto, 0);
 }
 
 /** Suma la cuota mensual de las deudas activas que todavía tienen saldo pendiente — para descontar de "disponible este mes". */

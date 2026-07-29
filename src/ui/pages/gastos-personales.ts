@@ -70,9 +70,9 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
         <div class="field"><label for="gc-nombre">Nombre</label><input id="gc-nombre" type="text" placeholder="Ej. Mercado Éxito" required /></div>
         <div class="field"><label for="gc-monto">Monto</label><input id="gc-monto" type="number" min="0" step="0.01" required /></div>
         <div class="field">
-          <div class="segmented" id="gc-pendiente-toggle">
-            <button type="button" class="segmented__btn" data-value="Pendiente">Pendiente</button>
-            <button type="button" class="segmented__btn" data-value="Pagado">Ya lo pagué</button>
+          <div class="segmented-field" id="gc-pendiente-toggle">
+            <button type="button" class="segmented-field__btn" data-value="Pendiente">Pendiente</button>
+            <button type="button" class="segmented-field__btn" data-value="Pagado">Ya lo pagué</button>
           </div>
         </div>
         <div class="field">
@@ -211,7 +211,7 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
   const nombreInput = container.querySelector<HTMLInputElement>("#gc-nombre")!;
   const montoInput = container.querySelector<HTMLInputElement>("#gc-monto")!;
   const pendienteToggle = container.querySelector<HTMLDivElement>("#gc-pendiente-toggle")!;
-  const pendienteToggleBtns = pendienteToggle.querySelectorAll<HTMLButtonElement>(".segmented__btn");
+  const pendienteToggleBtns = pendienteToggle.querySelectorAll<HTMLButtonElement>(".segmented-field__btn");
   const archivarToggle = container.querySelector<HTMLButtonElement>("#gc-archivar-toggle")!;
   const archivarBox = container.querySelector<HTMLSpanElement>("#gc-archivar-box")!;
 

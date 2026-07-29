@@ -9,5 +9,6 @@ export function renderMeDeben(container: HTMLElement): Promise<void> {
     labelContraparte: "¿Quién te debe?",
     placeholderContraparte: "Ej. María López",
     totalLabel: "Total que me deben",
+    periodoLabel: "Cobrado este periodo",
   });
 }

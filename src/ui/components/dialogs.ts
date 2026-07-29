@@ -279,23 +279,30 @@ export function showTraspasoNegativoDialog(montoDeficit: number): Promise<"adici
   });
 }
 
-/** Modal para registrar un abono (o un monto agregado): fecha, monto y nota opcional. */
+/**
+ * Modal para registrar un abono (o un monto agregado): fecha, monto y nota
+ * opcional. Si se pasa `maxMonto` (ej. el saldo pendiente de una deuda), no
+ * deja registrar un abono mayor a eso — aplica igual a "Deuda simple" y a la
+ * última cuota de "Con cuotas", ya que ambas usan el mismo saldo pendiente.
+ */
 export function showAbonoDialog(
   titulo: string,
   montoSugerido?: number,
+  maxMonto?: number,
 ): Promise<{ fecha: string; monto: number; nota: string } | null> {
   return new Promise((resolve) => {
     const dialog = createDialog();
     dialog.innerHTML = `
       <div class="modal__form">
         <h2 class="modal__title">${titulo}</h2>
+        ${maxMonto ? `<p class="modal__message">Saldo pendiente: ${formatMoney(maxMonto)}.</p>` : ""}
         <div class="field">
           <label for="abono-fecha">Fecha</label>
           <input id="abono-fecha" type="date" value="${todayISO()}" />
         </div>
         <div class="field">
           <label for="abono-monto">Monto</label>
-          <input id="abono-monto" type="number" min="0" step="0.01" ${montoSugerido ? `value="${montoSugerido}"` : ""} />
+          <input id="abono-monto" type="number" min="0" ${maxMonto ? `max="${maxMonto}"` : ""} step="0.01" ${montoSugerido ? `value="${montoSugerido}"` : ""} />
         </div>
         <div class="field">
           <label for="abono-nota">Nota (opcional)</label>
@@ -326,6 +333,11 @@ export function showAbonoDialog(
       if (!monto || monto <= 0 || !fechaInput.value) {
         error.hidden = false;
         error.textContent = "Ingresa una fecha y un monto válido.";
+        return;
+      }
+      if (maxMonto && monto > maxMonto) {
+        error.hidden = false;
+        error.textContent = `No puedes abonar más de ${formatMoney(maxMonto)} (el saldo pendiente).`;
         return;
       }
       cleanup({ fecha: fechaInput.value, monto, nota: notaInput.value.trim() });

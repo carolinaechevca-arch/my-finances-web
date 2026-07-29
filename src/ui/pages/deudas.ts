@@ -9,5 +9,6 @@ export function renderDeudas(container: HTMLElement): Promise<void> {
     labelContraparte: "¿A quién le debes?",
     placeholderContraparte: "Ej. Banco XYZ, Juan Pérez",
     totalLabel: "Total que debo",
+    periodoLabel: "Abonado este periodo",
   });
 }

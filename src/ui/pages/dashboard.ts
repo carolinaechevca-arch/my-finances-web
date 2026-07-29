@@ -3,6 +3,8 @@ import calendarMonthIcon from "../../icon/calendar-month.svg?raw";
 import cashIcon from "../../icon/cash.svg?raw";
 import cashMinusIcon from "../../icon/cash-minus.svg?raw";
 import chartPieIcon from "../../icon/chart-pie.svg?raw";
+import eyeIcon from "../../icon/eye.svg?raw";
+import eyeOffIcon from "../../icon/eye-off.svg?raw";
 import financeIcon from "../../icon/finance.svg?raw";
 import fileSpreadsheetIcon from "../../icon/file-spreadsheet.svg?raw";
 import homeDollarIcon from "../../icon/home-dollar.svg?raw";
@@ -75,10 +77,14 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
     </div>
 
     <div class="dashboard-grid" id="dashboard-grid">
-      <div class="card stat-card card--span2" id="balance-card" data-card-id="balance">
-        ${cardTitle(financeIcon, "Balance")}
+      <div class="card stat-card card--span2" id="balance-card" data-card-id="balance" style="cursor:pointer">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+          ${cardTitle(financeIcon, "Balance")}
+          <button type="button" class="icon-btn" id="balance-eye-btn" aria-label="Mostrar u ocultar" title="Mostrar u ocultar" style="color:white">${eyeIcon}</button>
+        </div>
         <div class="stat-card__value" id="stat-balance">—</div>
         <div class="stat-card__label">Disponible este mes</div>
+        <div class="empty-state" style="margin-top:4px;font-size:12px">Ver desglose →</div>
       </div>
 
       <div class="card" id="alertas-card" data-card-id="alertas">
@@ -89,7 +95,10 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
       <div class="card" id="gastos-fijos-card" data-card-id="resumenGastosFijos">
         <div class="table-toolbar">
           ${cardTitle(cashMinusIcon, "Gastos Fijos")}
-          <button type="button" class="btn-secondary" id="gastos-fijos-btn">Ver módulo</button>
+          <div style="display:flex;align-items:center;gap:8px">
+            <button type="button" class="icon-btn" id="gastos-fijos-eye-btn" aria-label="Mostrar u ocultar" title="Mostrar u ocultar">${eyeIcon}</button>
+            <button type="button" class="btn-secondary" id="gastos-fijos-btn">Ver módulo</button>
+          </div>
         </div>
         <div id="gastos-fijos-resumen"></div>
       </div>
@@ -147,12 +156,28 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
         <p class="empty-state" id="sheet-status">Conectando con Google Sheets…</p>
       </div>
     </div>
+
+    <dialog id="balance-modal" class="modal">
+      <div class="modal__form">
+        <h2 class="modal__title">Desglose del disponible — este periodo</h2>
+        <div id="balance-detalle-list"></div>
+        <div class="modal__actions">
+          <button type="button" class="btn-secondary" id="balance-modal-close">Cerrar</button>
+        </div>
+      </div>
+    </dialog>
   `;
 
   const grid = container.querySelector<HTMLDivElement>("#dashboard-grid")!;
   const status = container.querySelector<HTMLParagraphElement>("#sheet-status")!;
   const sheetCard = container.querySelector<HTMLDivElement>("#sheet-link-card")!;
   const statBalance = container.querySelector<HTMLDivElement>("#stat-balance")!;
+  const balanceCard = container.querySelector<HTMLDivElement>("#balance-card")!;
+  const balanceEyeBtn = container.querySelector<HTMLButtonElement>("#balance-eye-btn")!;
+  const balanceModal = container.querySelector<HTMLDialogElement>("#balance-modal")!;
+  const balanceDetalleList = container.querySelector<HTMLDivElement>("#balance-detalle-list")!;
+  const balanceModalClose = container.querySelector<HTMLButtonElement>("#balance-modal-close")!;
+  balanceModalClose.addEventListener("click", () => balanceModal.close());
   const ctaCard = container.querySelector<HTMLDivElement>("#ingresos-cta-card")!;
   const ctaBtn = container.querySelector<HTMLButtonElement>("#ingresos-cta-btn")!;
   ctaBtn.addEventListener("click", () => onNavigate("ingresos"));
@@ -160,7 +185,11 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
   const alertasList = container.querySelector<HTMLDivElement>("#alertas-list")!;
 
   const gastosFijosResumen = container.querySelector<HTMLDivElement>("#gastos-fijos-resumen")!;
+  const gastosFijosEyeBtn = container.querySelector<HTMLButtonElement>("#gastos-fijos-eye-btn")!;
   container.querySelector<HTMLButtonElement>("#gastos-fijos-btn")!.addEventListener("click", () => onNavigate("gastos-fijos"));
+
+  let showBalance = true;
+  let showGastosFijos = true;
 
   const deudasResumen = container.querySelector<HTMLDivElement>("#deudas-resumen")!;
   container.querySelector<HTMLButtonElement>("#deudas-btn")!.addEventListener("click", () => onNavigate("deudas"));
@@ -264,6 +293,40 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
     const disponible = disponibleDetalle.disponible;
     statBalance.textContent = formatMoney(disponible);
 
+    const detalleItems: { label: string; monto: number; signo: "+" | "-" }[] = [
+      { label: "Ingresos", monto: disponibleDetalle.ingresos, signo: "+" },
+      { label: "Gastos fijos pagados", monto: disponibleDetalle.gastosFijosPagados, signo: "-" },
+      { label: "Gastos y compras", monto: disponibleDetalle.gastosVariables, signo: "-" },
+      { label: "Abonado a deudas", monto: disponibleDetalle.abonosDeudas, signo: "-" },
+      { label: "Cobrado (Me deben)", monto: disponibleDetalle.cobrosMeDeben, signo: "+" },
+      { label: "Aportes a ahorros", monto: disponibleDetalle.aportesAhorros, signo: "-" },
+      { label: "Retiros de ahorros", monto: disponibleDetalle.retirosAhorros, signo: "+" },
+    ];
+    balanceDetalleList.innerHTML =
+      detalleItems
+        .map(
+          ({ label, monto, signo }) => `
+            <div class="record-row">
+              <div class="record-row__main"><span class="record-row__title">${label}</span></div>
+              <div class="record-row__amount" style="color:${signo === "+" ? "var(--color-success)" : "var(--color-danger)"}">${signo}${formatMoney(monto)}</div>
+            </div>
+          `,
+        )
+        .join("") +
+      `
+        <div class="record-row" style="border-top:2px solid var(--color-border);margin-top:6px;padding-top:14px">
+          <div class="record-row__main"><span class="record-row__title" style="font-weight:800">Disponible</span></div>
+          <div class="record-row__amount" style="font-weight:800">${formatMoney(disponible)}</div>
+        </div>
+      `;
+    balanceCard.addEventListener("click", () => balanceModal.showModal());
+    balanceEyeBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      showBalance = !showBalance;
+      balanceEyeBtn.innerHTML = showBalance ? eyeIcon : eyeOffIcon;
+      statBalance.textContent = showBalance ? formatMoney(disponible) : "••••••";
+    });
+
     // --- B. Alertas activas ---
     const hoy = new Date();
     const hoyDia = hoy.getDate();
@@ -355,9 +418,9 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
         ? `<p class="empty-state">Aún no registras gastos fijos este mes.</p>`
         : `
         <div class="deuda-card__stats" style="margin-bottom:12px">
-          <div class="deuda-card__stat"><span class="deuda-card__stat-label">Total</span><span class="deuda-card__stat-value">${formatMoney(sumGastosFijosTotal(gastosFijos))}</span></div>
-          <div class="deuda-card__stat"><span class="deuda-card__stat-label">Pagado</span><span class="deuda-card__stat-value">${formatMoney(gastosFijosPagado)}</span></div>
-          <div class="deuda-card__stat"><span class="deuda-card__stat-label">Falta</span><span class="deuda-card__stat-value">${formatMoney(gastosFijosPendiente)}</span></div>
+          <div class="deuda-card__stat"><span class="deuda-card__stat-label">Total</span><span class="deuda-card__stat-value" id="gf-dash-total">${formatMoney(sumGastosFijosTotal(gastosFijos))}</span></div>
+          <div class="deuda-card__stat"><span class="deuda-card__stat-label">Pagado</span><span class="deuda-card__stat-value" id="gf-dash-pagado">${formatMoney(gastosFijosPagado)}</span></div>
+          <div class="deuda-card__stat"><span class="deuda-card__stat-label">Falta</span><span class="deuda-card__stat-value" id="gf-dash-falta">${formatMoney(gastosFijosPendiente)}</span></div>
         </div>
         <div class="progress-bar"><div class="progress-bar__fill" style="width:${progresoFijos}%"></div></div>
         <p class="empty-state" style="margin:0 0 12px">${pagadosCount} de ${gastosFijos.length} pagados</p>
@@ -365,6 +428,22 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
           .map((g) => `<div class="record-row"><div class="record-row__main"><span class="record-row__title">${g.nombre}</span><span class="record-row__subtitle">Vence el día ${g.diaPago}</span></div><div class="record-row__amount">${formatMoney(g.monto)}</div></div>`)
           .join("")}
       `;
+    gastosFijosEyeBtn.hidden = gastosFijos.length === 0;
+    if (gastosFijos.length > 0) {
+      const gfTotalEl = gastosFijosResumen.querySelector<HTMLSpanElement>("#gf-dash-total")!;
+      const gfPagadoEl = gastosFijosResumen.querySelector<HTMLSpanElement>("#gf-dash-pagado")!;
+      const gfFaltaEl = gastosFijosResumen.querySelector<HTMLSpanElement>("#gf-dash-falta")!;
+      const gfTotalReal = formatMoney(sumGastosFijosTotal(gastosFijos));
+      const gfPagadoReal = formatMoney(gastosFijosPagado);
+      const gfFaltaReal = formatMoney(gastosFijosPendiente);
+      gastosFijosEyeBtn.onclick = () => {
+        showGastosFijos = !showGastosFijos;
+        gastosFijosEyeBtn.innerHTML = showGastosFijos ? eyeIcon : eyeOffIcon;
+        gfTotalEl.textContent = showGastosFijos ? gfTotalReal : "••••••";
+        gfPagadoEl.textContent = showGastosFijos ? gfPagadoReal : "••••••";
+        gfFaltaEl.textContent = showGastosFijos ? gfFaltaReal : "••••••";
+      };
+    }
 
     // --- D. Resumen de Deudas ---
     const deudasActivas = deudasYoDebo.filter((d) => d.estado === "Activa");

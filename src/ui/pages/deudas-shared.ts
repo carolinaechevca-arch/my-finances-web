@@ -24,6 +24,7 @@ import {
   marcarDeudaPagada,
   reabrirDeuda,
   registrarAbono,
+  sumAbonadoEnPeriodo,
   sumSaldoPendiente,
   type Deuda,
   type Direccion,
@@ -32,6 +33,7 @@ import {
   type NuevaDeuda,
 } from "../../domain/deudas";
 import { formatMoney, todayISO } from "../../domain/format";
+import { obtenerConfigPeriodo } from "../../domain/periodo";
 import { showAbonoDialog, showAlert, showConfirm, showMergeChoice } from "../components/dialogs";
 import { loaderHtml } from "../components/loader";
 import { createOptionCombo, type OptionCombo } from "../components/tipo-combo";
@@ -43,6 +45,8 @@ export interface ModuloDeudaConfig {
   labelContraparte: string;
   placeholderContraparte: string;
   totalLabel: string;
+  /** Ej. "Abonado este periodo" (Deudas) o "Cobrado este periodo" (Me Deben). */
+  periodoLabel: string;
 }
 
 export async function renderDeudasModulo(container: HTMLElement, config: ModuloDeudaConfig): Promise<void> {
@@ -50,9 +54,15 @@ export async function renderDeudasModulo(container: HTMLElement, config: ModuloD
     <div class="page-title-row">
       <h1 class="page-title">${config.icon} ${config.titulo}</h1>
     </div>
-    <div class="card stat-card stat-card--primary" style="max-width:280px;margin-bottom:20px">
-      <div class="stat-card__value" id="dd-total">—</div>
-      <div class="stat-card__label">${config.totalLabel}</div>
+    <div class="card-grid" style="max-width:560px;margin-bottom:20px">
+      <div class="card" style="background:var(--color-primary);color:white;display:flex;flex-direction:column;gap:8px">
+        <span style="font-size:14px;font-weight:600;opacity:0.85">${config.totalLabel}</span>
+        <div style="font-size:32px;font-weight:800" id="dd-total">—</div>
+      </div>
+      <div class="card" style="display:flex;flex-direction:column;gap:8px">
+        <span class="empty-state" style="font-weight:600">${config.periodoLabel}</span>
+        <div style="font-size:28px;font-weight:800;color:var(--color-success)" id="dd-periodo-total">—</div>
+      </div>
     </div>
 
     <div class="card" style="margin-bottom:20px">
@@ -162,6 +172,7 @@ export async function renderDeudasModulo(container: HTMLElement, config: ModuloD
   `;
 
   const totalEl = container.querySelector<HTMLDivElement>("#dd-total")!;
+  const periodoTotalEl = container.querySelector<HTMLDivElement>("#dd-periodo-total")!;
   const activasListEl = container.querySelector<HTMLDivElement>("#dd-activas-list")!;
   const pagadasListEl = container.querySelector<HTMLDivElement>("#dd-pagadas-list")!;
   const pagadasCard = container.querySelector<HTMLDetailsElement>("#dd-pagadas-card")!;
@@ -225,6 +236,8 @@ export async function renderDeudasModulo(container: HTMLElement, config: ModuloD
   let spreadsheetId = "";
   let deudas: Deuda[] = [];
   let eventosPorDeuda = new Map<string, EventoAbono[]>();
+  let eventos: EventoAbono[] = [];
+  let periodoInicio = "";
   let tiposDeuda: string[] = [];
   let contrapartesGuardadas: string[] = [];
   let busy = false;
@@ -532,7 +545,8 @@ export async function renderDeudasModulo(container: HTMLElement, config: ModuloD
 
     const abonarBtn = card.querySelector<HTMLButtonElement>('[data-action="abonar"]');
     abonarBtn?.addEventListener("click", async () => {
-      const resultado = await showAbonoDialog(`Registrar abono — ${deuda.contraparte}`, deuda.montoCuota || undefined);
+      const sugerido = deuda.montoCuota > 0 ? Math.min(deuda.montoCuota, estado.saldoPendiente) : undefined;
+      const resultado = await showAbonoDialog(`Registrar abono — ${deuda.contraparte}`, sugerido, estado.saldoPendiente);
       if (!resultado) return;
       void runAction(() => registrarAbono(spreadsheetId, deuda, resultado.fecha, resultado.monto, resultado.nota));
     });
@@ -559,6 +573,7 @@ export async function renderDeudasModulo(container: HTMLElement, config: ModuloD
     const pagadas = deudas.filter((d) => d.estado === "Pagada");
 
     totalEl.textContent = formatMoney(sumSaldoPendiente(deudas, eventosPorDeuda));
+    periodoTotalEl.textContent = formatMoney(sumAbonadoEnPeriodo(deudas, eventos, periodoInicio));
 
     activasListEl.innerHTML = "";
     if (activas.length === 0) {
@@ -594,12 +609,13 @@ export async function renderDeudasModulo(container: HTMLElement, config: ModuloD
   }
 
   async function reload(): Promise<void> {
-    const [deudasList, eventos] = await Promise.all([
+    const [deudasList, eventosList] = await Promise.all([
       listDeudas(spreadsheetId, config.direccion),
       listTodosLosEventos(spreadsheetId),
     ]);
     deudas = deudasList;
-    eventosPorDeuda = agruparEventosPorDeuda(eventos);
+    eventos = eventosList;
+    eventosPorDeuda = agruparEventosPorDeuda(eventosList);
     refreshCombos();
     renderList();
   }
@@ -763,13 +779,15 @@ export async function renderDeudasModulo(container: HTMLElement, config: ModuloD
   try {
     const ensured = await ensureSpreadsheet();
     spreadsheetId = ensured.spreadsheetId;
-    const [tipos, contrapartes] = await Promise.all([
+    const [tipos, contrapartes, configPeriodo] = await Promise.all([
       listTiposDeuda(spreadsheetId, config.direccion),
       listContrapartesGuardadas(spreadsheetId, config.direccion),
+      obtenerConfigPeriodo(spreadsheetId),
     ]);
     tiposDeuda = tipos;
     contrapartesGuardadas = contrapartes;
     formTipoValue = tipos[0] ?? "";
+    periodoInicio = configPeriodo.fechaUltimoReinicio;
     await reload();
   } catch (err) {
     activasListEl.innerHTML = `<p class="empty-state">${err instanceof Error ? err.message : "No se pudo cargar la información."}</p>`;
