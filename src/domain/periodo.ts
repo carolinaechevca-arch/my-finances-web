@@ -234,8 +234,3 @@ export function formatPeriodoLabel(periodo: PeriodoHistorico): string {
   const mismoAnio = inicio.getFullYear() === fin.getFullYear();
   return mismoAnio ? `${formatDiaMes(inicio)} - ${formatDiaMesAnio(fin)}` : `${formatDiaMesAnio(inicio)} - ${formatDiaMesAnio(fin)}`;
 }
-
-/** Versión corta de la etiqueta (solo día + mes de inicio), para el eje X de los gráficos donde no cabe el rango completo. */
-export function formatPeriodoLabelCorto(periodo: PeriodoHistorico): string {
-  return formatDiaMes(parseDateInput(periodo.inicio));
-}

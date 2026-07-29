@@ -1,73 +1,39 @@
+import chevronDownIcon from "../../icon/chevron-down.svg?raw";
 import fileTimeIcon from "../../icon/file-time.svg?raw";
 import { ensureSpreadsheet } from "../../api/spreadsheet-bootstrap";
 import { formatMoney } from "../../domain/format";
 import {
   cargarSnapshotHistorico,
   descargarResumenAnualCSV,
+  detallePeriodo,
   listAniosDisponibles,
-  listCategoriasHistoricas,
   listPeriodosDisponibles,
-  patrimonioNetoSeriePeriodos,
   resumenAnual,
   resumenPeriodo,
-  seriePeriodoCategoria,
-  seriePeriodos,
-  ultimosPeriodos,
+  type DetalleItem,
   type HistoricoSnapshot,
 } from "../../domain/historico";
-import { formatPeriodoLabel, formatPeriodoLabelCorto, listHistorialPeriodos, type PeriodoHistorico } from "../../domain/periodo";
-import { renderBarChart, renderLineChart } from "../components/charts";
+import { formatPeriodoLabel, listHistorialPeriodos, type PeriodoHistorico } from "../../domain/periodo";
 
-type Rango = 3 | 6 | 12 | "todo";
+type CardKey = "ingresos" | "gastosFijos" | "gastosCompras" | "balance" | "ahorros" | "deudas" | "meDeben";
 
 export async function renderHistorico(container: HTMLElement): Promise<void> {
   container.innerHTML = `
     <div class="page-title-row">
       <h1 class="page-title">${fileTimeIcon} Histórico</h1>
     </div>
+
     <div class="card" id="periodo-nav-card" style="margin-bottom:20px">
       <div class="mes-nav">
         <button type="button" class="btn-secondary" id="periodo-prev" aria-label="Periodo anterior">←</button>
-        <select id="periodo-select"></select>
+        <span id="periodo-label" style="font-weight:700"></span>
         <button type="button" class="btn-secondary" id="periodo-next" aria-label="Periodo siguiente">→</button>
       </div>
     </div>
 
-    <div id="resumen-periodo-grid" class="card-grid" style="margin-bottom:8px"></div>
+    <div id="resumen-periodo-grid" class="card-grid" style="margin-bottom:20px"></div>
+    <div id="detalle-panel" style="margin-bottom:20px"></div>
     <p class="empty-state" id="resumen-periodo-nota" style="margin-top:0;margin-bottom:20px"></p>
-
-    <div class="card" style="margin-bottom:20px">
-      <div class="table-toolbar">
-        <h2 style="margin:0">Ingresos vs. Gastos vs. Ahorro</h2>
-        <div class="field field--inline">
-          <label for="rango-select">Rango</label>
-          <select id="rango-select">
-            <option value="3">Últimos 3 periodos</option>
-            <option value="6" selected>Últimos 6 periodos</option>
-            <option value="12">Últimos 12 periodos</option>
-            <option value="todo">Todo el historial</option>
-          </select>
-        </div>
-      </div>
-      <div id="comparativa-chart"></div>
-    </div>
-
-    <div class="card" style="margin-bottom:20px">
-      <h2 style="margin-top:0">Evolución del patrimonio neto</h2>
-      <p class="empty-state" style="margin-top:-8px;margin-bottom:14px">Total ahorrado en metas menos deudas pendientes, periodo a periodo.</p>
-      <div id="patrimonio-chart"></div>
-    </div>
-
-    <div class="card" style="margin-bottom:20px">
-      <div class="table-toolbar">
-        <h2 style="margin:0">Histórico por categoría</h2>
-        <div class="field field--inline">
-          <label for="categoria-select">Categoría</label>
-          <select id="categoria-select"></select>
-        </div>
-      </div>
-      <div id="categoria-chart"></div>
-    </div>
 
     <div class="card">
       <div class="table-toolbar">
@@ -88,16 +54,10 @@ export async function renderHistorico(container: HTMLElement): Promise<void> {
 
   const periodoPrevBtn = container.querySelector<HTMLButtonElement>("#periodo-prev")!;
   const periodoNextBtn = container.querySelector<HTMLButtonElement>("#periodo-next")!;
-  const periodoSelect = container.querySelector<HTMLSelectElement>("#periodo-select")!;
+  const periodoLabelEl = container.querySelector<HTMLSpanElement>("#periodo-label")!;
   const resumenPeriodoGrid = container.querySelector<HTMLDivElement>("#resumen-periodo-grid")!;
+  const detallePanel = container.querySelector<HTMLDivElement>("#detalle-panel")!;
   const resumenPeriodoNota = container.querySelector<HTMLParagraphElement>("#resumen-periodo-nota")!;
-
-  const rangoSelect = container.querySelector<HTMLSelectElement>("#rango-select")!;
-  const comparativaChart = container.querySelector<HTMLDivElement>("#comparativa-chart")!;
-  const patrimonioChart = container.querySelector<HTMLDivElement>("#patrimonio-chart")!;
-
-  const categoriaSelect = container.querySelector<HTMLSelectElement>("#categoria-select")!;
-  const categoriaChart = container.querySelector<HTMLDivElement>("#categoria-chart")!;
 
   const anioSelect = container.querySelector<HTMLSelectElement>("#anio-select")!;
   const resumenAnualGrid = container.querySelector<HTMLDivElement>("#resumen-anual-grid")!;
@@ -108,77 +68,81 @@ export async function renderHistorico(container: HTMLElement): Promise<void> {
   let snapshot: HistoricoSnapshot | null = null;
   let periodosDisponibles: PeriodoHistorico[] = [];
   let periodoSeleccionado: PeriodoHistorico | null = null;
-  let rango: Rango = 6;
-  let categoriaSeleccionada = "";
   let anioSeleccionado = "";
+  let cardAbierta: CardKey | null = null;
 
   function renderResumenPeriodo(): void {
     if (!snapshot || !periodoSeleccionado) return;
     const r = resumenPeriodo(snapshot, periodoSeleccionado);
-    const tarjetas: { label: string; value: string; primary?: boolean }[] = [
-      { label: "Ingresos", value: formatMoney(r.ingresos) },
-      { label: "Gastos fijos", value: formatMoney(r.gastosFijosTotal) },
-      { label: "Gastos y compras", value: formatMoney(r.gastosVariables) },
-      { label: "Balance del periodo", value: formatMoney(r.balance), primary: true },
-      { label: "Aportado a ahorros", value: formatMoney(r.aportadoAhorros) },
-      { label: "Abonado a deudas", value: formatMoney(r.abonadoDeudas) },
-      { label: "Recibido de Me Deben", value: formatMoney(r.recibidoMeDeben) },
+    const detalle = detallePeriodo(snapshot, periodoSeleccionado);
+
+    const tarjetas: { key: CardKey; label: string; value: number; primary?: boolean; items: DetalleItem[] }[] = [
+      { key: "ingresos", label: "Ingresos", value: r.ingresos, items: detalle.ingresos },
+      { key: "gastosFijos", label: "Gastos fijos", value: r.gastosFijosTotal, items: detalle.gastosFijos },
+      { key: "gastosCompras", label: "Gastos y compras", value: r.gastosVariables, items: detalle.gastosCompras },
+      { key: "balance", label: "Balance del periodo", value: r.balance, primary: true, items: [] },
+      { key: "ahorros", label: "Aportado a ahorros", value: r.aportadoAhorros, items: detalle.ahorros },
+      { key: "deudas", label: "Abonado a deudas", value: r.abonadoDeudas, items: detalle.deudas },
+      { key: "meDeben", label: "Recibido de Me Deben", value: r.recibidoMeDeben, items: detalle.meDeben },
     ];
+
     resumenPeriodoGrid.innerHTML = tarjetas
       .map(
         (t) => `
-          <div class="card stat-card${t.primary ? " stat-card--primary" : ""}">
-            <div class="stat-card__value">${t.value}</div>
+          <button type="button" class="card stat-card${t.primary ? " stat-card--primary" : ""}" data-card="${t.key}" style="cursor:${t.primary ? "default" : "pointer"};border:none;width:100%">
+            <div class="stat-card__value">${formatMoney(t.value)}</div>
             <div class="stat-card__label">${t.label}</div>
-          </div>
+            ${
+              t.primary
+                ? ""
+                : `<span class="accordion-toggle${cardAbierta === t.key ? " is-open" : ""}" style="justify-content:center;margin-top:6px">${chevronDownIcon}</span>`
+            }
+          </button>
         `,
       )
       .join("");
 
+    resumenPeriodoGrid.querySelectorAll<HTMLButtonElement>("[data-card]").forEach((btn) => {
+      const key = btn.dataset.card as CardKey;
+      if (key === "balance") return;
+      btn.addEventListener("click", () => {
+        cardAbierta = cardAbierta === key ? null : key;
+        renderResumenPeriodo();
+      });
+    });
+
+    const abierta = tarjetas.find((t) => t.key === cardAbierta);
+    if (!abierta) {
+      detallePanel.innerHTML = "";
+    } else {
+      detallePanel.innerHTML = `
+        <div class="card">
+          <h2 style="margin-top:0">Detalle de ${abierta.label}</h2>
+          ${
+            abierta.items.length === 0
+              ? `<p class="empty-state">Sin movimientos en este periodo.</p>`
+              : abierta.items
+                  .map(
+                    (it) => `
+                      <div class="record-row">
+                        <div class="record-row__main">
+                          <span class="record-row__title">${it.nombre}</span>
+                          ${it.nota ? `<span class="record-row__subtitle">${it.nota}</span>` : ""}
+                        </div>
+                        <div class="record-row__amount">${formatMoney(it.monto)}</div>
+                      </div>
+                    `,
+                  )
+                  .join("")
+          }
+        </div>
+      `;
+    }
+
     resumenPeriodoNota.textContent =
       r.gastosFijosTotal > 0
-        ? `Gastos fijos: ${formatMoney(r.gastosFijosPagado)} pagados · ${formatMoney(r.gastosFijosPendiente)} pendientes en ese momento.`
+        ? `Gastos fijos: ${formatMoney(r.gastosFijosPagado)} pagados · ${formatMoney(r.gastosFijosPendiente)} pendientes en este periodo.`
         : "";
-  }
-
-  function renderComparativa(): void {
-    if (!snapshot || !periodoSeleccionado) return;
-    const periodos = ultimosPeriodos(periodosDisponibles, periodoSeleccionado, rango);
-    const serie = seriePeriodos(snapshot, periodos);
-    renderBarChart(
-      comparativaChart,
-      periodos.map((p) => formatPeriodoLabelCorto(p)),
-      [
-        { nombre: "Ingresos", color: "var(--color-success, #2f9e58)", valores: serie.map((p) => p.ingresos) },
-        { nombre: "Gastos", color: "var(--color-danger)", valores: serie.map((p) => p.gastos) },
-        { nombre: "Ahorro", color: "var(--color-primary)", valores: serie.map((p) => p.ahorro) },
-      ],
-    );
-  }
-
-  function renderPatrimonio(): void {
-    if (!snapshot) return;
-    const serie = patrimonioNetoSeriePeriodos(snapshot, periodosDisponibles);
-    renderLineChart(
-      patrimonioChart,
-      periodosDisponibles.map((p) => formatPeriodoLabelCorto(p)),
-      serie.map((p) => p.patrimonio),
-      "var(--color-primary)",
-    );
-  }
-
-  function renderCategoria(): void {
-    if (!snapshot || !categoriaSeleccionada || !periodoSeleccionado) {
-      categoriaChart.innerHTML = `<p class="empty-state">Aún no tienes gastos categorizados.</p>`;
-      return;
-    }
-    const periodos = ultimosPeriodos(periodosDisponibles, periodoSeleccionado, rango);
-    const serie = seriePeriodoCategoria(snapshot, categoriaSeleccionada, periodos);
-    renderBarChart(
-      categoriaChart,
-      periodos.map((p) => formatPeriodoLabelCorto(p)),
-      [{ nombre: categoriaSeleccionada, color: "var(--color-primary)", valores: serie.map((p) => p.monto) }],
-    );
   }
 
   function renderResumenAnual(): void {
@@ -222,34 +186,25 @@ export async function renderHistorico(container: HTMLElement): Promise<void> {
 
   function renderAll(): void {
     renderResumenPeriodo();
-    renderComparativa();
-    renderPatrimonio();
-    renderCategoria();
     renderResumenAnual();
   }
 
-  function poblarPeriodoSelect(): void {
-    periodoSelect.innerHTML = periodosDisponibles
-      .map((p) => `<option value="${p.inicio}">${formatPeriodoLabel(p)}</option>`)
-      .join("");
-    if (periodoSeleccionado) periodoSelect.value = periodoSeleccionado.inicio;
-    const idx = periodoSeleccionado ? periodosDisponibles.findIndex((p) => p.inicio === periodoSeleccionado!.inicio) : -1;
+  function actualizarNav(): void {
+    if (!periodoSeleccionado) return;
+    periodoLabelEl.textContent = formatPeriodoLabel(periodoSeleccionado);
+    const idx = periodosDisponibles.findIndex((p) => p.inicio === periodoSeleccionado!.inicio);
     periodoPrevBtn.disabled = idx <= 0;
     periodoNextBtn.disabled = idx < 0 || idx >= periodosDisponibles.length - 1;
   }
 
-  periodoSelect.addEventListener("change", () => {
-    periodoSeleccionado = periodosDisponibles.find((p) => p.inicio === periodoSelect.value) ?? periodoSeleccionado;
-    poblarPeriodoSelect();
-    renderAll();
-  });
   periodoPrevBtn.addEventListener("click", () => {
     if (!periodoSeleccionado) return;
     const idx = periodosDisponibles.findIndex((p) => p.inicio === periodoSeleccionado!.inicio);
     if (idx > 0) {
       periodoSeleccionado = periodosDisponibles[idx - 1];
-      poblarPeriodoSelect();
-      renderAll();
+      cardAbierta = null;
+      actualizarNav();
+      renderResumenPeriodo();
     }
   });
   periodoNextBtn.addEventListener("click", () => {
@@ -257,20 +212,10 @@ export async function renderHistorico(container: HTMLElement): Promise<void> {
     const idx = periodosDisponibles.findIndex((p) => p.inicio === periodoSeleccionado!.inicio);
     if (idx >= 0 && idx < periodosDisponibles.length - 1) {
       periodoSeleccionado = periodosDisponibles[idx + 1];
-      poblarPeriodoSelect();
-      renderAll();
+      cardAbierta = null;
+      actualizarNav();
+      renderResumenPeriodo();
     }
-  });
-
-  rangoSelect.addEventListener("change", () => {
-    rango = rangoSelect.value === "todo" ? "todo" : (Number(rangoSelect.value) as Rango);
-    renderComparativa();
-    renderCategoria();
-  });
-
-  categoriaSelect.addEventListener("change", () => {
-    categoriaSeleccionada = categoriaSelect.value;
-    renderCategoria();
   });
 
   anioSelect.addEventListener("change", () => {
@@ -288,11 +233,7 @@ export async function renderHistorico(container: HTMLElement): Promise<void> {
     snapshot = snap;
     periodosDisponibles = listPeriodosDisponibles(snap, historialPeriodos);
     periodoSeleccionado = periodosDisponibles[periodosDisponibles.length - 1];
-    poblarPeriodoSelect();
-
-    const categorias = listCategoriasHistoricas(snap);
-    categoriaSelect.innerHTML = categorias.map((c) => `<option value="${c}">${c}</option>`).join("");
-    categoriaSeleccionada = categorias[0] ?? "";
+    actualizarNav();
 
     const anios = listAniosDisponibles(snap);
     anioSelect.innerHTML = anios.map((a) => `<option value="${a}">${a}</option>`).join("");

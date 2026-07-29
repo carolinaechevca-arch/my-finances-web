@@ -1,12 +1,4 @@
-import {
-  agruparEventosPorDeuda,
-  calcularEstadoDeuda,
-  listDeudas,
-  listTodosLosEventos,
-  type Deuda,
-  type Direccion,
-  type EventoAbono,
-} from "./deudas";
+import { listDeudas, listTodosLosEventos, type Deuda, type Direccion, type EventoAbono } from "./deudas";
 import { addMonthsToKey, endOfMonthISO, monthKey, parseDateInput, todayISO } from "./format";
 import {
   listTodosLosGastosFijos,
@@ -190,73 +182,6 @@ export function listAniosDisponibles(snap: HistoricoSnapshot): string[] {
   return [...anios].sort();
 }
 
-export interface PuntoSerie {
-  mes: string;
-  ingresos: number;
-  gastos: number;
-  ahorro: number;
-}
-
-export function serieMensual(snap: HistoricoSnapshot, meses: string[]): PuntoSerie[] {
-  return meses.map((mes) => {
-    const r = resumenMes(snap, mes);
-    return { mes, ingresos: r.ingresos, gastos: r.gastosTotal, ahorro: r.aportadoAhorros - r.retiradoAhorros };
-  });
-}
-
-/** (Total ahorrado en metas) - (deuda pendiente propia), calculado tal como estaban las cosas al cierre de ese mes. */
-export function patrimonioNetoEnMes(snap: HistoricoSnapshot, mes: string): number {
-  const finMes = endOfMonthISO(mes);
-
-  const ahorros = snap.movimientosMetas
-    .filter((m) => m.fecha && m.fecha <= finMes)
-    .reduce((s, m) => s + (m.tipo === "Retiro" ? -m.monto : m.monto), 0);
-
-  const eventosHastaFinMes = snap.eventosDeudas.filter((e) => e.fecha && e.fecha <= finMes);
-  const eventosPorDeuda = agruparEventosPorDeuda(eventosHastaFinMes);
-  const deudaPendiente = snap.deudasYoDebo.reduce((s, d) => {
-    if (d.fechaInicio && d.fechaInicio > finMes) return s;
-    return s + calcularEstadoDeuda(d, eventosPorDeuda.get(d.id) ?? []).saldoPendiente;
-  }, 0);
-
-  return ahorros - deudaPendiente;
-}
-
-export interface PuntoPatrimonio {
-  mes: string;
-  patrimonio: number;
-}
-
-export function patrimonioNetoSerie(snap: HistoricoSnapshot, meses: string[]): PuntoPatrimonio[] {
-  return meses.map((mes) => ({ mes, patrimonio: patrimonioNetoEnMes(snap, mes) }));
-}
-
-/** Categorías con algún gasto registrado (fijos + variables), para el selector del histórico por categoría. */
-export function listCategoriasHistoricas(snap: HistoricoSnapshot): string[] {
-  const seen = new Set<string>();
-  const categorias: string[] = [];
-  for (const g of [...snap.gastosFijos, ...snap.gastosYCompras]) {
-    if (g.categoria && !seen.has(g.categoria)) {
-      seen.add(g.categoria);
-      categorias.push(g.categoria);
-    }
-  }
-  return categorias;
-}
-
-export interface PuntoCategoria {
-  mes: string;
-  monto: number;
-}
-
-export function serieCategoria(snap: HistoricoSnapshot, categoria: string, meses: string[]): PuntoCategoria[] {
-  return meses.map((mes) => {
-    const fijos = gastosFijosDelMes(snap, mes).filter((g) => g.categoria === categoria);
-    const variables = gastosYComprasDelMes(snap, mes).filter((g) => g.categoria === categoria);
-    return { mes, monto: sumGastosFijosTotal(fijos) + sumGastos(variables) };
-  });
-}
-
 export interface FacturaAnual {
   fecha: string;
   nombre: string;
@@ -321,14 +246,6 @@ export function descargarResumenAnualCSV(resumen: ResumenAnual): void {
   a.download = `resumen-anual-${resumen.anio}.csv`;
   a.click();
   URL.revokeObjectURL(url);
-}
-
-/** Últimos N meses (o todos los disponibles si hay menos) terminando en el mes dado, en orden cronológico. */
-export function ultimosMeses(mesesDisponibles: string[], hasta: string, cantidad: number | "todo"): string[] {
-  const idx = mesesDisponibles.indexOf(hasta);
-  const fin = idx === -1 ? mesesDisponibles.length - 1 : idx;
-  const inicio = cantidad === "todo" ? 0 : Math.max(0, fin - (cantidad - 1));
-  return mesesDisponibles.slice(inicio, fin + 1);
 }
 
 // --- A partir de acá: versiones por PERIODO (Semanal/Quincenal/Mensual/Manual) de lo de arriba,     ---
@@ -455,72 +372,66 @@ export function listPeriodosDisponibles(snap: HistoricoSnapshot, historialPeriod
   return armarPeriodosDisponibles(historialPeriodos, primeraFechaConDatos(snap));
 }
 
-export interface PuntoSeriePeriodo {
-  periodo: PeriodoHistorico;
-  ingresos: number;
-  gastos: number;
-  ahorro: number;
-}
-
-export function seriePeriodos(snap: HistoricoSnapshot, periodos: PeriodoHistorico[]): PuntoSeriePeriodo[] {
-  return periodos.map((periodo) => {
-    const r = resumenPeriodo(snap, periodo);
-    return { periodo, ingresos: r.ingresos, gastos: r.gastosTotal, ahorro: r.aportadoAhorros - r.retiradoAhorros };
-  });
-}
-
-/** (Total ahorrado en metas) - (deuda pendiente propia), calculado tal como estaban las cosas al cierre de ese periodo. */
-export function patrimonioNetoEnPeriodo(snap: HistoricoSnapshot, periodo: PeriodoHistorico): number {
-  const finPeriodo = periodo.fin ?? todayISO();
-
-  const ahorros = snap.movimientosMetas
-    .filter((m) => m.fecha && m.fecha <= finPeriodo)
-    .reduce((s, m) => s + (m.tipo === "Retiro" ? -m.monto : m.monto), 0);
-
-  const eventosHastaFin = snap.eventosDeudas.filter((e) => e.fecha && e.fecha <= finPeriodo);
-  const eventosPorDeuda = agruparEventosPorDeuda(eventosHastaFin);
-  const deudaPendiente = snap.deudasYoDebo.reduce((s, d) => {
-    if (d.fechaInicio && d.fechaInicio > finPeriodo) return s;
-    return s + calcularEstadoDeuda(d, eventosPorDeuda.get(d.id) ?? []).saldoPendiente;
-  }, 0);
-
-  return ahorros - deudaPendiente;
-}
-
-export interface PuntoPatrimonioPeriodo {
-  periodo: PeriodoHistorico;
-  patrimonio: number;
-}
-
-export function patrimonioNetoSeriePeriodos(snap: HistoricoSnapshot, periodos: PeriodoHistorico[]): PuntoPatrimonioPeriodo[] {
-  return periodos.map((periodo) => ({ periodo, patrimonio: patrimonioNetoEnPeriodo(snap, periodo) }));
-}
-
-export interface PuntoCategoriaPeriodo {
-  periodo: PeriodoHistorico;
+export interface DetalleItem {
+  nombre: string;
+  nota?: string;
   monto: number;
 }
 
-export function seriePeriodoCategoria(
-  snap: HistoricoSnapshot,
-  categoria: string,
-  periodos: PeriodoHistorico[],
-): PuntoCategoriaPeriodo[] {
-  return periodos.map((periodo) => {
-    const fijos = gastosFijosDelPeriodo(snap, periodo).filter((g) => g.categoria === categoria);
-    const variables = gastosYComprasDelPeriodo(snap, periodo).filter((g) => g.categoria === categoria);
-    return { periodo, monto: sumGastosFijosTotal(fijos) + sumGastos(variables) };
-  });
+export interface DetallePeriodoItems {
+  ingresos: DetalleItem[];
+  gastosFijos: DetalleItem[];
+  gastosCompras: DetalleItem[];
+  ahorros: DetalleItem[];
+  deudas: DetalleItem[];
+  meDeben: DetalleItem[];
 }
 
-/** Últimos N periodos (o todos los disponibles si hay menos) terminando en el periodo dado, en orden cronológico. */
-export function ultimosPeriodos(
-  periodosDisponibles: PeriodoHistorico[],
-  hasta: PeriodoHistorico,
-  cantidad: number | "todo",
-): PeriodoHistorico[] {
-  const idx = periodosDisponibles.findIndex((p) => p.inicio === hasta.inicio);
-  const fin = idx === -1 ? periodosDisponibles.length - 1 : idx;
-  const inicio = cantidad === "todo" ? 0 : Math.max(0, fin - (cantidad - 1));
-  return periodosDisponibles.slice(inicio, fin + 1);
+/** Desglose ítem por ítem de un periodo (para las tarjetas expandibles de Histórico) — misma ventana de fechas que `resumenPeriodo`. */
+export function detallePeriodo(snap: HistoricoSnapshot, periodo: PeriodoHistorico): DetallePeriodoItems {
+  const finPeriodo = periodo.fin ?? todayISO();
+
+  const ingresos: DetalleItem[] = [];
+  for (const i of snap.ingresos) {
+    if (i.recurrencia === "UnicoMes") {
+      if (i.fechaCreacion && i.fechaCreacion >= periodo.inicio && i.fechaCreacion <= finPeriodo && i.activo) {
+        ingresos.push({ nombre: i.tipo, nota: i.notas || undefined, monto: i.monto });
+      }
+      continue;
+    }
+    if (i.fechaCreacion && i.fechaCreacion > finPeriodo) continue;
+    const estado = estadoIngresoEnFecha(i, snap.cambiosIngresos, finPeriodo);
+    if (estado.activo) ingresos.push({ nombre: i.tipo, nota: i.notas || undefined, monto: estado.monto });
+  }
+
+  const gastosFijos = gastosFijosDelPeriodo(snap, periodo).map((g) => ({
+    nombre: g.nombre,
+    nota: g.categoria || undefined,
+    monto: g.montoPagado ?? g.monto,
+  }));
+
+  const gastosCompras = gastosYComprasDelPeriodo(snap, periodo).map((g) => ({
+    nombre: g.nombre,
+    nota: g.categoria || undefined,
+    monto: g.monto,
+  }));
+
+  const nombresMetas = new Map(snap.metas.map((m) => [m.id, m.nombre]));
+  const ahorros = movimientosMetasDelPeriodo(snap, periodo)
+    .filter((m) => m.tipo !== "Retiro")
+    .map((m) => ({ nombre: nombresMetas.get(m.idMeta) ?? "Meta", nota: m.nota || undefined, monto: m.monto }));
+
+  const nombresDeudas = new Map([...snap.deudasYoDebo, ...snap.deudasMeDeben].map((d) => [d.id, d.contraparte]));
+  const deudas = eventosAbonoDelPeriodo(snap, "YoDebo", periodo).map((e) => ({
+    nombre: nombresDeudas.get(e.idDeuda) ?? "Deuda",
+    nota: e.nota || undefined,
+    monto: e.monto,
+  }));
+  const meDeben = eventosAbonoDelPeriodo(snap, "MeDeben", periodo).map((e) => ({
+    nombre: nombresDeudas.get(e.idDeuda) ?? "Deuda",
+    nota: e.nota || undefined,
+    monto: e.monto,
+  }));
+
+  return { ingresos, gastosFijos, gastosCompras, ahorros, deudas, meDeben };
 }
