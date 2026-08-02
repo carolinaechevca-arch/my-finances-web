@@ -22,7 +22,6 @@ import {
   eliminarCategoria,
   eliminarGasto,
   filtrarAhorrando,
-  filtrarGastosDelMes,
   filtrarGastosDelPeriodo,
   filtrarPendientes,
   listCategorias,
@@ -33,7 +32,7 @@ import {
   type EstadoGasto,
   type GastoYCompra,
 } from "../../domain/gastos-y-compras";
-import { formatMonthLabel, formatMoney, parseDateInput, todayISO } from "../../domain/format";
+import { formatMoney, parseDateInput, todayISO } from "../../domain/format";
 import { crearMeta } from "../../domain/metas";
 import { formatPeriodoBadge, obtenerConfigPeriodo } from "../../domain/periodo";
 import { showAlert, showCompletarGastoDialog, showConfirm, showConvertirMetaDialog } from "../components/dialogs";
@@ -122,7 +121,7 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
       <div class="accordion-header">
         <button type="button" class="accordion-toggle" id="historial-toggle">
           ${chevronDownIcon}
-          <h2 style="margin:0">Historial — ${formatMonthLabel()}</h2>
+          <h2 style="margin:0">Historial de este periodo</h2>
         </button>
         <div class="field field--inline">
           <label for="gc-filtro-categoria">Categoría</label>
@@ -721,7 +720,7 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
     totalPeriodoEye.refresh();
 
     if (visibles.length === 0) {
-      listEl.innerHTML = `<p class="empty-state">${gastosDelMes.length === 0 ? "Aún no registras gastos este mes." : "No hay gastos con esa categoría."}</p>`;
+      listEl.innerHTML = `<p class="empty-state">${gastosDelMes.length === 0 ? "Aún no registras gastos en este periodo." : "No hay gastos con esa categoría."}</p>`;
       return;
     }
 
@@ -804,7 +803,7 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
       listTodosLosGastos(spreadsheetId),
       listArchivados(spreadsheetId),
     ]);
-    gastosDelMes = filtrarGastosDelMes(todosLosGastos);
+    gastosDelMes = filtrarGastosDelPeriodo(todosLosGastos, periodoActualFecha);
     pendientes = filtrarPendientes(todosLosGastos);
     ahorrando = filtrarAhorrando(todosLosGastos);
     archivados = archivadosList;

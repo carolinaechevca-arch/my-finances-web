@@ -41,9 +41,11 @@ Reemplaza por completo al viejo sistema de recurrencia Fijo/Personalizado con co
 
 Sin cambios de comportamiento — solo se acortó el nombre a "Pendientes" (en la tarjeta resumen y en el título de la sección). Es la única sección que se mantiene **siempre visible** (no es acordeón). Botones: "Marcar como realizado" (con subida opcional de factura a Drive), "Convertir en meta de ahorro", ícono de basura.
 
-## 5. Historial — ahora en acordeón
+## 5. Historial — ahora en acordeón, y ligado al periodo (no al mes calendario)
 
 El historial (tabla Fecha/Categoría/Nombre/Monto/Factura/Acciones, filtrable por categoría) se colapsa detrás de un encabezado con chevron, cerrado por defecto. Solo "Pendientes" queda fijo/siempre visible; Historial y Archivados se abren bajo demanda.
+
+**Cambio confirmado con el usuario:** el rango de fechas del Historial dejó de ser "mes calendario" (`filtrarGastosDelMes`) — usaba `new Date()` cada vez que se recalculaba, así que aunque en la práctica solo cambiaba de contenido al cruzar de mes, no reflejaba el periodo de la app. Ahora usa el mismo rango que la tarjeta "Gastado en el periodo" (`filtrarGastosDelPeriodo`, desde `periodoActualFecha` hasta hoy) — solo cambia lo que se ve ahí cuando reinicias el periodo, igual que el resto de la app. El título pasó de "Historial — {mes}" a "Historial de este periodo".
 
 ## 6. Contenido no modificado
 
