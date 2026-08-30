@@ -26,6 +26,7 @@ export interface GastoFijo {
   pausado: boolean;
   /** fechaUltimoReinicio (ver domain/periodo.ts) del periodo al que pertenece esta instancia. */
   periodoId: string;
+  notas: string;
 }
 
 function parseGastoFijo(r: SheetRow): GastoFijo {
@@ -44,6 +45,7 @@ function parseGastoFijo(r: SheetRow): GastoFijo {
     contadorPeriodos = "",
     pausado = "",
     periodoId = "",
+    notas = "",
   ] = r.values;
   return {
     row: r.row,
@@ -61,6 +63,7 @@ function parseGastoFijo(r: SheetRow): GastoFijo {
     contadorPeriodos: Number(contadorPeriodos) || 0,
     pausado: pausado.toUpperCase() === "TRUE",
     periodoId,
+    notas,
   };
 }
 
@@ -80,12 +83,13 @@ function serializeGastoFijo(g: GastoFijo): unknown[] {
     g.contadorPeriodos,
     g.pausado ? "TRUE" : "FALSE",
     g.periodoId,
+    g.notas,
   ];
 }
 
 /** Todos los gastos fijos registrados alguna vez, de cualquier mes/periodo — para el Histórico. */
 export async function listTodosLosGastosFijos(spreadsheetId: string): Promise<GastoFijo[]> {
-  const rows = await listRecords(spreadsheetId, GASTOS_FIJOS_SHEET, 14);
+  const rows = await listRecords(spreadsheetId, GASTOS_FIJOS_SHEET, 15);
   return rows.map(parseGastoFijo);
 }
 
@@ -154,6 +158,7 @@ export async function crearGastoFijo(
   recurrencia: RecurrenciaGastoFijo,
   repiteCadaN: number,
   periodoActualId: string,
+  notas = "",
 ): Promise<void> {
   const id = crypto.randomUUID();
   await appendRecord(
@@ -175,6 +180,7 @@ export async function crearGastoFijo(
       contadorPeriodos: 0,
       pausado: false,
       periodoId: periodoActualId,
+      notas,
     }),
   );
 }
@@ -206,6 +212,7 @@ export interface GastoFijoCambios {
   diaPago: string;
   recurrencia: RecurrenciaGastoFijo;
   repiteCadaN: number;
+  notas: string;
 }
 
 export async function actualizarGastoFijo(spreadsheetId: string, gasto: GastoFijo, cambios: GastoFijoCambios): Promise<void> {
@@ -222,6 +229,7 @@ export async function actualizarGastoFijo(spreadsheetId: string, gasto: GastoFij
       recurrencia: cambios.recurrencia,
       repiteCadaN: cambios.recurrencia === "Personalizado" ? cambios.repiteCadaN : 0,
       contadorPeriodos: cambios.recurrencia === "Personalizado" ? gasto.contadorPeriodos : 0,
+      notas: cambios.notas,
     }),
   );
 }

@@ -109,6 +109,7 @@ export const SHEET_DEFINITIONS: SheetDefinition[] = [
       "ContadorPeriodos",
       "Pausado",
       "PeriodoId",
+      "Notas",
     ],
   },
   {
@@ -179,7 +180,7 @@ let ensurePromise: Promise<{ spreadsheetId: string; created: boolean }> | null =
  * usuarios corren la migración completa una vez más y vuelven a quedar
  * rápidos.
  */
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 const CACHE_KEY = "mf_spreadsheet_cache";
 
 interface SpreadsheetCache {

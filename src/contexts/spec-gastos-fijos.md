@@ -88,6 +88,15 @@ Se agrega una columna **Recurrencia** (no existía antes, porque antes todo era 
 - Stats row, diff-pill, tabla base, modales de categoría — igual que hoy.
 - Paleta de color (azul marino, sin acento morado).
 
+## 8.1 Campo "Notas" (opcional) — agregado
+
+Cada gasto fijo puede llevar una nota de texto libre opcional, igual que en Ingresos/Deudas/Gastos y Compras:
+
+- Campo "Notas (opcional)" en el formulario de creación y en el modal "Editar gasto fijo" (después de "Día de pago").
+- Se muestra como subtítulo pequeño debajo del nombre en la fila de la tabla, solo si tiene contenido.
+- Al reaplicarse un gasto "Fijo"/"Personalizado" en el reinicio de periodo, la nota se copia a la nueva instancia (igual que el resto de los campos de la serie).
+- Persistencia: nueva columna "Notas" al final de la hoja `GastosFijos` (columna 15) — las filas existentes quedan con nota vacía hasta que se editen.
+
 ## 9. Pendiente de confirmar
 
 - ¿El gasto "Personalizado" debe **seguir apareciendo** en la tabla en los periodos que no le toca (badge "En espera"), o **desaparecer** hasta que le toque? (sección 1, propuesta a confirmar)

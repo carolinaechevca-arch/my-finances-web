@@ -111,6 +111,7 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
         </div>
         <div class="field"><label for="gf-monto">Monto</label><input id="gf-monto" type="number" min="0" step="0.01" required /></div>
         <div class="field"><label for="gf-dia">Día de pago</label><input id="gf-dia" type="number" min="1" max="31" /></div>
+        <div class="field"><label for="gf-notas">Notas (opcional)</label><input id="gf-notas" type="text" /></div>
         <button type="submit" class="btn">${deviceFloppyIcon} Guardar</button>
       </form>
       <p class="empty-state" id="gasto-form-error" hidden></p>
@@ -179,6 +180,7 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
         </div>
         <div class="field"><label for="edit-monto">Monto</label><input id="edit-monto" type="number" min="0" step="0.01" required /></div>
         <div class="field"><label for="edit-dia">Día de pago</label><input id="edit-dia" type="number" min="1" max="31" /></div>
+        <div class="field"><label for="edit-notas">Notas (opcional)</label><input id="edit-notas" type="text" /></div>
         <p class="empty-state" id="edit-modal-error" hidden></p>
         <div class="modal__actions">
           <button type="button" class="btn-secondary" id="edit-modal-cancel">Cancelar</button>
@@ -211,6 +213,7 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
   const repiteNInput = container.querySelector<HTMLInputElement>("#gf-repite-n")!;
   const montoInput = container.querySelector<HTMLInputElement>("#gf-monto")!;
   const diaInput = container.querySelector<HTMLInputElement>("#gf-dia")!;
+  const notasInput = container.querySelector<HTMLInputElement>("#gf-notas")!;
   const ordenSelect = container.querySelector<HTMLSelectElement>("#gf-orden")!;
 
   const categoriaModal = container.querySelector<HTMLDialogElement>("#categoria-modal")!;
@@ -227,6 +230,7 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
   const editRepiteNInput = container.querySelector<HTMLInputElement>("#edit-repite-n")!;
   const editMontoInput = container.querySelector<HTMLInputElement>("#edit-monto")!;
   const editDiaInput = container.querySelector<HTMLInputElement>("#edit-dia")!;
+  const editNotasInput = container.querySelector<HTMLInputElement>("#edit-notas")!;
   const editModalError = container.querySelector<HTMLParagraphElement>("#edit-modal-error")!;
   const editModalCancel = container.querySelector<HTMLButtonElement>("#edit-modal-cancel")!;
 
@@ -378,6 +382,7 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
     editRepiteNInput.value = gasto.repiteCadaN > 0 ? String(gasto.repiteCadaN) : "";
     editMontoInput.value = String(gasto.monto);
     editDiaInput.value = gasto.diaPago;
+    editNotasInput.value = gasto.notas;
     editModalError.hidden = true;
 
     const controller = new AbortController();
@@ -422,6 +427,7 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
             diaPago: editDiaInput.value.trim(),
             recurrencia,
             repiteCadaN,
+            notas: editNotasInput.value.trim(),
           });
           controller.abort();
           editModal.close();
@@ -535,7 +541,7 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
 
         return `
           <tr data-row="${gasto.row}" class="${vencido ? "is-vencido" : esHoy ? "is-today" : ""}">
-            <td data-label="Nombre">${gasto.nombre}</td>
+            <td data-label="Nombre">${gasto.nombre}${gasto.notas ? `<div class="empty-state" style="font-size:12px;margin-top:2px">${gasto.notas}</div>` : ""}</td>
             <td data-label="Categoría">${gasto.categoria ? `<span class="badge">${gasto.categoria}</span>` : "—"}</td>
             <td data-label="Recurrencia">${recurrenciaCell}</td>
             <td data-label="Activo">${activoCell}</td>
@@ -657,7 +663,17 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
 
     submitBtn.disabled = true;
     try {
-      await crearGastoFijo(spreadsheetId, nombre, monto, formCategoriaValue, diaInput.value.trim(), recurrencia, repiteCadaN, periodoActualId);
+      await crearGastoFijo(
+        spreadsheetId,
+        nombre,
+        monto,
+        formCategoriaValue,
+        diaInput.value.trim(),
+        recurrencia,
+        repiteCadaN,
+        periodoActualId,
+        notasInput.value.trim(),
+      );
       if (!nombresConocidos.includes(nombre)) {
         nombresConocidos.push(nombre);
         renderNombresDatalist();
@@ -665,6 +681,7 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
       nombreInput.value = "";
       montoInput.value = "";
       diaInput.value = "";
+      notasInput.value = "";
       recurrenciaSelect.value = "Fijo";
       repiteNInput.value = "";
       repiteNField.hidden = true;
