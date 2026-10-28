@@ -29,6 +29,22 @@ export async function findFileByName(name: string, mimeType?: string): Promise<s
   return data.files?.[0]?.id ?? null;
 }
 
+/**
+ * Elimina definitivamente un archivo creado por la app. Si ya no existe,
+ * la operación se considera exitosa para que el llamador pueda recrearlo.
+ */
+export async function deleteFileIfExists(fileId: string): Promise<void> {
+  const token = await getAccessToken();
+  const res = await fetch(`${DRIVE_FILES}/${encodeURIComponent(fileId)}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (res.ok || res.status === 404) return;
+
+  const body = await res.text();
+  throw new Error(`Drive API error ${res.status}: ${body}`);
+}
+
 async function createFolder(name: string, parentId?: string): Promise<string> {
   const res = await authedFetch(DRIVE_FILES, {
     method: "POST",

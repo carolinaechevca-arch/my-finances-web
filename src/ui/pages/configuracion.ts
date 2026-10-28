@@ -1,5 +1,5 @@
 import settingsIcon from "../../icon/settings.svg?raw";
-import { ensureSpreadsheet, limpiarTodosLosDatos } from "../../api/spreadsheet-bootstrap";
+import { ensureSpreadsheet, recrearSpreadsheet } from "../../api/spreadsheet-bootstrap";
 import { calcularDisponible } from "../../domain/balance";
 import {
   actualizarDashboardCard,
@@ -138,7 +138,7 @@ export async function renderConfiguracion(container: HTMLElement, user: AuthUser
     <div class="card" style="margin-top:20px;border:1px solid var(--color-danger)">
       <div class="card__title" style="color:var(--color-danger)">Zona peligrosa</div>
       <p class="empty-state" style="margin:0 0 16px">
-        Borra todos tus ingresos, gastos fijos, gastos y compras, deudas, abonos, ahorros, categorías y tipos, y restablece los valores por defecto. Esta acción no se puede deshacer.
+        Elimina definitivamente la Hoja de Cálculo asociada y crea una nueva, conservando la configuración de tu dashboard. Tus archivos de facturas guardados en Drive no se eliminan. Esta acción no se puede deshacer.
       </p>
       <button type="button" class="btn-danger" id="limpiar-todo-btn">Limpiar todo</button>
     </div>
@@ -172,6 +172,35 @@ export async function renderConfiguracion(container: HTMLElement, user: AuthUser
     const { spreadsheetId } = await ensureSpreadsheet();
     cuentaSheetLink.href = `https://docs.google.com/spreadsheets/d/${spreadsheetId}`;
     cuentaSheetLink.hidden = false;
+    let configs: DashboardCardConfig[] = [];
+
+    // Se registra antes de leer la configuración: si el archivo fue borrado
+    // manualmente en Drive, esas lecturas fallarán, pero este botón todavía
+    // podrá reemplazar el ID obsoleto por un spreadsheet nuevo.
+    limpiarTodoBtn.addEventListener("click", async () => {
+      const ok = await showConfirm(
+        "Esto elimina definitivamente la Hoja de Cálculo asociada con TODOS tus datos y crea una nueva. Se conservarán la visibilidad, el color y el orden de las tarjetas del dashboard. Si la hoja ya no existe, se creará una nueva con la configuración predeterminada. Los archivos de facturas guardados en Drive no se eliminan. No se puede deshacer.",
+        { title: "Eliminar hoja y empezar de cero", confirmLabel: "Sí, eliminar y crear otra", danger: true },
+      );
+      if (!ok) return;
+      limpiarTodoBtn.disabled = true;
+      limpiarTodoBtn.textContent = "Creando hoja nueva…";
+      try {
+        const configDashboard = [...configs]
+          .sort((a, b) => a.row - b.row)
+          .map((cfg) => [cfg.cardId, cfg.visible ? "TRUE" : "FALSE", cfg.color, cfg.orden]);
+        await recrearSpreadsheet(spreadsheetId, configDashboard);
+        await renderConfiguracion(container, user, onLogout);
+      } catch (err) {
+        limpiarTodoBtn.disabled = false;
+        limpiarTodoBtn.textContent = "Limpiar todo";
+        await showAlert(
+          err instanceof Error ? err.message : "No se pudo eliminar la hoja y crear una nueva.",
+          "Error al empezar de cero",
+        );
+      }
+    });
+
     exportarTodoBtn.addEventListener("click", async () => {
       exportarTodoBtn.disabled = true;
       try {
@@ -188,7 +217,7 @@ export async function renderConfiguracion(container: HTMLElement, user: AuthUser
       obtenerConfigPeriodo(spreadsheetId),
       listDashboardConfig(spreadsheetId),
     ]);
-    let configs = configsIniciales;
+    configs = configsIniciales;
 
     periodoSelect.value = configPeriodo.frecuencia;
     diaSemanaSelect.value = String(configPeriodo.diaInicioSemana);
@@ -267,21 +296,6 @@ export async function renderConfiguracion(container: HTMLElement, user: AuthUser
       montarLista(listEl, spreadsheetId, configs);
     });
 
-    limpiarTodoBtn.addEventListener("click", async () => {
-      const ok = await showConfirm(
-        "Esto borra TODOS tus datos — ingresos, gastos fijos, gastos y compras, deudas, abonos, ahorros, categorías y tipos — y restablece los valores por defecto. No se puede deshacer.",
-        { title: "Limpiar todo", confirmLabel: "Sí, borrar todo", danger: true },
-      );
-      if (!ok) return;
-      limpiarTodoBtn.disabled = true;
-      try {
-        await limpiarTodosLosDatos(spreadsheetId);
-        await renderConfiguracion(container, user, onLogout);
-      } catch (err) {
-        limpiarTodoBtn.disabled = false;
-        await showAlert(err instanceof Error ? err.message : "No se pudo limpiar los datos.", "Error");
-      }
-    });
   } catch (err) {
     listEl.innerHTML = "";
     const p = document.createElement("p");

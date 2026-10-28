@@ -1,6 +1,6 @@
-import { findFileByName } from "./drive";
+import { deleteFileIfExists, findFileByName } from "./drive";
 import { appendRecords, listRecords, updateRecord } from "./records";
-import { addSheets, batchClearValues, createSpreadsheet, getSheetNames, getValues, updateValues, type SheetDefinition } from "./sheets";
+import { addSheets, createSpreadsheet, getSheetNames, getValues, updateValues, type SheetDefinition } from "./sheets";
 
 export const SPREADSHEET_TITLE = "MisFinanzas";
 
@@ -208,11 +208,47 @@ function guardarCache(spreadsheetId: string): void {
 /** Se llama al cerrar sesión: evita que si luego alguien inicia sesión con otra cuenta de Google en el mismo navegador, herede el spreadsheetId de la cuenta anterior. */
 export function limpiarCacheSpreadsheet(): void {
   ensurePromise = null;
+  borrarCacheGuardada();
+}
+
+function borrarCacheGuardada(): void {
   try {
     localStorage.removeItem(CACHE_KEY);
   } catch {
     // Ignorado a propósito, ver comentario en guardarCache.
   }
+}
+
+/**
+ * Elimina el spreadsheet asociado y crea uno nuevo desde cero. La creación
+ * no busca archivos por nombre: siempre genera un archivo nuevo, incluso si
+ * el anterior ya había sido eliminado manualmente desde Drive.
+ */
+export function recrearSpreadsheet(
+  spreadsheetId: string,
+  configDashboard: unknown[][] = [],
+): Promise<{ spreadsheetId: string; created: true }> {
+  const recreacionPromise = recrearSpreadsheetInternal(spreadsheetId, configDashboard).catch((err) => {
+    ensurePromise = null;
+    throw err;
+  });
+  ensurePromise = recreacionPromise;
+  return recreacionPromise;
+}
+
+async function recrearSpreadsheetInternal(
+  spreadsheetId: string,
+  configDashboard: unknown[][],
+): Promise<{ spreadsheetId: string; created: true }> {
+  await deleteFileIfExists(spreadsheetId);
+  borrarCacheGuardada();
+
+  const nuevoSpreadsheetId = await crearSpreadsheetDesdeCero();
+  if (configDashboard.length > 0) {
+    await updateValues(nuevoSpreadsheetId, `${CONFIG_DASHBOARD_SHEET}!A2`, configDashboard);
+  }
+  guardarCache(nuevoSpreadsheetId);
+  return { spreadsheetId: nuevoSpreadsheetId, created: true };
 }
 
 /**
@@ -266,37 +302,19 @@ async function ensureSpreadsheetInternal(): Promise<{ spreadsheetId: string; cre
     guardarCache(existingId);
     return { spreadsheetId: existingId, created: false };
   }
+  const spreadsheetId = await crearSpreadsheetDesdeCero();
+  guardarCache(spreadsheetId);
+  return { spreadsheetId, created: true };
+}
+
+async function crearSpreadsheetDesdeCero(): Promise<string> {
   const spreadsheetId = await createSpreadsheet(SPREADSHEET_TITLE, SHEET_DEFINITIONS);
   await ensureDefaultTipos(spreadsheetId);
   await ensureDefaultTiposDeuda(spreadsheetId);
   await ensureDefaultConfigDashboard(spreadsheetId);
   await ensureDefaultConfigPeriodo(spreadsheetId);
   await ensureDefaultHistorialPeriodos(spreadsheetId);
-  guardarCache(spreadsheetId);
-  return { spreadsheetId, created: true };
-}
-
-/**
- * Borra TODOS los datos financieros de todas las hojas (deja los
- * encabezados) y vuelve a sembrar los valores por defecto (categorías,
- * tipos de deuda, historial inicial) — como si el spreadsheet se acabara de
- * crear, salvo las preferencias de la app. Usado por "Limpiar todo" en
- * Configuración; el llamador es responsable de pedir confirmación antes de
- * invocar esto, es irreversible.
- *
- * `ConfigDashboard` y `ConfigPeriodo` quedan fuera a propósito: son
- * preferencias de la app (personalización del dashboard, frecuencia del
- * periodo), no datos financieros — "Limpiar todo" no debe tocarlas. Para
- * restablecer el dashboard a sus valores por defecto ya existe el botón
- * "Restablecer a valores por defecto" en su propia tarjeta.
- */
-export async function limpiarTodosLosDatos(spreadsheetId: string): Promise<void> {
-  const excluidas = new Set([CONFIG_DASHBOARD_SHEET, CONFIG_PERIODO_SHEET]);
-  const rangos = SHEET_DEFINITIONS.filter((s) => !excluidas.has(s.name)).map((s) => `${s.name}!A2:Z`);
-  await batchClearValues(spreadsheetId, rangos);
-  await ensureDefaultTipos(spreadsheetId);
-  await ensureDefaultTiposDeuda(spreadsheetId);
-  await ensureDefaultHistorialPeriodos(spreadsheetId);
+  return spreadsheetId;
 }
 
 async function ensureSheets(spreadsheetId: string): Promise<void> {

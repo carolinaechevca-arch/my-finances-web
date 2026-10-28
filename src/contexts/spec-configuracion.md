@@ -50,9 +50,11 @@
 ## 7.1 Tarjeta "Zona peligrosa" — "Limpiar todo" *(implementado)*
 
 - Botón `.btn-danger` "Limpiar todo" con modal de confirmación (`showConfirm`, `danger: true`), que explica exactamente qué se borra y aclara que no se puede deshacer.
-- Borra el contenido de las hojas de **datos financieros** (`limpiarTodosLosDatos` en `src/api/spreadsheet-bootstrap.ts`, vía `values:batchClear` — un solo request para todos los rangos, no una petición por hoja) y vuelve a sembrar los valores por defecto (categorías, tipos de deuda, historial inicial) — como si el spreadsheet se acabara de crear.
-- **`ConfigDashboard` y `ConfigPeriodo` quedan excluidas a propósito** — son preferencias de la app (personalización del dashboard, frecuencia del periodo), no datos financieros; "Limpiar todo" no debe reiniciarlas (confirmado con el usuario tras un reporte de que se le borraba la frecuencia configurada). Para restablecer el dashboard existe el botón aparte "Restablecer a valores por defecto".
-- Tras limpiar, se vuelve a renderizar la página completa de Configuración.
+- Elimina definitivamente de Drive el spreadsheet asociado y crea un archivo nuevo con todas las hojas, encabezados y valores por defecto.
+- Antes de eliminarlo conserva `ConfigDashboard` y lo copia al archivo nuevo, manteniendo la visibilidad, el color y el orden de las tarjetas. `ConfigPeriodo` sí vuelve a su valor predeterminado.
+- Si el spreadsheet asociado ya fue eliminado manualmente, el `404` de Drive se considera un estado válido y se crea el archivo nuevo igualmente; como en ese caso no se puede recuperar `ConfigDashboard`, se usan sus valores predeterminados.
+- No elimina las carpetas ni los archivos de facturas guardados en Drive.
+- Tras recrearlo, actualiza el ID guardado por la app y vuelve a renderizar la página completa de Configuración con el enlace al archivo nuevo.
 
 ## 8. Pendiente / dependencias externas
 
