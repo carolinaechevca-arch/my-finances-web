@@ -1,6 +1,6 @@
 import { CATEGORIAS_SHEET, GASTOS_FIJOS_SHEET } from "../api/spreadsheet-bootstrap";
 import { appendRecord, deleteRecord, listRecords, updateRecord, type SheetRow } from "../api/records";
-import { monthKey } from "./format";
+import { monthKey, parseDateInput, todayISO } from "./format";
 
 /** "Adicional" se conserva solo para poder leer registros históricos creados antes de retirarlo de Gastos Fijos. */
 export type RecurrenciaGastoFijo = "Fijo" | "Personalizado" | "Adicional";
@@ -12,7 +12,10 @@ export interface GastoFijo {
   serieId: string;
   nombre: string;
   monto: number;
+  /** Día mensual que se conserva como ancla para calcular la siguiente fecha. */
   diaPago: string;
+  /** Próxima fecha esperada completa (YYYY-MM-DD). */
+  proximaFecha: string;
   categoria: string;
   mes: string;
   estado: string;
@@ -47,6 +50,7 @@ function parseGastoFijo(r: SheetRow): GastoFijo {
     pausado = "",
     periodoId = "",
     notas = "",
+    proximaFecha = "",
   ] = r.values;
   return {
     row: r.row,
@@ -55,6 +59,7 @@ function parseGastoFijo(r: SheetRow): GastoFijo {
     nombre,
     monto: Number(monto) || 0,
     diaPago,
+    proximaFecha,
     categoria,
     mes,
     estado,
@@ -85,12 +90,13 @@ function serializeGastoFijo(g: GastoFijo): unknown[] {
     g.pausado ? "TRUE" : "FALSE",
     g.periodoId,
     g.notas,
+    g.proximaFecha,
   ];
 }
 
 /** Todos los gastos fijos registrados alguna vez, de cualquier mes/periodo — para el Histórico. */
 export async function listTodosLosGastosFijos(spreadsheetId: string): Promise<GastoFijo[]> {
-  const rows = await listRecords(spreadsheetId, GASTOS_FIJOS_SHEET, 15);
+  const rows = await listRecords(spreadsheetId, GASTOS_FIJOS_SHEET, 16);
   return rows.map(parseGastoFijo);
 }
 
@@ -158,13 +164,14 @@ export async function crearGastoFijo(
   nombre: string,
   monto: number,
   categoria: string,
-  diaPago: string,
+  proximaFecha: string,
   recurrencia: RecurrenciaGastoFijo,
   repiteCadaN: number,
   periodoActualId: string,
   notas = "",
 ): Promise<void> {
   const id = crypto.randomUUID();
+  const fecha = parseDateInput(proximaFecha);
   await appendRecord(
     spreadsheetId,
     GASTOS_FIJOS_SHEET,
@@ -174,7 +181,8 @@ export async function crearGastoFijo(
       serieId: id,
       nombre,
       monto,
-      diaPago,
+      diaPago: String(fecha.getDate()),
+      proximaFecha,
       categoria,
       mes: monthKey(),
       estado: "Pendiente",
@@ -191,7 +199,12 @@ export async function crearGastoFijo(
 
 /** Marca el gasto como pagado con el monto que realmente se pagó (puede ser distinto al esperado). */
 export async function marcarGastoPagado(spreadsheetId: string, gasto: GastoFijo, montoPagado: number): Promise<void> {
-  await updateRecord(spreadsheetId, GASTOS_FIJOS_SHEET, gasto.row, serializeGastoFijo({ ...gasto, estado: "Pagado", montoPagado }));
+  await updateRecord(spreadsheetId, GASTOS_FIJOS_SHEET, gasto.row, serializeGastoFijo({
+    ...gasto,
+    estado: "Pagado",
+    montoPagado,
+    proximaFecha: sumarMes(gasto.proximaFecha || todayISO(), gasto.diaPago),
+  }));
 }
 
 /** Revierte el gasto a pendiente y limpia el monto pagado registrado. */
@@ -200,7 +213,12 @@ export async function marcarGastoPendiente(spreadsheetId: string, gasto: GastoFi
     spreadsheetId,
     GASTOS_FIJOS_SHEET,
     gasto.row,
-    serializeGastoFijo({ ...gasto, estado: "Pendiente", montoPagado: null }),
+    serializeGastoFijo({
+      ...gasto,
+      estado: "Pendiente",
+      montoPagado: null,
+      proximaFecha: sumarMes(gasto.proximaFecha || todayISO(), gasto.diaPago, -1),
+    }),
   );
 }
 
@@ -213,7 +231,7 @@ export interface GastoFijoCambios {
   nombre: string;
   monto: number;
   categoria: string;
-  diaPago: string;
+  proximaFecha: string;
   recurrencia: RecurrenciaGastoFijo;
   repiteCadaN: number;
   notas: string;
@@ -229,7 +247,8 @@ export async function actualizarGastoFijo(spreadsheetId: string, gasto: GastoFij
       nombre: cambios.nombre,
       monto: cambios.monto,
       categoria: cambios.categoria,
-      diaPago: cambios.diaPago,
+      diaPago: String(parseDateInput(cambios.proximaFecha).getDate()),
+      proximaFecha: cambios.proximaFecha,
       recurrencia: cambios.recurrencia,
       repiteCadaN: cambios.recurrencia === "Personalizado" ? cambios.repiteCadaN : 0,
       contadorPeriodos: cambios.recurrencia === "Personalizado" ? gasto.contadorPeriodos : 0,
@@ -279,6 +298,12 @@ export async function reaplicarGastosFijos(spreadsheetId: string, periodoNuevoId
 }
 
 async function crearInstanciaGastoFijo(spreadsheetId: string, base: GastoFijo, periodoId: string, contadorPeriodos: number): Promise<void> {
+  let proximaFecha = base.estado === "Pagado"
+    ? base.proximaFecha
+    : sumarMes(base.proximaFecha || periodoId, base.diaPago);
+  while (proximaFecha && proximaFecha < periodoId) {
+    proximaFecha = sumarMes(proximaFecha, base.diaPago);
+  }
   await appendRecord(
     spreadsheetId,
     GASTOS_FIJOS_SHEET,
@@ -290,6 +315,7 @@ async function crearInstanciaGastoFijo(spreadsheetId: string, base: GastoFijo, p
       montoPagado: null,
       contadorPeriodos,
       periodoId,
+      proximaFecha,
     }),
   );
 }
@@ -372,13 +398,36 @@ export function sumDiferenciasPago(fijos: GastoFijo[]): number {
   return diferenciasPago(fijos).reduce((s, d) => s + d.diferencia, 0);
 }
 
-/** "vencida" si ya pasó el día de pago sin marcarlo pagado; "proxima" si faltan 5 días o menos. */
+function isoDate(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/** Suma meses conservando el día ancla y ajustando meses cortos al último día. */
+function sumarMes(fechaIso: string, diaAncla: string, cantidad = 1): string {
+  const actual = parseDateInput(fechaIso || todayISO());
+  const dia = Number(diaAncla) || actual.getDate();
+  const destino = new Date(actual.getFullYear(), actual.getMonth() + cantidad, 1);
+  const ultimoDia = new Date(destino.getFullYear(), destino.getMonth() + 1, 0).getDate();
+  destino.setDate(Math.min(dia, ultimoDia));
+  return isoDate(destino);
+}
+
+export function fechaEsperadaGastoFijo(gasto: GastoFijo): string {
+  if (gasto.proximaFecha) return gasto.proximaFecha;
+  if (!gasto.mes || !gasto.diaPago) return "";
+  const [anio, mes] = gasto.mes.split("-").map(Number);
+  const ultimoDia = new Date(anio, mes, 0).getDate();
+  return `${gasto.mes}-${String(Math.min(Number(gasto.diaPago), ultimoDia)).padStart(2, "0")}`;
+}
+
+/** "vencida" si ya pasó la fecha completa sin pagar; "proxima" si faltan 5 días o menos. */
 export function estadoAlertaGastoFijo(gasto: GastoFijo, hoy: Date = new Date()): "vencida" | "proxima" | null {
   if (gasto.estado === "Pagado") return null;
-  const dia = Number(gasto.diaPago);
-  if (!dia) return null;
-  const hoyDia = hoy.getDate();
-  if (hoyDia > dia) return "vencida";
-  if (dia - hoyDia <= 5) return "proxima";
+  const fecha = fechaEsperadaGastoFijo(gasto);
+  if (!fecha) return null;
+  const hoyIso = isoDate(hoy);
+  if (fecha < hoyIso) return "vencida";
+  const diferencia = Math.round((parseDateInput(fecha).getTime() - parseDateInput(hoyIso).getTime()) / 86400000);
+  if (diferencia <= 5) return "proxima";
   return null;
 }

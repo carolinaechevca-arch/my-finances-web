@@ -132,6 +132,7 @@ export const SHEET_DEFINITIONS: SheetDefinition[] = [
       "Pausado",
       "PeriodoId",
       "Notas",
+      "ProximaFecha",
     ],
   },
   {
@@ -202,7 +203,7 @@ let ensurePromise: Promise<{ spreadsheetId: string; created: boolean }> | null =
  * usuarios corren la migración completa una vez más y vuelven a quedar
  * rápidos.
  */
-const SCHEMA_VERSION = 7;
+const SCHEMA_VERSION = 8;
 const CACHE_KEY = "mf_spreadsheet_cache";
 
 interface SpreadsheetCache {
@@ -326,6 +327,7 @@ async function ensureSpreadsheetInternal(): Promise<{ spreadsheetId: string; cre
     await ensureDefaultHistorialPeriodos(existingId);
     await ensureMovimientosIngresosPeriodo(existingId);
     await ensureGastosFijosPeriodoColumnas(existingId);
+    await ensureGastosFijosProximaFecha(existingId);
     guardarCache(existingId);
     return { spreadsheetId: existingId, created: false };
   }
@@ -621,7 +623,7 @@ async function ensureHistorialIngresosFijosHeaders(spreadsheetId: string): Promi
 async function ensureGastosFijosHeaders(spreadsheetId: string): Promise<void> {
   const def = SHEET_DEFINITIONS.find((s) => s.name === GASTOS_FIJOS_SHEET)!;
   const [headerRow = []] = await getValues(spreadsheetId, `${GASTOS_FIJOS_SHEET}!A1:Z1`);
-  if (headerRow.length >= def.headers.length) return;
+  if (def.headers.every((header, index) => headerRow[index] === header)) return;
   await updateValues(spreadsheetId, `${GASTOS_FIJOS_SHEET}!A1`, [def.headers]);
 }
 
@@ -663,6 +665,47 @@ async function ensureGastosFijosPeriodoColumnas(spreadsheetId: string): Promise<
       "FALSE",
       periodoActualId,
     ]);
+  }
+}
+
+/**
+ * Migra el antiguo día suelto a una próxima fecha completa. Las instancias
+ * pagadas que siguen vigentes avanzan un mes; las históricas conservan la
+ * fecha del mes al que pertenecían.
+ */
+async function ensureGastosFijosProximaFecha(spreadsheetId: string): Promise<void> {
+  const rows = await listRecords(spreadsheetId, GASTOS_FIJOS_SHEET, 16);
+  const pendientes = rows.filter((row) => !row.values[15]);
+  if (pendientes.length === 0) return;
+
+  const ultimaPorSerie = new Map<string, number>();
+  for (const row of rows) {
+    const serieId = row.values[8] || row.values[7] || String(row.row);
+    ultimaPorSerie.set(serieId, Math.max(ultimaPorSerie.get(serieId) ?? 0, row.row));
+  }
+
+  const hoy = new Date();
+  const iso = (fecha: Date) => `${fecha.getFullYear()}-${String(fecha.getMonth() + 1).padStart(2, "0")}-${String(fecha.getDate()).padStart(2, "0")}`;
+  const fechaConDia = (anio: number, mesCero: number, dia: number) => {
+    const ultimo = new Date(anio, mesCero + 1, 0).getDate();
+    return new Date(anio, mesCero, Math.min(Math.max(dia, 1), ultimo));
+  };
+
+  for (const row of pendientes) {
+    const values = Array.from({ length: 16 }, (_, index) => row.values[index] ?? "");
+    const dia = Number(values[2]) || 1;
+    const [anioMes, numeroMes] = values[4].split("-").map(Number);
+    let fecha = anioMes && numeroMes
+      ? fechaConDia(anioMes, numeroMes - 1, dia)
+      : fechaConDia(hoy.getFullYear(), hoy.getMonth(), dia);
+
+    const serieId = values[8] || values[7] || String(row.row);
+    const esUltima = ultimaPorSerie.get(serieId) === row.row;
+    if (esUltima && values[5] === "Pagado") {
+      fecha = fechaConDia(fecha.getFullYear(), fecha.getMonth() + 1, dia);
+    }
+    values[15] = iso(fecha);
+    await updateRecord(spreadsheetId, GASTOS_FIJOS_SHEET, row.row, values);
   }
 }
 

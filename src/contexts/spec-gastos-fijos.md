@@ -32,9 +32,15 @@ Gastos Fijos contiene únicamente obligaciones recurrentes:
 
 Igual que en Ingresos: si un gasto **Fijo** o **Personalizado** está en estado **Pausado** cuando le toca reaplicarse, **no se reaplica pero tampoco se elimina** — la definición queda intacta y pausada, simplemente no genera una instancia pagable para ese periodo.
 
-## 3. Cambios en "Día de pago"
+## 3. Próxima fecha de pago completa
 
-**Confirmado: no cambia.** "Día de pago" sigue siendo un **día de mes calendario fijo (1-31)**, sin importar el tipo de periodo configurado globalmente (semanal/quincenal/mensual/manual). No se adapta al tipo de periodo.
+Cada gasto maneja una fecha completa `YYYY-MM-DD`, no solo un número de día. El día de esa fecha se conserva internamente como ancla mensual para calcular la siguiente fecha y ajustar meses cortos.
+
+- Vencido: la fecha completa ya pasó y el gasto sigue pendiente.
+- Hoy: la fecha completa coincide con hoy y sigue pendiente.
+- Al marcarlo pagado, la próxima fecha avanza un mes conservando el día ancla. Ejemplo: Spotify pagado el 8 de octubre muestra como próxima fecha el 8 de noviembre y no queda vencido.
+- Al revertirlo a pendiente, recupera la fecha anterior.
+- Los datos antiguos que solo tenían día se migran automáticamente a una fecha completa.
 
 ## 4. Nueva tarjeta: "Gasto por categoría" dentro de Gastos Fijos
 
@@ -51,7 +57,7 @@ Igual que en Ingresos: si un gasto **Fijo** o **Personalizado** está en estado 
 - Título "💸 Gastos Fijos".
 - Fila de stats: Gastos pendientes (primaria), Total, Pagado. *(Sin cambio de copy — ya no decía "del mes", se mantiene igual)*
 - Botón "Diferencia con lo pagado: $X" (`diff-pill`) → modal con gastos donde `montoPagado` difiere de lo esperado, rojo/verde según sea de más o de menos.
-- Tabla ordenable (Nombre/Día/Monto asc/desc), columnas: Nombre, Categoría (insignia), Día de pago (con "Vencido"/"Hoy" y resaltado `is-vencido`/`is-today`), Estado (toggle Pagado/Pendiente — clic en "Pendiente→Pagado" abre `showMontoPagadoDialog`), Monto (con delta de diferencia coloreado si difirió), Acciones.
+- Tabla ordenable (Nombre/Fecha/Monto asc/desc), columnas: Nombre, Categoría (insignia), Próxima fecha (con "Vencido"/"Hoy" y resaltado `is-vencido`/`is-today`), Estado (toggle Pagado/Pendiente — clic en "Pendiente→Pagado" abre `showMontoPagadoDialog`), Monto (con delta de diferencia coloreado si difirió), Acciones.
 - Modales: Nueva categoría, Editar gasto fijo.
 
 ## 6. Cambios en el formulario "Agregar gasto" y modal "Editar gasto fijo"
@@ -63,7 +69,7 @@ Se agrega el selector de tipo de recurrencia (sección 1), con su campo condicio
 - **Tipo de recurrencia**: Fijo / Personalizado.
   - Si es **Personalizado** → aparece el campo numérico "¿Cada cuántos periodos se repite?".
 - **Monto** — sin cambio.
-- **Día de pago** — sin cambio (día de mes 1-31, sección 3).
+- **Próxima fecha de pago** — fecha calendario completa obligatoria.
 
 El modal "Editar gasto fijo" refleja exactamente los mismos campos, incluyendo el condicional de N para Personalizado.
 
@@ -85,7 +91,7 @@ Se agrega una columna **Recurrencia** (no existía antes, porque antes todo era 
 - Nueva tarjeta "Gasto por categoría" con barras de progreso (sin tope configurable).
 
 **No cambia:**
-- "Día de pago" sigue siendo día de mes calendario fijo.
+- La fecha completa avanza mensualmente conservando el día ancla.
 - Stats row, diff-pill, tabla base, modales de categoría — igual que hoy.
 - Paleta de color (azul marino, sin acento morado).
 
@@ -93,7 +99,7 @@ Se agrega una columna **Recurrencia** (no existía antes, porque antes todo era 
 
 Cada gasto fijo puede llevar una nota de texto libre opcional, igual que en Ingresos/Deudas/Gastos y Compras:
 
-- Campo "Notas (opcional)" en el formulario de creación y en el modal "Editar gasto fijo" (después de "Día de pago").
+- Campo "Notas (opcional)" en el formulario de creación y en el modal "Editar gasto fijo" (después de "Próxima fecha de pago").
 - Se muestra como subtítulo pequeño debajo del nombre en la fila de la tabla, solo si tiene contenido.
 - Al reaplicarse un gasto "Fijo"/"Personalizado" en el reinicio de periodo, la nota se copia a la nueva instancia (igual que el resto de los campos de la serie).
 - Persistencia: nueva columna "Notas" al final de la hoja `GastosFijos` (columna 15) — las filas existentes quedan con nota vacía hasta que se editen.

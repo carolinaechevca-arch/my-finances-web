@@ -3,7 +3,7 @@ import deviceFloppyIcon from "../../icon/device-floppy.svg?raw";
 import editIcon from "../../icon/edit.svg?raw";
 import trashIcon from "../../icon/trash-x.svg?raw";
 import { ensureSpreadsheet } from "../../api/spreadsheet-bootstrap";
-import { formatMoney } from "../../domain/format";
+import { formatFullDateLabel, formatMoney, parseDateInput, todayISO } from "../../domain/format";
 import { formatPeriodoBadge, obtenerConfigPeriodo } from "../../domain/periodo";
 import { mountEyeToggle } from "../components/eye-toggle";
 import {
@@ -43,7 +43,7 @@ function sortGastos(list: GastoFijoFila[], order: SortOrder): GastoFijoFila[] {
     case "monto-asc":
       return copy.sort((a, b) => a.monto - b.monto);
     case "dia":
-      return copy.sort((a, b) => (Number(a.diaPago) || 99) - (Number(b.diaPago) || 99));
+      return copy.sort((a, b) => (a.proximaFecha || "9999").localeCompare(b.proximaFecha || "9999"));
     default:
       return copy.sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
   }
@@ -56,7 +56,7 @@ const RECURRENCIA_BADGE: Record<RecurrenciaGastoFijo, string> = {
 };
 
 export async function renderGastosFijos(container: HTMLElement): Promise<void> {
-  const hoy = new Date().getDate();
+  const hoy = todayISO();
 
   container.innerHTML = `
     <div class="page-title-row">
@@ -109,7 +109,7 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
           <input id="gf-repite-n" type="number" min="2" step="1" />
         </div>
         <div class="field"><label for="gf-monto">Monto</label><input id="gf-monto" type="number" min="0" step="0.01" required /></div>
-        <div class="field"><label for="gf-dia">Día de pago</label><input id="gf-dia" type="number" min="1" max="31" /></div>
+        <div class="field"><label for="gf-dia">Próxima fecha de pago</label><input id="gf-dia" type="date" required /></div>
         <div class="field"><label for="gf-notas">Notas (opcional)</label><input id="gf-notas" type="text" /></div>
         <button type="submit" class="btn">${deviceFloppyIcon} Guardar</button>
       </form>
@@ -123,7 +123,7 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
           <label for="gf-orden">Ordenar por</label>
           <select id="gf-orden">
             <option value="nombre">Nombre (A-Z)</option>
-            <option value="dia">Día de pago</option>
+            <option value="dia">Próxima fecha de pago</option>
             <option value="monto-desc">Monto (mayor a menor)</option>
             <option value="monto-asc">Monto (menor a mayor)</option>
           </select>
@@ -177,7 +177,7 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
           <input id="edit-repite-n" type="number" min="2" step="1" />
         </div>
         <div class="field"><label for="edit-monto">Monto</label><input id="edit-monto" type="number" min="0" step="0.01" required /></div>
-        <div class="field"><label for="edit-dia">Día de pago</label><input id="edit-dia" type="number" min="1" max="31" /></div>
+        <div class="field"><label for="edit-dia">Próxima fecha de pago</label><input id="edit-dia" type="date" required /></div>
         <div class="field"><label for="edit-notas">Notas (opcional)</label><input id="edit-notas" type="text" /></div>
         <p class="empty-state" id="edit-modal-error" hidden></p>
         <div class="modal__actions">
@@ -381,7 +381,7 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
     editRepiteNField.hidden = gasto.recurrencia !== "Personalizado";
     editRepiteNInput.value = gasto.repiteCadaN > 0 ? String(gasto.repiteCadaN) : "";
     editMontoInput.value = String(gasto.monto);
-    editDiaInput.value = gasto.diaPago;
+    editDiaInput.value = gasto.proximaFecha;
     editNotasInput.value = gasto.notas;
     editModalError.hidden = true;
 
@@ -406,9 +406,9 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
         const monto = Number(editMontoInput.value);
         const recurrencia = editRecurrenciaSelect.value as RecurrenciaGastoFijo;
         const repiteCadaN = Number(editRepiteNInput.value) || 0;
-        if (!nombre || !monto || monto <= 0) {
+        if (!nombre || !monto || monto <= 0 || !editDiaInput.value) {
           editModalError.hidden = false;
-          editModalError.textContent = "Ingresa un nombre y un monto válido.";
+          editModalError.textContent = "Ingresa un nombre, un monto y la próxima fecha de pago.";
           return;
         }
         if (recurrencia === "Personalizado" && repiteCadaN < 2) {
@@ -424,7 +424,7 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
             nombre,
             monto,
             categoria: editCategoriaValue,
-            diaPago: editDiaInput.value.trim(),
+            proximaFecha: editDiaInput.value,
             recurrencia,
             repiteCadaN,
             notas: editNotasInput.value.trim(),
@@ -506,9 +506,9 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
     const rows = ordered
       .map((gasto) => {
         const pagado = gasto.estado === "Pagado";
-        const diaPagoNum = Number(gasto.diaPago) || 0;
-        const esHoy = !gasto.enEspera && diaPagoNum === hoy;
-        const vencido = !gasto.enEspera && !pagado && diaPagoNum > 0 && diaPagoNum < hoy;
+        const fechaPago = gasto.proximaFecha;
+        const esHoy = !gasto.enEspera && !pagado && fechaPago === hoy;
+        const vencido = !gasto.enEspera && !pagado && Boolean(fechaPago) && fechaPago < hoy;
         const tieneDiferencia = !gasto.enEspera && pagado && gasto.montoPagado !== null && gasto.montoPagado !== gasto.monto;
         const diferencia = tieneDiferencia ? (gasto.montoPagado as number) - gasto.monto : 0;
         const diferenciaHtml = tieneDiferencia
@@ -547,7 +547,7 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
             <td data-label="Categoría">${gasto.categoria ? `<span class="badge">${gasto.categoria}</span>` : "—"}</td>
             <td data-label="Recurrencia">${recurrenciaCell}</td>
             <td data-label="Activo">${activoCell}</td>
-            <td data-label="Día de pago" class="dia-pago-cell"><span class="dia-pago-num">${gasto.diaPago || "—"}</span>${diaBadge}</td>
+            <td data-label="Próxima fecha" class="dia-pago-cell"><span class="dia-pago-num">${fechaPago ? formatFullDateLabel(parseDateInput(fechaPago)) : "—"}</span>${diaBadge}</td>
             <td data-label="Estado">${estadoCell}</td>
             <td data-label="Monto" class="text-right amount-cell">${formatMoney(gasto.enEspera || !pagado ? gasto.monto : (gasto.montoPagado ?? gasto.monto))}${diferenciaHtml}</td>
             <td class="actions-cell">
@@ -568,7 +568,7 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
               <th>Categoría</th>
               <th>Recurrencia</th>
               <th>Activo</th>
-              <th>Día de pago</th>
+              <th>Próxima fecha</th>
               <th>Estado</th>
               <th class="text-right">Monto</th>
               <th class="actions-col">Acciones</th>
@@ -647,9 +647,9 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
     const monto = Number(montoInput.value);
     const recurrencia = recurrenciaSelect.value as RecurrenciaGastoFijo;
     const repiteCadaN = Number(repiteNInput.value) || 0;
-    if (!nombre || !monto || monto <= 0) {
+    if (!nombre || !monto || monto <= 0 || !diaInput.value) {
       formError.hidden = false;
-      formError.textContent = "Ingresa un nombre y un monto válido.";
+      formError.textContent = "Ingresa un nombre, un monto y la próxima fecha de pago.";
       return;
     }
     if (!formCategoriaValue) {
@@ -670,7 +670,7 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
         nombre,
         monto,
         formCategoriaValue,
-        diaInput.value.trim(),
+        diaInput.value,
         recurrencia,
         repiteCadaN,
         periodoActualId,
@@ -682,7 +682,7 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
       }
       nombreInput.value = "";
       montoInput.value = "";
-      diaInput.value = "";
+      diaInput.value = todayISO();
       notasInput.value = "";
       recurrenciaSelect.value = "Fijo";
       repiteNInput.value = "";
@@ -711,6 +711,7 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
     periodoBadge.textContent = formatPeriodoBadge(configPeriodo);
     refreshCombos();
     renderNombresDatalist();
+    diaInput.value = todayISO();
     await reload();
   } catch (err) {
     listEl.innerHTML = `<p class="empty-state">${err instanceof Error ? err.message : "No se pudo cargar la información."}</p>`;

@@ -19,6 +19,7 @@ import { formatFullDateLabel, formatMoney, monthKey, parseDateInput, todayISO } 
 import {
   calcularGastosFijosVigentes,
   estadoAlertaGastoFijo,
+  fechaEsperadaGastoFijo,
   filtrarGastosFijosDelMes,
   listTodosLosGastosFijos,
   sumGastosFijosPagado,
@@ -307,6 +308,7 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
     // --- B. Alertas activas ---
     const hoy = new Date();
     const hoyDia = hoy.getDate();
+    const hoyIso = todayISO();
 
     type NivelAlerta = "rojo" | "naranja" | "amarillo" | "verde";
     type TipoAlerta = "gastoFijo" | "deuda" | "compra" | "meDeben";
@@ -315,8 +317,9 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
 
     for (const g of gastosFijos) {
       const estadoG = estadoAlertaGastoFijo(g, hoy);
+      const fechaPago = fechaEsperadaGastoFijo(g);
       if (estadoG === "vencida") {
-        const dias = hoyDia - Number(g.diaPago);
+        const dias = Math.max(1, Math.round((parseDateInput(hoyIso).getTime() - parseDateInput(fechaPago).getTime()) / 86400000));
         alertas.push({
           nivel: "rojo",
           tipo: "gastoFijo",
@@ -327,7 +330,7 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
         alertas.push({
           nivel: "naranja",
           tipo: "gastoFijo",
-          texto: `${g.nombre} (${formatMoney(g.monto)}) vence el día ${g.diaPago}`,
+          texto: `${g.nombre} (${formatMoney(g.monto)}) vence el ${formatFullDateLabel(parseDateInput(fechaPago))}`,
           destino: "gastos-fijos",
         });
       }
@@ -386,8 +389,8 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
     const gastosFijosPendiente = sumGastosFijosPendientes(gastosFijos);
     const progresoFijos = gastosFijos.length > 0 ? (pagadosCount / gastosFijos.length) * 100 : 0;
     const proximosFijos = [...gastosFijos]
-      .filter((g) => g.estado !== "Pagado" && Number(g.diaPago) > 0)
-      .sort((a, b) => Number(a.diaPago) - Number(b.diaPago))
+      .filter((g) => g.estado !== "Pagado" && Boolean(fechaEsperadaGastoFijo(g)))
+      .sort((a, b) => fechaEsperadaGastoFijo(a).localeCompare(fechaEsperadaGastoFijo(b)))
       .slice(0, 3);
 
     gastosFijosResumen.innerHTML =
@@ -402,7 +405,7 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
         <div class="progress-bar"><div class="progress-bar__fill" style="width:${progresoFijos}%"></div></div>
         <p class="empty-state" style="margin:0 0 12px">${pagadosCount} de ${gastosFijos.length} pagados</p>
         ${proximosFijos
-          .map((g) => `<div class="record-row"><div class="record-row__main"><span class="record-row__title">${g.nombre}</span><span class="record-row__subtitle">Vence el día ${g.diaPago}</span></div><div class="record-row__amount">${formatMoney(g.monto)}</div></div>`)
+          .map((g) => `<div class="record-row"><div class="record-row__main"><span class="record-row__title">${g.nombre}</span><span class="record-row__subtitle">Vence el ${formatFullDateLabel(parseDateInput(fechaEsperadaGastoFijo(g)))}</span></div><div class="record-row__amount">${formatMoney(g.monto)}</div></div>`)
           .join("")}
       `;
     gastosFijosEyeBtn.hidden = gastosFijos.length === 0;
