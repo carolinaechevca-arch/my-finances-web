@@ -1,23 +1,17 @@
 import { appendRecord, listRecords, updateRecord } from "../api/records";
 import { CONFIG_PERIODO_SHEET, HISTORIAL_PERIODOS_SHEET } from "../api/spreadsheet-bootstrap";
-import { calcularDisponible } from "./balance";
-import { crearDeuda } from "./deudas";
 import { formatMonthLabel, parseDateInput, todayISO } from "./format";
 import { reaplicarGastosFijos } from "./gastos";
-import { archivarIngresosAdicionalesAbiertos, crearIngreso } from "./ingresos";
+import { crearIngreso, eliminarPagosUnicosDelPeriodo } from "./ingresos";
 
-export type FrecuenciaPeriodo = "Semanal" | "Quincenal" | "Mensual" | "Manual";
+export type FrecuenciaPeriodo = "Manual";
 
 export interface ConfigPeriodo {
   frecuencia: FrecuenciaPeriodo;
-  /** "YYYY-MM-DD" del último reinicio (automático o manual). */
+  /** "YYYY-MM-DD" del último reinicio manual. */
   fechaUltimoReinicio: string;
-  /** Solo aplica en modo Semanal: 0=domingo..6=sábado. Elegible por el usuario en Configuración. */
+  /** Columna legada conservada para mantener compatible la hoja existente. */
   diaInicioSemana: number;
-}
-
-function esFrecuenciaPeriodo(value: string): value is FrecuenciaPeriodo {
-  return value === "Semanal" || value === "Quincenal" || value === "Mensual" || value === "Manual";
 }
 
 function isoDate(d: Date): string {
@@ -33,124 +27,58 @@ function diaAnterior(fechaIso: string): string {
 /** Config global de periodo (única fila en ConfigPeriodo). Asume que ensureSpreadsheet ya sembró el valor por defecto. */
 export async function obtenerConfigPeriodo(spreadsheetId: string): Promise<ConfigPeriodo> {
   const [row] = await listRecords(spreadsheetId, CONFIG_PERIODO_SHEET, 3);
-  const [frecuencia = "", fechaUltimoReinicio = "", diaInicioSemana = ""] = row?.values ?? [];
+  const [, fechaUltimoReinicio = "", diaInicioSemana = ""] = row?.values ?? [];
   return {
-    frecuencia: esFrecuenciaPeriodo(frecuencia) ? frecuencia : "Mensual",
+    frecuencia: "Manual",
     fechaUltimoReinicio: fechaUltimoReinicio || todayISO(),
     diaInicioSemana: diaInicioSemana !== "" ? Number(diaInicioSemana) : 1,
   };
 }
 
-export async function guardarFrecuenciaPeriodo(spreadsheetId: string, frecuencia: FrecuenciaPeriodo): Promise<void> {
-  const config = await obtenerConfigPeriodo(spreadsheetId);
-  await updateRecord(spreadsheetId, CONFIG_PERIODO_SHEET, 2, [frecuencia, config.fechaUltimoReinicio, String(config.diaInicioSemana)]);
-}
-
-/** Día en que empieza la semana en modo Semanal (0=domingo..6=sábado) — elegible por el usuario. */
-export async function guardarDiaInicioSemana(spreadsheetId: string, dia: number): Promise<void> {
-  const config = await obtenerConfigPeriodo(spreadsheetId);
-  await updateRecord(spreadsheetId, CONFIG_PERIODO_SHEET, 2, [config.frecuencia, config.fechaUltimoReinicio, String(dia)]);
-}
-
 /**
- * Corte más reciente (<= hoy) que le corresponde al modo automático; null en
- * modo Manual (no hay corte automático). Quincenal corta los días 1 y 16,
- * Mensual corta siempre el día 1, Semanal usa el día que el usuario eligió
- * como inicio de semana (`config.diaInicioSemana`).
- */
-function corteMasReciente(config: ConfigPeriodo, hoy: Date): string | null {
-  if (config.frecuencia === "Manual") return null;
-  if (config.frecuencia === "Mensual") return isoDate(new Date(hoy.getFullYear(), hoy.getMonth(), 1));
-  if (config.frecuencia === "Quincenal") {
-    const dia = hoy.getDate() >= 16 ? 16 : 1;
-    return isoDate(new Date(hoy.getFullYear(), hoy.getMonth(), dia));
-  }
-  const diaSemana = hoy.getDay(); // 0=domingo..6=sábado
-  const offset = (diaSemana - config.diaInicioSemana + 7) % 7;
-  const inicio = new Date(hoy);
-  inicio.setDate(hoy.getDate() - offset);
-  return isoDate(inicio);
-}
-
-/** Si ya toca reiniciar (modo automático que cruzó su próximo corte), la nueva fecha de reinicio; si no, null. */
-export function debeReiniciar(config: ConfigPeriodo, hoy: Date = new Date()): string | null {
-  const corte = corteMasReciente(config, hoy);
-  if (!corte) return null;
-  return corte > config.fechaUltimoReinicio ? corte : null;
-}
-
-/** Cómo traspasar el dinero disponible que quedó al cerrar un periodo, cuando cerró en negativo (ver domain/balance.ts). Solo aplica si `disponible < 0`; si sobró dinero, siempre se traspasa como ingreso positivo. */
-export type TraspasoDeficit = "adicional" | "deuda";
-
-/**
- * Efecto de reiniciar el periodo (automático o por el botón manual): archiva
- * los ingresos "Adicional" que seguían vigentes, reaplica Gastos Fijos,
- * avanza el contador de compras recurrentes, mueve la fecha de reinicio, y
- * traspasa el dinero disponible que quedó del periodo que cierra al
- * siguiente — si sobró, como un ingreso "Adicional"; si quedó en negativo,
- * como ingreso "Adicional" negativo (default, usado en reinicios
- * automáticos donde no hay nadie para preguntar) o como una deuda simple
- * contigo mismo, según `traspasoDeficit` (solo relevante si es negativo;
- * ver spec-dinero-disponible.md). También registra la fecha en
- * HistorialPeriodos, para que Histórico pueda navegar este periodo más
- * adelante con su fecha real.
+ * Efecto del reinicio manual: borra las fuentes de pago único del periodo
+ * que termina (sus movimientos permanecen en el historial), reaplica Gastos
+ * Fijos, mueve la fecha de reinicio y registra como pago único el sobrante
+ * real confirmado por el usuario. Un sobrante de cero no genera movimiento
+ * y los valores negativos se rechazan.
  *
- * Orden importante: mover la fecha de reinicio y traspasar el sobrante van
- * PRIMERO, antes de archivar ingresos y reaplicar Gastos Fijos (que pueden
- * ser muchas escrituras seguidas — una por cada ingreso/gasto fijo). Así, si
+ * Orden importante: mover la fecha de reinicio va primero, antes de borrar
+ * pagos únicos y reaplicar Gastos Fijos (que pueden ser muchas escrituras
+ * seguidas). Así, si
  * la API de Sheets corta a mitad de camino (límite de peticiones por
  * minuto), el periodo ya quedó movido correctamente y no se queda contando
  * "este periodo" desde una fecha vieja — lo que sí puede quedar a medias son
- * los efectos secundarios (reaplicar algún gasto fijo, archivar algún
- * ingreso), visibles y corregibles a mano si hace falta.
+ * los efectos secundarios, visibles y corregibles a mano si hace falta.
  */
 export async function ejecutarReinicioPeriodo(
   spreadsheetId: string,
   nuevaFecha: string,
-  traspasoDeficit: TraspasoDeficit = "adicional",
+  sobranteReal: number,
 ): Promise<void> {
+  if (!Number.isFinite(sobranteReal) || sobranteReal < 0) {
+    throw new Error("El sobrante real debe ser un valor igual o mayor que cero.");
+  }
   const config = await obtenerConfigPeriodo(spreadsheetId);
-  const { disponible } = await calcularDisponible(spreadsheetId, config.fechaUltimoReinicio);
 
   await updateRecord(spreadsheetId, CONFIG_PERIODO_SHEET, 2, [config.frecuencia, nuevaFecha, String(config.diaInicioSemana)]);
   await appendRecord(spreadsheetId, HISTORIAL_PERIODOS_SHEET, [nuevaFecha]);
+  await eliminarPagosUnicosDelPeriodo(spreadsheetId);
 
-  if (disponible > 0) {
-    await crearIngreso(spreadsheetId, "Sobrante de periodo", disponible, "Traspasado automáticamente del periodo anterior", "UnicoMes");
-  } else if (disponible < 0) {
-    if (traspasoDeficit === "deuda") {
-      await crearDeuda(spreadsheetId, {
-        direccion: "YoDebo",
-        contraparte: "Sobregiro de periodo",
-        tipo: "Sobregiro de periodo",
-        montoOriginal: Math.abs(disponible),
-        montoCuota: 0,
-        numCuotas: 0,
-        diaPago: "",
-        fechaInicio: nuevaFecha,
-        notas: "Generado automáticamente: el periodo anterior cerró en negativo.",
-        modo: "Simple",
-      });
-    } else {
-      await crearIngreso(
-        spreadsheetId,
-        "Sobrante de periodo",
-        disponible,
-        "El periodo anterior cerró en negativo; traspasado como ajuste.",
-        "UnicoMes",
-      );
-    }
+  if (sobranteReal > 0) {
+    await crearIngreso(
+      spreadsheetId,
+      "Sobrante anterior",
+      sobranteReal,
+      "Monto real confirmado al cerrar el periodo anterior.",
+      "UnicoMes",
+      "PagoUnico",
+      "",
+      "Lo que sobró del periodo anterior",
+      nuevaFecha,
+    );
   }
 
-  await archivarIngresosAdicionalesAbiertos(spreadsheetId);
   await reaplicarGastosFijos(spreadsheetId, nuevaFecha);
-}
-
-/** Revisa si toca reiniciar en modo automático y lo ejecuta. Se llama una sola vez al cargar la app. */
-export async function ensurePeriodoActualizado(spreadsheetId: string): Promise<void> {
-  const config = await obtenerConfigPeriodo(spreadsheetId);
-  const nuevaFecha = debeReiniciar(config);
-  if (nuevaFecha) await ejecutarReinicioPeriodo(spreadsheetId, nuevaFecha);
 }
 
 /** Insignia reutilizable ("Día N desde el último reinicio") que reemplaza la insignia de mes en toda la app. */

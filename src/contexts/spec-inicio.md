@@ -26,7 +26,7 @@ Estas son todas las tarjetas del dashboard hoy. Su **contenido y lógica de nego
 3. **Resumen de Gastos Fijos** — mini grilla Total/Pagado/Falta, barra de progreso, hasta 3 ítems próximos, botón "Ver módulo".
 4. **Resumen de Deudas** — total pendiente, próximo pago, hasta 3 barras de progreso por contraparte.
 5. **Resumen de Me Deben** — total que te deben, advertencia si hay algo vencido.
-6. **Resumen de Ahorros y Metas** (oculta si no hay metas activas) — total ahorrado, top 3 barras de progreso, "Ver todas".
+6. **Resumen de Bolsillos de Ahorro** (oculta si no hay bolsillos activos) — saldo total, top 3 bolsillos por saldo y "Ver todas". La barra de progreso aparece solo si el bolsillo tiene meta.
 7. **Gastos del mes por categoría** — barras horizontales por categoría, descendente.
 8. **Comparativo** (oculta sin datos del mes anterior) — frase de variación % vs. mes anterior. *(Esta es la única tarjeta con lógica de comparación porcentual — no se agrega ese indicador a ninguna otra tarjeta.)*
 9. **Últimos movimientos** — feed de las 6 transacciones más recientes.
@@ -64,7 +64,7 @@ Propuesta de tamaño por tarjeta (ajustable en implementación, ya que el usuari
 | Resumen Gastos Fijos | Normal, 1 columna |
 | Resumen Deudas | Normal, 1 columna |
 | Resumen Me Deben | Normal, 1 columna |
-| Resumen Ahorros y Metas | Normal, 1 columna |
+| Resumen Bolsillos de Ahorro | Normal, 1 columna |
 | Gastos por categoría | Ancha (span 2 columnas) — barras horizontales necesitan espacio |
 | Comparativo | Ancha, baja altura (span 2 columnas, 1 línea de texto) |
 | Últimos movimientos | Alta, 1 columna |
@@ -86,7 +86,7 @@ Cada tarjeta del dashboard —no solo Balance— lleva ahora un **ícono pequeñ
 | Resumen Gastos Fijos | `cash-minus` |
 | Resumen Deudas | `pig-money` |
 | Resumen Me Deben | `businessplan` |
-| Resumen Ahorros y Metas | `moneybag-plus` |
+| Resumen Bolsillos de Ahorro | `moneybag-plus` |
 | Gastos por categoría | *(nuevo — proponer `bi-pie-chart` de Bootstrap Icons o un SVG nuevo `pie-chart.svg`, a definir)* |
 | Comparativo | *(nuevo — proponer `bi-graph-up` o SVG nuevo, a definir)* |
 | Últimos movimientos | `cash` |

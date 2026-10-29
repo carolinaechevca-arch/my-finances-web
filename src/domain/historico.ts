@@ -11,10 +11,12 @@ import { listTodosLosGastos, sumGastos, type GastoYCompra } from "./gastos-y-com
 import {
   estadoIngresoEnFecha,
   listHistorialIngresos,
+  listMovimientosIngresos,
   listTodosLosIngresos,
   ocurrenciasEnMes,
   type CambioIngreso,
   type IngresoFijo,
+  type MovimientoIngreso,
 } from "./ingresos";
 import { listMetas, listTodosLosMovimientos, type Meta, type MovimientoMeta } from "./metas";
 import { armarPeriodosDisponibles, type PeriodoHistorico } from "./periodo";
@@ -27,6 +29,7 @@ import { armarPeriodosDisponibles, type PeriodoHistorico } from "./periodo";
 export interface HistoricoSnapshot {
   ingresos: IngresoFijo[];
   cambiosIngresos: CambioIngreso[];
+  movimientosIngresos: MovimientoIngreso[];
   gastosFijos: GastoFijo[];
   gastosYCompras: GastoYCompra[];
   deudasYoDebo: Deuda[];
@@ -40,6 +43,7 @@ export async function cargarSnapshotHistorico(spreadsheetId: string): Promise<Hi
   const [
     ingresos,
     cambiosIngresos,
+    movimientosIngresos,
     gastosFijos,
     gastosYCompras,
     deudasYoDebo,
@@ -50,6 +54,7 @@ export async function cargarSnapshotHistorico(spreadsheetId: string): Promise<Hi
   ] = await Promise.all([
     listTodosLosIngresos(spreadsheetId),
     listHistorialIngresos(spreadsheetId),
+    listMovimientosIngresos(spreadsheetId),
     listTodosLosGastosFijos(spreadsheetId),
     listTodosLosGastos(spreadsheetId),
     listDeudas(spreadsheetId, "YoDebo"),
@@ -61,6 +66,7 @@ export async function cargarSnapshotHistorico(spreadsheetId: string): Promise<Hi
   return {
     ingresos,
     cambiosIngresos,
+    movimientosIngresos,
     gastosFijos,
     gastosYCompras,
     deudasYoDebo,
@@ -74,12 +80,23 @@ export async function cargarSnapshotHistorico(spreadsheetId: string): Promise<Hi
 function sumIngresosEnMes(snap: HistoricoSnapshot, mes: string): number {
   const finMes = endOfMonthISO(mes);
   const fechaDelMes = parseDateInput(finMes);
-  return snap.ingresos.reduce((s, i) => {
+  const movimientos = snap.movimientosIngresos.filter(
+    (m) => m.estado === "Recibido" && m.fechaRecibida.slice(0, 7) === mes,
+  );
+  const reales = movimientos.reduce((s, m) => s + m.montoReal, 0);
+  const idsConMovimiento = new Set(movimientos.map((m) => m.fuenteId));
+  const legado = snap.ingresos.reduce((s, i) => {
+    const primerMovimiento = snap.movimientosIngresos
+      .filter((m) => m.fuenteId === i.id && m.estado === "Recibido")
+      .map((m) => m.fechaRecibida)
+      .sort()[0];
+    if (i.modeloNuevo || idsConMovimiento.has(i.id) || (primerMovimiento && mes >= primerMovimiento.slice(0, 7))) return s;
     if (i.recurrencia === "UnicoMes") return i.mes === mes && i.activo ? s + i.monto : s;
     if (i.fechaCreacion && i.fechaCreacion > finMes) return s;
     const estado = estadoIngresoEnFecha(i, snap.cambiosIngresos, finMes);
     return estado.activo ? s + estado.monto * ocurrenciasEnMes(i, fechaDelMes) : s;
   }, 0);
+  return reales + legado;
 }
 
 function gastosFijosDelMes(snap: HistoricoSnapshot, mes: string): GastoFijo[] {
@@ -151,7 +168,8 @@ export function resumenMes(snap: HistoricoSnapshot, mes: string): ResumenMes {
 /** Primer mes ("YYYY-MM") con algún dato registrado, de cualquier módulo; hoy si la cuenta está vacía. */
 export function primerMesConDatos(snap: HistoricoSnapshot): string {
   const claves: string[] = [];
-  for (const i of snap.ingresos) if (i.fechaCreacion) claves.push(i.fechaCreacion.slice(0, 7));
+  for (const i of snap.ingresos) if (!i.modeloNuevo && i.fechaCreacion) claves.push(i.fechaCreacion.slice(0, 7));
+  for (const m of snap.movimientosIngresos) if (m.fechaRecibida) claves.push(m.fechaRecibida.slice(0, 7));
   for (const g of snap.gastosFijos) if (g.mes) claves.push(g.mes);
   for (const g of snap.gastosYCompras) if (g.fecha) claves.push(g.fecha.slice(0, 7));
   for (const e of snap.eventosDeudas) if (e.fecha) claves.push(e.fecha.slice(0, 7));
@@ -291,7 +309,19 @@ function fechaAproxGastoFijo(g: GastoFijo): string | null {
 
 function sumIngresosEnPeriodo(snap: HistoricoSnapshot, periodo: PeriodoHistorico): number {
   const finPeriodo = periodo.fin ?? todayISO();
-  return snap.ingresos.reduce((s, i) => {
+  const movimientos = snap.movimientosIngresos.filter(
+    (m) =>
+      m.estado === "Recibido" &&
+      (m.periodoId ? m.periodoId === periodo.inicio : m.fechaRecibida >= periodo.inicio && m.fechaRecibida <= finPeriodo),
+  );
+  const reales = movimientos.reduce((s, m) => s + m.montoReal, 0);
+  const idsConMovimiento = new Set(movimientos.map((m) => m.fuenteId));
+  const legado = snap.ingresos.reduce((s, i) => {
+    const primerMovimiento = snap.movimientosIngresos
+      .filter((m) => m.fuenteId === i.id && m.estado === "Recibido")
+      .map((m) => m.fechaRecibida)
+      .sort()[0];
+    if (i.modeloNuevo || idsConMovimiento.has(i.id) || (primerMovimiento && primerMovimiento <= finPeriodo)) return s;
     if (i.recurrencia === "UnicoMes") {
       const fecha = i.fechaCreacion;
       return fecha && fecha >= periodo.inicio && fecha <= finPeriodo && i.activo ? s + i.monto : s;
@@ -302,6 +332,7 @@ function sumIngresosEnPeriodo(snap: HistoricoSnapshot, periodo: PeriodoHistorico
     // periodo, un ingreso "Fijo" aplica una sola vez por periodo (el periodo ya es la unidad recurrente).
     return estado.activo ? s + estado.monto : s;
   }, 0);
+  return reales + legado;
 }
 
 function gastosFijosDelPeriodo(snap: HistoricoSnapshot, periodo: PeriodoHistorico): GastoFijo[] {
@@ -378,7 +409,8 @@ export function resumenPeriodo(snap: HistoricoSnapshot, periodo: PeriodoHistoric
 /** Fecha ("YYYY-MM-DD") más antigua con algún dato registrado, de cualquier módulo; hoy si la cuenta está vacía. */
 export function primeraFechaConDatos(snap: HistoricoSnapshot): string {
   const fechas: string[] = [];
-  for (const i of snap.ingresos) if (i.fechaCreacion) fechas.push(i.fechaCreacion);
+  for (const i of snap.ingresos) if (!i.modeloNuevo && i.fechaCreacion) fechas.push(i.fechaCreacion);
+  for (const m of snap.movimientosIngresos) if (m.fechaRecibida) fechas.push(m.fechaRecibida);
   for (const g of snap.gastosFijos) {
     const f = fechaAproxGastoFijo(g);
     if (f) fechas.push(f);
@@ -417,7 +449,25 @@ export function detallePeriodo(snap: HistoricoSnapshot, periodo: PeriodoHistoric
   const finPeriodo = periodo.fin ?? todayISO();
 
   const ingresos: DetalleItem[] = [];
+  const movimientosIngreso = snap.movimientosIngresos.filter(
+    (m) =>
+      m.estado === "Recibido" &&
+      (m.periodoId ? m.periodoId === periodo.inicio : m.fechaRecibida >= periodo.inicio && m.fechaRecibida <= finPeriodo),
+  );
+  for (const movimiento of movimientosIngreso) {
+    ingresos.push({
+      nombre: movimiento.fuenteNombre || movimiento.tipo,
+      nota: movimiento.notas || undefined,
+      monto: movimiento.montoReal,
+    });
+  }
+  const idsConMovimiento = new Set(movimientosIngreso.map((m) => m.fuenteId));
   for (const i of snap.ingresos) {
+    const primerMovimiento = snap.movimientosIngresos
+      .filter((m) => m.fuenteId === i.id && m.estado === "Recibido")
+      .map((m) => m.fechaRecibida)
+      .sort()[0];
+    if (i.modeloNuevo || idsConMovimiento.has(i.id) || (primerMovimiento && primerMovimiento <= finPeriodo)) continue;
     if (i.recurrencia === "UnicoMes") {
       if (i.fechaCreacion && i.fechaCreacion >= periodo.inicio && i.fechaCreacion <= finPeriodo && i.activo) {
         ingresos.push({ nombre: i.tipo, nota: i.notas || undefined, monto: i.monto });
@@ -443,8 +493,11 @@ export function detallePeriodo(snap: HistoricoSnapshot, periodo: PeriodoHistoric
 
   const nombresMetas = new Map(snap.metas.map((m) => [m.id, m.nombre]));
   const ahorros = movimientosMetasDelPeriodo(snap, periodo)
-    .filter((m) => m.tipo !== "Retiro")
-    .map((m) => ({ nombre: nombresMetas.get(m.idMeta) ?? "Meta", nota: m.nota || undefined, monto: m.monto }));
+    .map((m) => ({
+      nombre: nombresMetas.get(m.idMeta) ?? "Bolsillo de ahorro",
+      nota: `${m.tipo === "Retiro" ? "Retiro" : "Depósito"}${m.nota ? ` · ${m.nota}` : ""}`,
+      monto: m.tipo === "Retiro" ? -m.monto : m.monto,
+    }));
 
   const nombresDeudas = new Map([...snap.deudasYoDebo, ...snap.deudasMeDeben].map((d) => [d.id, d.contraparte]));
   const deudas = eventosAbonoDelPeriodo(snap, "YoDebo", periodo).map((e) => ({

@@ -26,7 +26,7 @@ export const NAV_SECTIONS: NavSection[] = [
   { id: "gastos-personales", label: "Gastos y Compras", icon: `<span class="nav-icon nav-icon--white">${shoppingCartIcon}</span>` },
   { id: "deudas", label: "Deudas", icon: `<span class="nav-icon nav-icon--white">${pigMoneyIcon}</span>` },
   { id: "me-deben", label: "Me Deben", icon: `<span class="nav-icon nav-icon--white">${businessplanIcon}</span>` },
-  { id: "ahorros", label: "Ahorros y Metas", icon: `<span class="nav-icon nav-icon--white">${moneybagPlusIcon}</span>` },
+  { id: "ahorros", label: "Bolsillos de Ahorro", icon: `<span class="nav-icon nav-icon--white">${moneybagPlusIcon}</span>` },
   { id: "historico", label: "Histórico", icon: `<span class="nav-icon nav-icon--white">${fileTimeIcon}</span>` },
   { id: "configuracion", label: "Configuración", icon: `<span class="nav-icon nav-icon--white">${settingsIcon}</span>` },
 ];

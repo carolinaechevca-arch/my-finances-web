@@ -19,7 +19,7 @@ export const DASHBOARD_CARD_LABELS: Record<DashboardCardId, string> = {
   resumenGastosFijos: "Resumen de Gastos Fijos",
   resumenDeudas: "Resumen de Deudas",
   resumenMeDeben: "Resumen de Me Deben",
-  resumenAhorros: "Resumen de Ahorros y Metas",
+  resumenAhorros: "Resumen de Bolsillos de Ahorro",
   gastosPorCategoria: "Gastos del mes por categoría",
   comparativoMesAnterior: "Comparativo",
   ultimosMovimientos: "Últimos movimientos",

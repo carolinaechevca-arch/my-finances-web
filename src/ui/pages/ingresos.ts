@@ -1,257 +1,240 @@
 import cashBanknotePlusIcon from "../../icon/cash-banknote-plus.svg?raw";
 import deviceFloppyIcon from "../../icon/device-floppy.svg?raw";
 import editIcon from "../../icon/edit.svg?raw";
-import eyeIcon from "../../icon/eye.svg?raw";
-import eyeOffIcon from "../../icon/eye-off.svg?raw";
 import trashIcon from "../../icon/trash-x.svg?raw";
 import { ensureSpreadsheet } from "../../api/spreadsheet-bootstrap";
-import { calcularDisponibleDesde } from "../../domain/balance";
-import { listDeudas, listTodosLosEventos } from "../../domain/deudas";
-import { formatMoney } from "../../domain/format";
-import { listGastosFijosVigentes } from "../../domain/gastos";
-import { listGastosDelPeriodo } from "../../domain/gastos-y-compras";
+import { calcularDisponible } from "../../domain/balance";
+import { formatMoney, todayISO } from "../../domain/format";
 import {
-  actualizarIngreso,
-  crearIngreso,
+  crearFuenteIngreso,
   crearTipoIngreso,
+  actualizarIngreso,
   eliminarIngreso,
   eliminarTipoIngreso,
   listIngresosVigentes,
+  listMovimientosIngresos,
   listTiposIngreso,
+  omitirProximoIngreso,
+  registrarIngresoRecibido,
   setIngresoActivo,
-  sumIngresosActivos,
-  sumIngresosFijosRecurrentes,
+  sumMovimientosRecibidos,
+  type FrecuenciaIngreso,
   type IngresoFijo,
+  type MovimientoIngreso,
 } from "../../domain/ingresos";
-import { listTodosLosMovimientos } from "../../domain/metas";
 import { formatPeriodoBadge, obtenerConfigPeriodo } from "../../domain/periodo";
 import { showAlert, showConfirm } from "../components/dialogs";
+import { mountEyeToggle } from "../components/eye-toggle";
 import { loaderHtml } from "../components/loader";
 import { createOptionCombo, type OptionCombo } from "../components/tipo-combo";
 
-type SortOrder = "tipo" | "monto-desc" | "monto-asc";
+const MODALIDAD_LABELS: Record<FrecuenciaIngreso, string> = {
+  Mensual: "Mensual",
+  Quincenal: "Quincenal (dos fechas al mes)",
+  Semanal: "Semanal",
+  PagoUnico: "Pago único",
+};
 
-function sortIngresos(list: IngresoFijo[], order: SortOrder): IngresoFijo[] {
-  const copy = [...list];
-  switch (order) {
-    case "monto-desc":
-      return copy.sort((a, b) => b.monto - a.monto);
-    case "monto-asc":
-      return copy.sort((a, b) => a.monto - b.monto);
-    default:
-      return copy.sort((a, b) => a.tipo.localeCompare(b.tipo, "es"));
-  }
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>'"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[c]!);
+}
+
+function formatFecha(fecha: string): string {
+  if (!fecha) return "Sin fecha programada";
+  return new Intl.DateTimeFormat("es-CO", { day: "numeric", month: "short", year: "numeric" })
+    .format(new Date(`${fecha}T12:00:00`))
+    .replace(".", "");
 }
 
 export async function renderIngresos(container: HTMLElement): Promise<void> {
   container.innerHTML = `
     <div class="page-title-row">
-      <h1 class="page-title">${cashBanknotePlusIcon} Ingresos Fijos</h1>
+      <h1 class="page-title">${cashBanknotePlusIcon} Ingresos</h1>
       <span class="month-badge" id="periodo-badge">Cargando…</span>
     </div>
-    <div class="card-grid" style="max-width:820px">
-      <div class="card" style="background:var(--color-primary);color:white;display:flex;flex-direction:column;gap:6px">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
-          <span style="font-size:13px;font-weight:600;opacity:0.85">Total vigente</span>
-          <button type="button" class="icon-btn" id="ingresos-total-eye" aria-label="Mostrar u ocultar" title="Mostrar u ocultar" style="color:white">${eyeIcon}</button>
-        </div>
-        <div style="font-size:28px;font-weight:800" id="ingresos-total">—</div>
+
+    <div class="card-grid" style="margin-bottom:20px">
+      <div class="card card--primary stat-card" style="position:relative">
+        <button type="button" class="icon-btn" id="ingresos-eye-btn" aria-label="Mostrar u ocultar montos" title="Mostrar u ocultar montos" style="position:absolute;right:14px;top:14px;color:white"></button>
+        <span class="stat-card__label">Recibido en el periodo</span><div class="stat-card__value" id="ing-recibido">—</div>
       </div>
-      <div class="card" style="display:flex;flex-direction:column;gap:6px">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
-          <span class="empty-state" style="font-weight:600">Ingresos fijos recurrentes</span>
-          <button type="button" class="icon-btn" id="ingresos-fijo-eye" aria-label="Mostrar u ocultar" title="Mostrar u ocultar" style="color:var(--color-text-muted)">${eyeIcon}</button>
-        </div>
-        <div style="font-size:28px;font-weight:800;color:var(--color-primary)" id="ingresos-total-fijo">—</div>
-      </div>
-      <div class="card" style="display:flex;flex-direction:column;gap:6px">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
-          <span class="empty-state" style="font-weight:600">Balance disponible</span>
-          <button type="button" class="icon-btn" id="ingresos-balance-eye" aria-label="Mostrar u ocultar" title="Mostrar u ocultar" style="color:var(--color-text-muted)">${eyeIcon}</button>
-        </div>
-        <div style="font-size:28px;font-weight:800;color:var(--color-primary)" id="ingresos-balance">—</div>
-      </div>
+      <div class="card stat-card"><span class="stat-card__label">Disponible</span><div class="stat-card__value" id="ing-disponible">—</div></div>
     </div>
 
     <div class="card" style="margin-bottom:20px">
-      <h2 style="margin-top:0">Agregar ingreso</h2>
-      <form id="ingreso-form" class="form">
+      <h2 style="margin-top:0">Agregar fuente de ingreso</h2>
+      <p class="empty-state" style="margin-top:-6px">Configura lo que esperas recibir. El dinero solo contará como disponible cuando registres el pago real.</p>
+      <form id="fuente-form" class="form">
+        <div class="field"><label for="fuente-nombre">Nombre de la fuente</label><input id="fuente-nombre" type="text" placeholder="Ej. Salario empresa, Arriendo apartamento" required /></div>
         <div class="field">
-          <label>Tipo</label>
-          <div id="ingreso-tipo-mount"></div>
+          <label>Categoría</label>
+          <div id="ingreso-categoria-mount"></div>
         </div>
-        <div class="field">
-          <label for="ingreso-recurrencia">¿Cada cuánto aplica?</label>
-          <select id="ingreso-recurrencia">
-            <option value="Fijo">Fijo</option>
-            <option value="UnicoMes">Adicional</option>
-          </select>
-        </div>
-        <div class="field">
-          <label for="ingreso-monto">Monto</label>
-          <input id="ingreso-monto" type="number" min="0" step="0.01" required />
-        </div>
-        <div class="field">
-          <label for="ingreso-notas">Notas (opcional)</label>
-          <input id="ingreso-notas" type="text" />
-        </div>
-        <button type="submit" class="btn">${deviceFloppyIcon} Guardar</button>
+        <div class="field"><label for="fuente-modalidad">Modalidad</label><select id="fuente-modalidad">${Object.entries(MODALIDAD_LABELS).map(([v, l]) => `<option value="${v}">${l}</option>`).join("")}</select></div>
+        <div class="field"><label for="fuente-monto">Monto estimado por pago</label><input id="fuente-monto" type="number" min="0" step="0.01" required /></div>
+        <div class="field" id="proxima-field"><label for="fuente-proxima">Próxima fecha esperada</label><input id="fuente-proxima" type="date" /></div>
+        <div class="field" id="quincena-field" hidden><label for="fuente-quincena">Días de pago</label><input id="fuente-quincena" type="text" value="15,30" placeholder="15,30" /></div>
+        <div class="field"><label for="fuente-cuenta">Cuenta destino (opcional)</label><input id="fuente-cuenta" type="text" placeholder="Ej. Bancolombia" /></div>
+        <div class="field"><label for="fuente-notas">Notas (opcional)</label><input id="fuente-notas" type="text" /></div>
+        <button type="submit" class="btn">${deviceFloppyIcon} Guardar fuente</button>
       </form>
-      <p class="empty-state" id="ingreso-form-error" hidden></p>
+      <p class="empty-state" id="fuente-error" hidden></p>
+    </div>
+
+    <div class="card" style="margin-bottom:20px">
+      <div class="table-toolbar"><h2 style="margin:0">Próximos pagos y fuentes</h2></div>
+      <div id="fuentes-list">${loaderHtml()}</div>
     </div>
 
     <div class="card">
-      <div class="table-toolbar">
-        <h2 style="margin:0">Tus ingresos</h2>
-        <div class="field field--inline">
-          <label for="ingresos-orden">Ordenar por</label>
-          <select id="ingresos-orden">
-            <option value="tipo">Tipo (A-Z)</option>
-            <option value="monto-desc">Monto (mayor a menor)</option>
-            <option value="monto-asc">Monto (menor a mayor)</option>
-          </select>
-        </div>
-      </div>
-      <div id="ingresos-list">${loaderHtml()}</div>
+      <h2 style="margin-top:0">Movimientos de este periodo</h2>
+      <div id="movimientos-list">${loaderHtml()}</div>
     </div>
 
-    <dialog id="tipo-modal" class="modal">
-      <form class="modal__form" id="tipo-form">
-        <h2 class="modal__title">Nuevo tipo de ingreso</h2>
-        <div class="field">
-          <label for="tipo-modal-input">Nombre</label>
-          <input id="tipo-modal-input" type="text" placeholder="Ej. Arriendo recibido" required />
-        </div>
-        <p class="empty-state" id="tipo-modal-error" hidden></p>
-        <div class="modal__actions">
-          <button type="button" class="btn-secondary" id="tipo-modal-cancel">Cancelar</button>
-          <button type="submit" class="btn">Agregar</button>
-        </div>
+    <dialog id="recibir-modal" class="modal">
+      <form class="modal__form" id="recibir-form">
+        <h2 class="modal__title">Registrar ingreso recibido</h2>
+        <p class="modal__message" id="recibir-fuente"></p>
+        <div class="field"><label for="recibir-fecha">Fecha recibida</label><input id="recibir-fecha" type="date" required /></div>
+        <div class="field"><label for="recibir-monto">Monto real recibido</label><input id="recibir-monto" type="number" step="0.01" required /></div>
+        <div class="field"><label for="recibir-notas">Notas (opcional)</label><input id="recibir-notas" type="text" /></div>
+        <p class="empty-state" id="recibir-error" hidden></p>
+        <div class="modal__actions"><button type="button" class="btn-secondary" data-action="cancel">Cancelar</button><button type="submit" class="btn">Registrar</button></div>
       </form>
     </dialog>
 
-    <dialog id="edit-modal" class="modal">
-      <form class="modal__form" id="edit-form">
-        <h2 class="modal__title">Editar ingreso</h2>
-        <div class="field">
-          <label>Tipo</label>
-          <div id="edit-tipo-mount"></div>
-        </div>
-        <div class="field">
-          <label for="edit-recurrencia">¿Cada cuánto aplica?</label>
-          <select id="edit-recurrencia">
-            <option value="Fijo">Fijo</option>
-            <option value="UnicoMes">Adicional</option>
-          </select>
-        </div>
-        <div class="field">
-          <label for="edit-monto">Monto</label>
-          <input id="edit-monto" type="number" min="0" step="0.01" required />
-        </div>
-        <div class="field">
-          <label for="edit-notas">Notas</label>
-          <input id="edit-notas" type="text" />
-        </div>
-        <p class="empty-state" id="edit-modal-error" hidden></p>
-        <div class="modal__actions">
-          <button type="button" class="btn-secondary" id="edit-modal-cancel">Cancelar</button>
-          <button type="submit" class="btn">${deviceFloppyIcon} Guardar</button>
-        </div>
+    <dialog id="editar-fuente-modal" class="modal">
+      <form class="modal__form" id="editar-fuente-form">
+        <h2 class="modal__title">Editar fuente</h2>
+        <div class="field"><label for="editar-nombre">Nombre</label><input id="editar-nombre" type="text" required /></div>
+        <div class="field"><label>Categoría</label><div id="editar-ingreso-categoria-mount"></div></div>
+        <div class="field"><label for="editar-modalidad">Modalidad</label><select id="editar-modalidad">${Object.entries(MODALIDAD_LABELS).map(([v, l]) => `<option value="${v}">${l}</option>`).join("")}</select></div>
+        <div class="field"><label for="editar-monto">Monto estimado</label><input id="editar-monto" type="number" min="0" step="0.01" /></div>
+        <div class="field" id="editar-proxima-field"><label for="editar-proxima">Próxima fecha esperada</label><input id="editar-proxima" type="date" /></div>
+        <div class="field" id="editar-quincena-field" hidden><label for="editar-quincena">Días quincenales</label><input id="editar-quincena" type="text" placeholder="15,30" /></div>
+        <div class="field"><label for="editar-cuenta">Cuenta destino</label><input id="editar-cuenta" type="text" /></div>
+        <div class="field"><label for="editar-notas">Notas</label><input id="editar-notas" type="text" /></div>
+        <p class="empty-state" id="editar-error" hidden></p>
+        <div class="modal__actions"><button type="button" class="btn-secondary" data-action="cancel">Cancelar</button><button type="submit" class="btn">Guardar</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="categoria-modal" class="modal">
+      <form class="modal__form" id="categoria-form">
+        <h2 class="modal__title">Nueva categoría de ingreso</h2>
+        <div class="field"><label for="categoria-nombre">Nombre</label><input id="categoria-nombre" type="text" placeholder="Ej. Comisión, Arriendo, Freelance" required /></div>
+        <p class="empty-state" id="categoria-error" hidden></p>
+        <div class="modal__actions"><button type="button" class="btn-secondary" data-action="cancel">Cancelar</button><button type="submit" class="btn">Agregar</button></div>
       </form>
     </dialog>
   `;
 
   const periodoBadge = container.querySelector<HTMLSpanElement>("#periodo-badge")!;
-  const totalEl = container.querySelector<HTMLDivElement>("#ingresos-total")!;
-  const totalFijoEl = container.querySelector<HTMLDivElement>("#ingresos-total-fijo")!;
-  const balanceEl = container.querySelector<HTMLDivElement>("#ingresos-balance")!;
-  const totalEyeBtn = container.querySelector<HTMLButtonElement>("#ingresos-total-eye")!;
-  const fijoEyeBtn = container.querySelector<HTMLButtonElement>("#ingresos-fijo-eye")!;
-  const balanceEyeBtn = container.querySelector<HTMLButtonElement>("#ingresos-balance-eye")!;
-  const recurrenciaSelect = container.querySelector<HTMLSelectElement>("#ingreso-recurrencia")!;
-  const montoInput = container.querySelector<HTMLInputElement>("#ingreso-monto")!;
-  const notasInput = container.querySelector<HTMLInputElement>("#ingreso-notas")!;
-  const form = container.querySelector<HTMLFormElement>("#ingreso-form")!;
-  const formError = container.querySelector<HTMLParagraphElement>("#ingreso-form-error")!;
-  const listEl = container.querySelector<HTMLDivElement>("#ingresos-list")!;
-  const submitBtn = form.querySelector<HTMLButtonElement>('button[type="submit"]')!;
-  const ordenSelect = container.querySelector<HTMLSelectElement>("#ingresos-orden")!;
+  const recibidoEl = container.querySelector<HTMLElement>("#ing-recibido")!;
+  const disponibleEl = container.querySelector<HTMLElement>("#ing-disponible")!;
+  const eyeBtn = container.querySelector<HTMLButtonElement>("#ingresos-eye-btn")!;
+  const fuentesList = container.querySelector<HTMLDivElement>("#fuentes-list")!;
+  const movimientosList = container.querySelector<HTMLDivElement>("#movimientos-list")!;
+  const fuenteForm = container.querySelector<HTMLFormElement>("#fuente-form")!;
+  const nombreInput = container.querySelector<HTMLInputElement>("#fuente-nombre")!;
+  const modalidadSelect = container.querySelector<HTMLSelectElement>("#fuente-modalidad")!;
+  const montoInput = container.querySelector<HTMLInputElement>("#fuente-monto")!;
+  const proximaField = container.querySelector<HTMLElement>("#proxima-field")!;
+  const proximaInput = container.querySelector<HTMLInputElement>("#fuente-proxima")!;
+  const quincenaField = container.querySelector<HTMLElement>("#quincena-field")!;
+  const quincenaInput = container.querySelector<HTMLInputElement>("#fuente-quincena")!;
+  const cuentaInput = container.querySelector<HTMLInputElement>("#fuente-cuenta")!;
+  const notasInput = container.querySelector<HTMLInputElement>("#fuente-notas")!;
+  const fuenteError = container.querySelector<HTMLElement>("#fuente-error")!;
+  const categoriaModal = container.querySelector<HTMLDialogElement>("#categoria-modal")!;
+  const categoriaForm = container.querySelector<HTMLFormElement>("#categoria-form")!;
+  const categoriaNombre = container.querySelector<HTMLInputElement>("#categoria-nombre")!;
+  const categoriaError = container.querySelector<HTMLElement>("#categoria-error")!;
 
-  const tipoModal = container.querySelector<HTMLDialogElement>("#tipo-modal")!;
-  const tipoForm = container.querySelector<HTMLFormElement>("#tipo-form")!;
-  const tipoModalInput = container.querySelector<HTMLInputElement>("#tipo-modal-input")!;
-  const tipoModalError = container.querySelector<HTMLParagraphElement>("#tipo-modal-error")!;
-  const tipoModalCancel = container.querySelector<HTMLButtonElement>("#tipo-modal-cancel")!;
-
-  const editModal = container.querySelector<HTMLDialogElement>("#edit-modal")!;
-  const editForm = container.querySelector<HTMLFormElement>("#edit-form")!;
-  const editRecurrenciaSelect = container.querySelector<HTMLSelectElement>("#edit-recurrencia")!;
-  const editMontoInput = container.querySelector<HTMLInputElement>("#edit-monto")!;
-  const editNotasInput = container.querySelector<HTMLInputElement>("#edit-notas")!;
-  const editModalError = container.querySelector<HTMLParagraphElement>("#edit-modal-error")!;
-  const editModalCancel = container.querySelector<HTMLButtonElement>("#edit-modal-cancel")!;
+  const recibirModal = container.querySelector<HTMLDialogElement>("#recibir-modal")!;
+  const recibirForm = container.querySelector<HTMLFormElement>("#recibir-form")!;
+  const recibirFuente = container.querySelector<HTMLElement>("#recibir-fuente")!;
+  const recibirFecha = container.querySelector<HTMLInputElement>("#recibir-fecha")!;
+  const recibirMonto = container.querySelector<HTMLInputElement>("#recibir-monto")!;
+  const recibirNotas = container.querySelector<HTMLInputElement>("#recibir-notas")!;
+  const recibirError = container.querySelector<HTMLElement>("#recibir-error")!;
+  const editarModal = container.querySelector<HTMLDialogElement>("#editar-fuente-modal")!;
+  const editarForm = container.querySelector<HTMLFormElement>("#editar-fuente-form")!;
+  const editarNombre = container.querySelector<HTMLInputElement>("#editar-nombre")!;
+  const editarModalidad = container.querySelector<HTMLSelectElement>("#editar-modalidad")!;
+  const editarMonto = container.querySelector<HTMLInputElement>("#editar-monto")!;
+  const editarProximaField = container.querySelector<HTMLElement>("#editar-proxima-field")!;
+  const editarProxima = container.querySelector<HTMLInputElement>("#editar-proxima")!;
+  const editarQuincenaField = container.querySelector<HTMLElement>("#editar-quincena-field")!;
+  const editarQuincena = container.querySelector<HTMLInputElement>("#editar-quincena")!;
+  const editarCuenta = container.querySelector<HTMLInputElement>("#editar-cuenta")!;
+  const editarNotas = container.querySelector<HTMLInputElement>("#editar-notas")!;
+  const editarError = container.querySelector<HTMLElement>("#editar-error")!;
 
   let spreadsheetId = "";
-  let tipos: string[] = [];
-  let currentIngresos: IngresoFijo[] = [];
   let periodoInicio = "";
-  let balanceDisponible = 0;
-  let showTotal = true;
-  let showFijo = true;
-  let showBalance = true;
-  let sortOrder: SortOrder = "tipo";
+  let fuentes: IngresoFijo[] = [];
+  let movimientos: MovimientoIngreso[] = [];
+  let categorias: string[] = [];
+  let formCategoriaValue = "";
+  let editCategoriaValue = "";
+  let fuenteSeleccionada: IngresoFijo | null = null;
+  let fuenteEditando: IngresoFijo | null = null;
   let busy = false;
-  let formTipoValue = "";
-  let editTipoValue = "";
-  let editingIngreso: IngresoFijo | null = null;
+  let latestRecibido = 0;
+  let latestDisponible = 0;
+  const eyeToggle = mountEyeToggle(eyeBtn, [recibidoEl, disponibleEl], () => [
+    formatMoney(latestRecibido),
+    formatMoney(latestDisponible),
+  ]);
 
   function refreshCombos(): void {
-    tipoCombo.refresh();
-    editTipoCombo.refresh();
+    categoriaCombo.refresh();
+    editCategoriaCombo.refresh();
   }
 
-  /** Abre el modal para crear un tipo nuevo; al confirmar, lo selecciona con onDone. */
-  function openTipoModal(onDone: (nombre: string) => void): void {
-    tipoModalInput.value = "";
-    tipoModalError.hidden = true;
+  function openCategoriaModal(onDone: (nombre: string) => void): void {
+    categoriaNombre.value = "";
+    categoriaError.hidden = true;
     const controller = new AbortController();
     const { signal } = controller;
 
-    tipoModal.addEventListener("cancel", () => controller.abort(), { signal });
-
-    tipoModalCancel.addEventListener(
+    categoriaModal.addEventListener("cancel", () => controller.abort(), { signal });
+    categoriaModal.querySelector('[data-action="cancel"]')!.addEventListener(
       "click",
       () => {
         controller.abort();
-        tipoModal.close();
+        categoriaModal.close();
       },
       { signal },
     );
 
-    tipoForm.addEventListener(
+    categoriaForm.addEventListener(
       "submit",
-      async (e) => {
-        e.preventDefault();
-        const nombre = tipoModalInput.value.trim();
+      async (event) => {
+        event.preventDefault();
+        const nombre = categoriaNombre.value.trim();
         if (!nombre) {
-          tipoModalError.hidden = false;
-          tipoModalError.textContent = "Escribe un nombre.";
+          categoriaError.hidden = false;
+          categoriaError.textContent = "Escribe un nombre.";
           return;
         }
-        const confirmBtn = tipoForm.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+        const existente = categorias.find((categoria) => categoria.toLocaleLowerCase("es") === nombre.toLocaleLowerCase("es"));
+        const confirmBtn = categoriaForm.querySelector<HTMLButtonElement>('button[type="submit"]')!;
         confirmBtn.disabled = true;
         try {
-          if (!tipos.includes(nombre)) {
+          const categoria = existente ?? nombre;
+          if (!existente) {
             await crearTipoIngreso(spreadsheetId, nombre);
-            tipos.push(nombre);
+            categorias.push(nombre);
           }
           controller.abort();
-          tipoModal.close();
-          onDone(nombre);
+          categoriaModal.close();
+          onDone(categoria);
           refreshCombos();
         } catch (err) {
-          tipoModalError.hidden = false;
-          tipoModalError.textContent = err instanceof Error ? err.message : "No se pudo crear el tipo.";
+          categoriaError.hidden = false;
+          categoriaError.textContent = err instanceof Error ? err.message : "No se pudo crear la categoría.";
         } finally {
           confirmBtn.disabled = false;
         }
@@ -259,323 +242,294 @@ export async function renderIngresos(container: HTMLElement): Promise<void> {
       { signal },
     );
 
-    tipoModal.showModal();
-    tipoModalInput.focus();
+    categoriaModal.showModal();
+    categoriaNombre.focus();
   }
 
-  async function handleDeleteTipo(tipo: string): Promise<void> {
-    const enUso = currentIngresos.some((i) => i.tipo === tipo);
+  async function handleDeleteCategoria(categoria: string): Promise<void> {
+    const enUso = fuentes.some((fuente) => fuente.tipo === categoria);
     if (enUso) {
       await showAlert(
-        `No puedes eliminar "${tipo}" porque tienes ingresos activos de este tipo. Edítalos o elimínalos primero.`,
+        `No puedes eliminar "${categoria}" porque tienes fuentes de ingreso con esta categoría. Edítalas o elimínalas primero.`,
         "No se puede eliminar",
       );
       return;
     }
-    const ok = await showConfirm(`¿Eliminar el tipo "${tipo}"? Podrás volver a crearlo cuando quieras.`, {
-      title: "Eliminar tipo",
+    const ok = await showConfirm(`¿Eliminar la categoría "${categoria}"? Podrás volver a crearla cuando quieras.`, {
+      title: "Eliminar categoría",
       confirmLabel: "Eliminar",
       danger: true,
     });
     if (!ok) return;
     try {
-      await eliminarTipoIngreso(spreadsheetId, tipo);
-      tipos = tipos.filter((t) => t !== tipo);
-      if (formTipoValue === tipo) formTipoValue = tipos[0] ?? "";
-      if (editTipoValue === tipo) editTipoValue = tipos[0] ?? "";
+      await eliminarTipoIngreso(spreadsheetId, categoria);
+      categorias = categorias.filter((item) => item !== categoria);
+      if (formCategoriaValue === categoria) formCategoriaValue = categorias[0] ?? "";
+      if (editCategoriaValue === categoria) editCategoriaValue = categorias[0] ?? "";
       refreshCombos();
     } catch (err) {
-      await showAlert(err instanceof Error ? err.message : "No se pudo eliminar el tipo.", "Error");
+      await showAlert(err instanceof Error ? err.message : "No se pudo eliminar la categoría.", "Error");
     }
   }
 
-  const tipoCombo: OptionCombo = createOptionCombo({
-    getOptions: () => tipos,
-    getValue: () => formTipoValue,
-    onSelect: (tipo) => {
-      formTipoValue = tipo;
-      tipoCombo.refresh();
+  const categoriaCombo: OptionCombo = createOptionCombo({
+    getOptions: () => categorias,
+    getValue: () => formCategoriaValue,
+    onSelect: (categoria) => {
+      formCategoriaValue = categoria;
+      categoriaCombo.refresh();
     },
-    onRequestNuevo: () =>
-      openTipoModal((nombre) => {
-        formTipoValue = nombre;
-      }),
-    onRequestDelete: (tipo) => void handleDeleteTipo(tipo),
-    placeholder: "Selecciona un tipo",
-    addLabel: "+ Nuevo tipo…",
-    deleteLabel: "Eliminar tipo",
+    onRequestNuevo: () => openCategoriaModal((nombre) => { formCategoriaValue = nombre; }),
+    onRequestDelete: (categoria) => void handleDeleteCategoria(categoria),
+    placeholder: "Selecciona una categoría",
+    addLabel: "+ Nueva categoría…",
+    deleteLabel: "Eliminar categoría",
   });
-  container.querySelector("#ingreso-tipo-mount")!.appendChild(tipoCombo.el);
+  container.querySelector("#ingreso-categoria-mount")!.appendChild(categoriaCombo.el);
 
-  const editTipoCombo: OptionCombo = createOptionCombo({
-    getOptions: () => tipos,
-    getValue: () => editTipoValue,
-    onSelect: (tipo) => {
-      editTipoValue = tipo;
-      editTipoCombo.refresh();
+  const editCategoriaCombo: OptionCombo = createOptionCombo({
+    getOptions: () => categorias,
+    getValue: () => editCategoriaValue,
+    onSelect: (categoria) => {
+      editCategoriaValue = categoria;
+      editCategoriaCombo.refresh();
     },
-    onRequestNuevo: () =>
-      openTipoModal((nombre) => {
-        editTipoValue = nombre;
-      }),
-    onRequestDelete: (tipo) => void handleDeleteTipo(tipo),
-    placeholder: "Selecciona un tipo",
-    addLabel: "+ Nuevo tipo…",
-    deleteLabel: "Eliminar tipo",
+    onRequestNuevo: () => openCategoriaModal((nombre) => { editCategoriaValue = nombre; }),
+    onRequestDelete: (categoria) => void handleDeleteCategoria(categoria),
+    placeholder: "Selecciona una categoría",
+    addLabel: "+ Nueva categoría…",
+    deleteLabel: "Eliminar categoría",
   });
-  container.querySelector("#edit-tipo-mount")!.appendChild(editTipoCombo.el);
+  container.querySelector("#editar-ingreso-categoria-mount")!.appendChild(editCategoriaCombo.el);
 
-  function openEditModal(ingreso: IngresoFijo): void {
-    editingIngreso = ingreso;
-    editTipoValue = ingreso.tipo;
-    editTipoCombo.refresh();
-    editRecurrenciaSelect.value = ingreso.recurrencia;
-    editMontoInput.value = String(ingreso.monto);
-    editNotasInput.value = ingreso.notas;
-    editModalError.hidden = true;
+  function actualizarModalidad(): void {
+    const modalidad = modalidadSelect.value as FrecuenciaIngreso;
+    quincenaField.hidden = modalidad !== "Quincenal";
+    proximaField.hidden = modalidad === "Quincenal";
+    proximaInput.required = modalidad !== "Quincenal";
+    montoInput.required = true;
+  }
+  modalidadSelect.addEventListener("change", actualizarModalidad);
+  actualizarModalidad();
 
-    const controller = new AbortController();
-    const { signal } = controller;
+  function actualizarModalidadEdicion(): void {
+    const esQuincenal = editarModalidad.value === "Quincenal";
+    editarQuincenaField.hidden = !esQuincenal;
+    editarProximaField.hidden = esQuincenal;
+    editarProxima.required = !esQuincenal;
+  }
+  editarModalidad.addEventListener("change", actualizarModalidadEdicion);
 
-    editModal.addEventListener("cancel", () => controller.abort(), { signal });
-    editModalCancel.addEventListener(
-      "click",
-      () => {
-        controller.abort();
-        editModal.close();
-      },
-      { signal },
-    );
-
-    editForm.addEventListener(
-      "submit",
-      async (e) => {
-        e.preventDefault();
-        const monto = Number(editMontoInput.value);
-        if (!monto || monto <= 0) {
-          editModalError.hidden = false;
-          editModalError.textContent = "Ingresa un monto válido.";
-          return;
-        }
-        if (!editingIngreso) return;
-        const confirmBtn = editForm.querySelector<HTMLButtonElement>('button[type="submit"]')!;
-        confirmBtn.disabled = true;
-        try {
-          await actualizarIngreso(spreadsheetId, editingIngreso, {
-            tipo: editTipoValue,
-            monto,
-            notas: editNotasInput.value.trim(),
-            recurrencia: editRecurrenciaSelect.value === "UnicoMes" ? "UnicoMes" : "Fijo",
-            frecuencia: editingIngreso.frecuencia,
-            diaPago: editingIngreso.diaPago,
-          });
-          controller.abort();
-          editModal.close();
-          await reload();
-        } catch (err) {
-          editModalError.hidden = false;
-          editModalError.textContent = err instanceof Error ? err.message : "No se pudo guardar el cambio.";
-        } finally {
-          confirmBtn.disabled = false;
-        }
-      },
-      { signal },
-    );
-
-    editModal.showModal();
+  function abrirRecibir(fuente: IngresoFijo): void {
+    fuenteSeleccionada = fuente;
+    recibirFuente.textContent = `${fuente.nombre} · estimado ${formatMoney(fuente.monto)}`;
+    recibirFecha.value = fuente.proximaFecha || todayISO();
+    recibirMonto.value = fuente.monto ? String(fuente.monto) : "";
+    recibirNotas.value = "";
+    recibirError.hidden = true;
+    recibirModal.showModal();
   }
 
-  function actualizarOjo(btn: HTMLButtonElement, visible: boolean): void {
-    btn.innerHTML = visible ? eyeIcon : eyeOffIcon;
-  }
-
-  totalEyeBtn.addEventListener("click", () => {
-    showTotal = !showTotal;
-    actualizarOjo(totalEyeBtn, showTotal);
-    renderList();
-  });
-  fijoEyeBtn.addEventListener("click", () => {
-    showFijo = !showFijo;
-    actualizarOjo(fijoEyeBtn, showFijo);
-    renderList();
-  });
-  balanceEyeBtn.addEventListener("click", () => {
-    showBalance = !showBalance;
-    actualizarOjo(balanceEyeBtn, showBalance);
-    renderList();
-  });
-
-  function renderList(): void {
-    const totalIngresos = sumIngresosActivos(currentIngresos);
-    totalEl.textContent = showTotal ? formatMoney(totalIngresos) : "••••••";
-    totalFijoEl.textContent = showFijo ? formatMoney(sumIngresosFijosRecurrentes(currentIngresos)) : "••••••";
-    balanceEl.textContent = showBalance ? formatMoney(balanceDisponible) : "••••••";
-
-    if (currentIngresos.length === 0) {
-      listEl.innerHTML = `<p class="empty-state">Aún no tienes ingresos vigentes. Agrega el primero arriba.</p>`;
+  recibirModal.querySelector('[data-action="cancel"]')!.addEventListener("click", () => recibirModal.close());
+  recibirForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!fuenteSeleccionada || busy) return;
+    const monto = Number(recibirMonto.value);
+    if (!recibirFecha.value || !Number.isFinite(monto) || monto === 0) {
+      recibirError.hidden = false;
+      recibirError.textContent = "Ingresa una fecha y un monto real diferente de cero.";
       return;
     }
+    busy = true;
+    try {
+      await registrarIngresoRecibido(spreadsheetId, fuenteSeleccionada, {
+        fechaRecibida: recibirFecha.value,
+        montoReal: monto,
+        notas: recibirNotas.value.trim(),
+        periodoId: periodoInicio,
+      });
+      recibirModal.close();
+      await reload();
+    } catch (err) {
+      recibirError.hidden = false;
+      recibirError.textContent = err instanceof Error ? err.message : "No se pudo registrar el pago.";
+    } finally {
+      busy = false;
+    }
+  });
 
-    const ordered = sortIngresos(currentIngresos, sortOrder);
-    const rows = ordered
-      .map((ingreso) => {
-        const esFijo = ingreso.recurrencia === "Fijo";
-        const estadoCell = esFijo
-          ? `<button type="button" class="btn-toggle ${ingreso.activo ? "" : "is-off"}" data-row="${ingreso.row}" data-action="toggle">${ingreso.activo ? "Activo" : "Pausado"}</button>`
-          : `<span class="badge badge--neutral">Adicional</span>`;
-        return `
-          <tr data-row="${ingreso.row}">
-            <td data-label="Tipo">${ingreso.tipo}</td>
-            <td data-label="Recurrencia"><span class="badge ${esFijo ? "badge--fijo" : "badge--unico"}">${esFijo ? "Fijo" : "Adicional"}</span></td>
-            <td data-label="Notas" class="text-muted">${ingreso.notas || "—"}</td>
-            <td data-label="Estado">${estadoCell}</td>
-            <td data-label="Monto" class="text-right amount-cell">${formatMoney(ingreso.monto)}</td>
-            <td class="actions-cell">
-              <button type="button" class="icon-btn icon-btn--edit" data-row="${ingreso.row}" data-action="edit" aria-label="Editar" title="Editar">${editIcon}</button>
-              <button type="button" class="icon-btn icon-btn--delete" data-row="${ingreso.row}" data-action="delete" aria-label="Eliminar" title="Eliminar">${trashIcon}</button>
-            </td>
-          </tr>
-        `;
-      })
-      .join("");
+  function abrirEditar(fuente: IngresoFijo): void {
+    fuenteEditando = fuente;
+    editarNombre.value = fuente.nombre;
+    editCategoriaValue = fuente.tipo;
+    editCategoriaCombo.refresh();
+    editarModalidad.value = fuente.frecuencia;
+    editarMonto.value = String(fuente.monto);
+    editarProxima.value = fuente.proximaFecha;
+    editarQuincena.value = fuente.diaPago || "15,30";
+    actualizarModalidadEdicion();
+    editarCuenta.value = fuente.cuentaDestino;
+    editarNotas.value = fuente.notas;
+    editarError.hidden = true;
+    editarModal.showModal();
+  }
 
-    listEl.innerHTML = `
-      <div class="table-scroll">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Tipo</th>
-              <th>Recurrencia</th>
-              <th>Notas</th>
-              <th>Estado</th>
-              <th class="text-right">Monto</th>
-              <th class="actions-col">Acciones</th>
-            </tr>
-          </thead>
-          <tbody>${rows}</tbody>
-        </table>
-      </div>
-    `;
+  editarModal.querySelector('[data-action="cancel"]')!.addEventListener("click", () => editarModal.close());
+  editarForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!fuenteEditando || busy) return;
+    const modalidad = editarModalidad.value as FrecuenciaIngreso;
+    const monto = Number(editarMonto.value || 0);
+    if (!editarNombre.value.trim() || monto <= 0 || (modalidad !== "Quincenal" && !editarProxima.value)) {
+      editarError.hidden = false;
+      editarError.textContent = "Completa el nombre y un monto estimado válido.";
+      return;
+    }
+    busy = true;
+    try {
+      await actualizarIngreso(spreadsheetId, fuenteEditando, {
+        nombre: editarNombre.value.trim(),
+        tipo: editCategoriaValue || "Otro",
+        monto,
+        notas: editarNotas.value.trim(),
+        recurrencia: modalidad === "PagoUnico" ? "UnicoMes" : "Fijo",
+        frecuencia: modalidad,
+        diaPago: modalidad === "Quincenal" ? editarQuincena.value || "15,30" : "",
+        proximaFecha: modalidad === "Quincenal" ? "" : editarProxima.value,
+        cuentaDestino: editarCuenta.value.trim(),
+      });
+      editarModal.close();
+      await reload();
+    } catch (err) {
+      editarError.hidden = false;
+      editarError.textContent = err instanceof Error ? err.message : "No se pudo editar la fuente.";
+    } finally {
+      busy = false;
+    }
+  });
 
-    listEl.querySelectorAll<HTMLButtonElement>("[data-action]").forEach((btn) => {
-      btn.disabled = busy;
-      const row = Number(btn.dataset.row);
-      const ingreso = currentIngresos.find((i) => i.row === row);
-      if (!ingreso) return;
-
-      if (btn.dataset.action === "toggle") {
-        btn.addEventListener("click", () => runAction(() => setIngresoActivo(spreadsheetId, ingreso, !ingreso.activo)));
-      } else if (btn.dataset.action === "edit") {
-        btn.addEventListener("click", () => openEditModal(ingreso));
-      } else if (btn.dataset.action === "delete") {
-        btn.addEventListener("click", async () => {
-          const ok = await showConfirm(`¿Eliminar el ingreso "${ingreso.tipo}" de ${formatMoney(ingreso.monto)}?`, {
-            title: "Eliminar ingreso",
-            confirmLabel: "Eliminar",
-            danger: true,
-          });
-          if (!ok) return;
-          void runAction(() => eliminarIngreso(spreadsheetId, ingreso));
-        });
-      }
+  function renderFuentes(): void {
+    const visibles = fuentes.filter((f) => !(f.frecuencia === "PagoUnico" && f.cerrado));
+    if (visibles.length === 0) {
+      fuentesList.innerHTML = `<p class="empty-state">Aún no tienes fuentes configuradas.</p>`;
+      return;
+    }
+    fuentesList.innerHTML = visibles
+      .sort((a, b) => (a.proximaFecha || "9999").localeCompare(b.proximaFecha || "9999"))
+      .map((f) => {
+        const vencido = f.activo && f.frecuencia !== "PagoUnico" && f.proximaFecha && f.proximaFecha < todayISO();
+        return `<div class="record-row" data-id="${escapeHtml(f.id)}">
+          <div class="record-row__main"><span class="record-row__title">${escapeHtml(f.nombre)} <span class="badge ${vencido ? "badge--unico" : "badge--fijo"}">${vencido ? "Atrasado" : escapeHtml(MODALIDAD_LABELS[f.frecuencia])}</span></span>
+          <span class="record-row__subtitle">${escapeHtml(f.tipo)} · ${escapeHtml(formatFecha(f.proximaFecha))}${f.cuentaDestino ? ` · ${escapeHtml(f.cuentaDestino)}` : ""}</span></div>
+          <div class="record-row__amount">${formatMoney(f.monto)}</div>
+          ${f.activo ? `<button type="button" class="btn" data-action="receive">Registrar recibido</button>` : ""}
+          ${f.activo && f.proximaFecha ? `<button type="button" class="btn-secondary" data-action="skip">Omitir</button>` : ""}
+          ${f.frecuencia !== "PagoUnico" ? `<button type="button" class="btn-secondary" data-action="toggle">${f.activo ? "Pausar" : "Reactivar"}</button>` : ""}
+          <button type="button" class="icon-btn icon-btn--edit" data-action="edit" aria-label="Editar" title="Editar">${editIcon}</button>
+          <button type="button" class="icon-btn icon-btn--delete" data-action="delete" aria-label="Eliminar" title="Eliminar">${trashIcon}</button>
+        </div>`;
+      }).join("");
+    fuentesList.querySelectorAll<HTMLElement>("[data-id]").forEach((row) => {
+      const fuente = fuentes.find((f) => f.id === row.dataset.id);
+      if (!fuente) return;
+      row.querySelector<HTMLButtonElement>('[data-action="receive"]')?.addEventListener("click", () => abrirRecibir(fuente));
+      row.querySelector<HTMLButtonElement>('[data-action="skip"]')?.addEventListener("click", async () => {
+        const ok = await showConfirm(`¿Omitir el pago esperado de "${fuente.nombre}"? No sumará al disponible y se avanzará la próxima fecha.`, { title: "Omitir pago", confirmLabel: "Omitir" });
+        if (ok) void ejecutar(() => omitirProximoIngreso(spreadsheetId, fuente, periodoInicio));
+      });
+      row.querySelector<HTMLButtonElement>('[data-action="toggle"]')?.addEventListener("click", () => void ejecutar(() => setIngresoActivo(spreadsheetId, fuente, !fuente.activo)));
+      row.querySelector<HTMLButtonElement>('[data-action="edit"]')?.addEventListener("click", () => abrirEditar(fuente));
+      row.querySelector<HTMLButtonElement>('[data-action="delete"]')?.addEventListener("click", async () => {
+        const ok = await showConfirm(`¿Eliminar la fuente "${fuente.nombre}"? Los pagos ya recibidos se conservarán en el historial.`, { title: "Eliminar fuente", confirmLabel: "Eliminar", danger: true });
+        if (ok) void ejecutar(() => eliminarIngreso(spreadsheetId, fuente));
+      });
     });
   }
 
-  async function runAction(action: () => Promise<void>): Promise<void> {
+  function renderMovimientos(): void {
+    // Esta pantalla empieza limpia en cada reinicio. Los movimientos de
+    // periodos anteriores se conservan y siguen disponibles en Histórico.
+    const historial = movimientos
+      .filter((m) => m.periodoId ? m.periodoId === periodoInicio : (m.fechaRecibida || m.fechaEsperada) >= periodoInicio)
+      .sort((a, b) => (b.fechaRecibida || b.fechaEsperada).localeCompare(a.fechaRecibida || a.fechaEsperada));
+    if (historial.length === 0) {
+      movimientosList.innerHTML = `<p class="empty-state">Aún no has confirmado ingresos en este periodo.</p>`;
+      return;
+    }
+    movimientosList.innerHTML = historial.slice(0, 50).map((m) => `<div class="record-row">
+      <div class="record-row__main"><span class="record-row__title">${escapeHtml(m.fuenteNombre || m.tipo)} <span class="badge ${m.estado === "Recibido" ? "badge--fijo" : "badge--neutral"}">${m.estado}</span></span><span class="record-row__subtitle">${escapeHtml(formatFecha(m.fechaRecibida || m.fechaEsperada))}${m.notas ? ` · ${escapeHtml(m.notas)}` : ""}</span></div>
+      <div class="record-row__amount">${m.estado === "Recibido" ? formatMoney(m.montoReal) : "—"}</div>
+    </div>`).join("");
+  }
+
+  async function ejecutar(action: () => Promise<void>): Promise<void> {
     if (busy) return;
     busy = true;
-    renderList();
     try {
       await action();
-      await reload();
-    } finally {
-      busy = false;
-      renderList();
+      try {
+        await reload();
+      } catch (err) {
+        await showAlert(
+          `La acción se guardó, pero no se pudo actualizar la pantalla. ${err instanceof Error ? err.message : "Vuelve a cargar la página."}`,
+          "Acción completada",
+        );
+      }
+    } catch (err) {
+      await showAlert(err instanceof Error ? err.message : "No se pudo completar la acción.", "Error");
     }
+    finally { busy = false; }
   }
 
   async function reload(): Promise<void> {
-    const [ingresosList, gastosFijosVigentes, gastosVariablesDelPeriodo, deudasYoDebo, deudasMeDeben, eventosDeudas, movimientosMetas] =
-      await Promise.all([
-        listIngresosVigentes(spreadsheetId),
-        listGastosFijosVigentes(spreadsheetId, periodoInicio),
-        listGastosDelPeriodo(spreadsheetId, periodoInicio),
-        listDeudas(spreadsheetId, "YoDebo"),
-        listDeudas(spreadsheetId, "MeDeben"),
-        listTodosLosEventos(spreadsheetId),
-        listTodosLosMovimientos(spreadsheetId),
-      ]);
-    currentIngresos = ingresosList;
-    // No vuelve a pedirle nada a Sheets: calcula el disponible con lo que ya se cargó arriba.
-    const detalle = calcularDisponibleDesde(
-      {
-        ingresos: ingresosList,
-        gastosFijosDelPeriodo: gastosFijosVigentes.delPeriodo,
-        gastosVariablesDelPeriodo,
-        deudasYoDebo,
-        deudasMeDeben,
-        eventosDeudas,
-        movimientosMetas,
-      },
-      periodoInicio,
-    );
-    balanceDisponible = detalle.disponible;
-    renderList();
+    const [fuentesActuales, movimientosActuales, detalleDisponible] = await Promise.all([
+      listIngresosVigentes(spreadsheetId),
+      listMovimientosIngresos(spreadsheetId),
+      calcularDisponible(spreadsheetId, periodoInicio),
+    ]);
+    fuentes = fuentesActuales;
+    movimientos = movimientosActuales;
+    const recibido = sumMovimientosRecibidos(movimientos, periodoInicio);
+    latestRecibido = recibido;
+    latestDisponible = detalleDisponible.disponible;
+    eyeToggle.refresh();
+    renderFuentes();
+    renderMovimientos();
   }
 
-  ordenSelect.addEventListener("change", () => {
-    sortOrder = ordenSelect.value as SortOrder;
-    renderList();
-  });
-
-  form.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    formError.hidden = true;
-
-    const monto = Number(montoInput.value);
-    if (!monto || monto <= 0) {
-      formError.hidden = false;
-      formError.textContent = "Ingresa un monto válido.";
+  fuenteForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    fuenteError.hidden = true;
+    const modalidad = modalidadSelect.value as FrecuenciaIngreso;
+    const monto = Number(montoInput.value || 0);
+    if (!nombreInput.value.trim() || monto <= 0 || (modalidad !== "Quincenal" && !proximaInput.value)) {
+      fuenteError.hidden = false;
+      fuenteError.textContent = "Completa el nombre, el monto estimado y la próxima fecha.";
       return;
     }
-    if (!formTipoValue) {
-      formError.hidden = false;
-      formError.textContent = "Elige o crea un tipo de ingreso.";
-      return;
-    }
-
-    submitBtn.disabled = true;
-    try {
-      await crearIngreso(
-        spreadsheetId,
-        formTipoValue,
-        monto,
-        notasInput.value.trim(),
-        recurrenciaSelect.value === "UnicoMes" ? "UnicoMes" : "Fijo",
-      );
-      montoInput.value = "";
-      notasInput.value = "";
-      recurrenciaSelect.value = "Fijo";
-      await reload();
-    } catch (err) {
-      formError.hidden = false;
-      formError.textContent = err instanceof Error ? err.message : "No se pudo guardar el ingreso.";
-    } finally {
-      submitBtn.disabled = false;
-    }
+    await ejecutar(() => crearFuenteIngreso(spreadsheetId, {
+      nombre: nombreInput.value.trim(), tipo: formCategoriaValue || "Otro", montoEstimado: monto,
+      modalidad, proximaFecha: modalidad === "Quincenal" ? "" : proximaInput.value, diasQuincena: quincenaInput.value,
+      cuentaDestino: cuentaInput.value.trim(), notas: notasInput.value.trim(),
+    }));
+    fuenteForm.reset();
+    modalidadSelect.value = "Mensual";
+    quincenaInput.value = "15,30";
+    actualizarModalidad();
   });
 
   try {
-    const ensured = await ensureSpreadsheet();
-    spreadsheetId = ensured.spreadsheetId;
-    const [tiposList, configPeriodo] = await Promise.all([listTiposIngreso(spreadsheetId), obtenerConfigPeriodo(spreadsheetId)]);
-    tipos = tiposList;
-    periodoInicio = configPeriodo.fechaUltimoReinicio;
-    formTipoValue = tipos[0] ?? "";
-    periodoBadge.textContent = formatPeriodoBadge(configPeriodo);
+    spreadsheetId = (await ensureSpreadsheet()).spreadsheetId;
+    const [tipos, config] = await Promise.all([listTiposIngreso(spreadsheetId), obtenerConfigPeriodo(spreadsheetId)]);
+    periodoInicio = config.fechaUltimoReinicio;
+    periodoBadge.textContent = formatPeriodoBadge(config);
+    categorias = tipos;
+    formCategoriaValue = categorias[0] ?? "";
     refreshCombos();
+    proximaInput.value = todayISO();
     await reload();
   } catch (err) {
-    listEl.innerHTML = `<p class="empty-state">${err instanceof Error ? err.message : "No se pudo cargar la información."}</p>`;
+    fuentesList.innerHTML = `<p class="empty-state">${escapeHtml(err instanceof Error ? err.message : "No se pudo cargar la información.")}</p>`;
+    movimientosList.innerHTML = "";
   }
 }

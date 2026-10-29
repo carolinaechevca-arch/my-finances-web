@@ -113,7 +113,7 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
 
     <div class="card" id="ahorrando-card" style="margin-bottom:20px" hidden>
       <h2 style="margin-top:0">Ahorrando para estas compras</h2>
-      <p class="empty-state" style="margin-top:-8px;margin-bottom:14px">Ya no cuentan como pendientes: se están gestionando como metas de ahorro. Aporta y márcalas como pagadas desde Ahorros y Metas.</p>
+      <p class="empty-state" style="margin-top:-8px;margin-bottom:14px">Ya no cuentan como pendientes: se están financiando desde un bolsillo de ahorro. Mete plata y márcalas como pagadas desde Bolsillos de Ahorro.</p>
       <div id="ahorrando-list"></div>
     </div>
 
@@ -609,7 +609,7 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
         </div>
         <div class="record-row__amount">${formatMoney(gasto.monto)}</div>
         <button type="button" class="btn-secondary" data-action="completar">Marcar como realizado</button>
-        <button type="button" class="btn-secondary" data-action="convertir">Convertir en meta de ahorro</button>
+        <button type="button" class="btn-secondary" data-action="convertir">Crear bolsillo para esta compra</button>
         <button type="button" class="icon-btn icon-btn--delete" data-action="eliminar" aria-label="Eliminar" title="Eliminar">${trashIcon}</button>
       `;
       item.querySelector('[data-action="completar"]')!.addEventListener("click", async () => {
@@ -708,7 +708,7 @@ export async function renderGastosPersonales(container: HTMLElement): Promise<vo
       item.innerHTML = `
         <div class="record-row__main">
           <span class="record-row__title">${gasto.nombre} <span class="badge">Ahorrando</span></span>
-          <span class="record-row__subtitle">Objetivo: ${formatMoney(gasto.monto)} · aporta, marca como pagada o deshaz la conversión desde Ahorros y Metas</span>
+          <span class="record-row__subtitle">Meta: ${formatMoney(gasto.monto)} · mete plata, marca como pagada o deshaz la conversión desde Bolsillos de Ahorro</span>
         </div>
       `;
       ahorrandoListEl.appendChild(item);

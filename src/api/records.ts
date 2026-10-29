@@ -1,4 +1,4 @@
-import { appendValues, deleteRow, getSheetIds, getValues, updateValues } from "./sheets";
+import { appendValues, batchClearValues, deleteRow, getSheetIds, getValues, updateValues } from "./sheets";
 
 export interface SheetRow {
   /** Número de fila en la hoja (1-based, la fila 1 es el encabezado). */
@@ -53,4 +53,9 @@ export async function deleteRecord(spreadsheetId: string, sheet: string, row: nu
   const sheetId = ids[sheet];
   if (sheetId === undefined) throw new Error(`No se encontró la hoja "${sheet}".`);
   await deleteRow(spreadsheetId, sheetId, row);
+}
+
+/** Vacía una fila sin consultar el id interno de la hoja; útil cuando no es necesario compactar las filas. */
+export async function clearRecord(spreadsheetId: string, sheet: string, row: number, columnCount: number): Promise<void> {
+  await batchClearValues(spreadsheetId, [`${sheet}!A${row}:${columnLetter(columnCount)}${row}`]);
 }

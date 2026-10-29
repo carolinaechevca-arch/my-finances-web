@@ -171,7 +171,7 @@ export async function registrarRetiro(
   await appendRecord(spreadsheetId, MOVIMIENTOS_METAS_SHEET, [meta.id, fecha, "Retiro", monto, motivo]);
 }
 
-/** Tipos de meta manejables por el usuario, misma mecánica que las categorías de gastos. */
+/** Categorías de bolsillo manejables por el usuario; el nombre interno se conserva por compatibilidad. */
 export async function listTiposMeta(spreadsheetId: string): Promise<string[]> {
   const rows = await listRecords(spreadsheetId, TIPOS_METAS_SHEET, 1);
   const seen = new Set<string>();

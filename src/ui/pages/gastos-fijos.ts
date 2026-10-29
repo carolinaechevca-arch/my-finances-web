@@ -102,7 +102,6 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
           <select id="gf-recurrencia">
             <option value="Fijo">Fijo</option>
             <option value="Personalizado">Personalizado</option>
-            <option value="Adicional">Adicional</option>
           </select>
         </div>
         <div class="field" id="gf-repite-n-field" hidden>
@@ -171,7 +170,6 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
           <select id="edit-recurrencia">
             <option value="Fijo">Fijo</option>
             <option value="Personalizado">Personalizado</option>
-            <option value="Adicional">Adicional</option>
           </select>
         </div>
         <div class="field" id="edit-repite-n-field" hidden>
@@ -377,7 +375,9 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
     editNombreInput.value = gasto.nombre;
     editCategoriaValue = gasto.categoria;
     editCategoriaCombo.refresh();
-    editRecurrenciaSelect.value = gasto.recurrencia;
+    // Un registro antiguo "Adicional" se convierte en Fijo si el usuario lo
+    // edita; ya no se pueden crear ni mantener adicionales en este módulo.
+    editRecurrenciaSelect.value = gasto.recurrencia === "Personalizado" ? "Personalizado" : "Fijo";
     editRepiteNField.hidden = gasto.recurrencia !== "Personalizado";
     editRepiteNInput.value = gasto.repiteCadaN > 0 ? String(gasto.repiteCadaN) : "";
     editMontoInput.value = String(gasto.monto);
@@ -520,7 +520,12 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
             ? ` <span class="badge badge--today">Hoy</span>`
             : "";
 
-        const recurrenciaLabel = gasto.recurrencia === "Personalizado" ? `Cada ${gasto.repiteCadaN} periodos` : gasto.recurrencia;
+        const progresoPersonalizado = gasto.recurrencia === "Personalizado"
+          ? `${Math.min(gasto.contadorPeriodos + 1, gasto.repiteCadaN)}/${gasto.repiteCadaN}`
+          : "";
+        const recurrenciaLabel = gasto.recurrencia === "Personalizado"
+          ? `Cada ${gasto.repiteCadaN} periodos · ${progresoPersonalizado}`
+          : gasto.recurrencia;
         const recurrenciaCell = `
           <span class="badge ${RECURRENCIA_BADGE[gasto.recurrencia]}">${recurrenciaLabel}</span>
           ${
@@ -530,10 +535,7 @@ export async function renderGastosFijos(container: HTMLElement): Promise<void> {
           }
         `;
 
-        const activoCell =
-          gasto.recurrencia !== "Adicional"
-            ? `<button type="button" class="btn-toggle-filled ${gasto.pausado ? "is-off" : ""}" data-row="${gasto.row}" data-action="pausar">${gasto.pausado ? "Pausado" : "Activo"}</button>`
-            : `<span class="empty-state">—</span>`;
+        const activoCell = `<button type="button" class="btn-toggle-filled ${gasto.pausado ? "is-off" : ""}" data-row="${gasto.row}" data-action="pausar">${gasto.pausado ? "Pausado" : "Activo"}</button>`;
 
         const estadoCell = gasto.enEspera
           ? `<span class="empty-state">—</span>`

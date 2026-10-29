@@ -27,17 +27,12 @@ import { cargarSnapshotHistorico, descargarHistoricoCompletoCSV } from "../../do
 import { crearTipoMeta, eliminarTipoMeta, listTiposMeta } from "../../domain/metas";
 import {
   ejecutarReinicioPeriodo,
-  guardarDiaInicioSemana,
-  guardarFrecuenciaPeriodo,
   obtenerConfigPeriodo,
-  type FrecuenciaPeriodo,
 } from "../../domain/periodo";
 import type { AuthUser } from "../../auth/google-auth";
-import { showAlert, showConfirm, showTraspasoNegativoDialog } from "../components/dialogs";
+import { showAlert, showConfirm, showConfirmarSobranteDialog } from "../components/dialogs";
 import { loaderHtml } from "../components/loader";
 import { getThemeMode, setThemeMode, type ThemeMode } from "../theme-toggle";
-
-const DIAS_SEMANA = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
 
 /** Fila inmediatamente después de la posición `y` del mouse, para insertar el elemento arrastrado ahí. */
 function filaDespuesDe(lista: HTMLElement, y: number): HTMLElement | null {
@@ -59,26 +54,10 @@ export async function renderConfiguracion(container: HTMLElement, user: AuthUser
     <div class="card" style="margin-bottom:20px">
       <div class="card__title">Periodo de la app</div>
       <p class="empty-state" style="margin:0 0 16px">
-        Cada cuánto se reinicia el periodo (ingresos "Fijo" se reaplican solos, los "Adicional" se archivan). En modo Manual, el reinicio se dispara con el botón de abajo.
+        El periodo se reinicia únicamente cuando tú lo confirmas. Antes de cerrarlo podrás verificar o corregir cuánto dinero te sobró realmente.
       </p>
-      <div class="field" style="max-width:260px">
-        <label for="periodo-frecuencia">Frecuencia</label>
-        <select id="periodo-frecuencia">
-          <option value="Semanal">Semanal</option>
-          <option value="Quincenal">Quincenal</option>
-          <option value="Mensual">Mensual</option>
-          <option value="Manual">Manual</option>
-        </select>
-      </div>
-      <div class="field" id="periodo-dia-semana-field" style="max-width:260px;margin-top:14px" hidden>
-        <label for="periodo-dia-semana">¿Qué día empieza tu semana?</label>
-        <select id="periodo-dia-semana">
-          ${DIAS_SEMANA.map((d, i) => `<option value="${i}">${d}</option>`).join("")}
-        </select>
-      </div>
-      <div id="periodo-reinicio-row" style="margin-top:16px;display:flex;align-items:center;gap:10px" hidden>
+      <div id="periodo-reinicio-row" style="margin-top:16px;display:flex;align-items:center;gap:10px">
         <button type="button" class="btn" id="reiniciar-periodo-btn">Reiniciar periodo</button>
-        <button type="button" class="btn-secondary" id="forzar-reinicio-btn" hidden style="font-size:12px;padding:6px 12px">Forzar reinicio de todas formas</button>
       </div>
     </div>
 
@@ -144,12 +123,8 @@ export async function renderConfiguracion(container: HTMLElement, user: AuthUser
     </div>
   `;
 
-  const periodoSelect = container.querySelector<HTMLSelectElement>("#periodo-frecuencia")!;
-  const diaSemanaField = container.querySelector<HTMLDivElement>("#periodo-dia-semana-field")!;
-  const diaSemanaSelect = container.querySelector<HTMLSelectElement>("#periodo-dia-semana")!;
   const reinicioRow = container.querySelector<HTMLDivElement>("#periodo-reinicio-row")!;
   const reiniciarPeriodoBtn = container.querySelector<HTMLButtonElement>("#reiniciar-periodo-btn")!;
-  const forzarReinicioBtn = container.querySelector<HTMLButtonElement>("#forzar-reinicio-btn")!;
   const restablecerBtn = container.querySelector<HTMLButtonElement>("#restablecer-dashboard-btn")!;
   const listEl = container.querySelector<HTMLDivElement>("#dashboard-config-list")!;
   const limpiarTodoBtn = container.querySelector<HTMLButtonElement>("#limpiar-todo-btn")!;
@@ -219,44 +194,21 @@ export async function renderConfiguracion(container: HTMLElement, user: AuthUser
     ]);
     configs = configsIniciales;
 
-    periodoSelect.value = configPeriodo.frecuencia;
-    diaSemanaSelect.value = String(configPeriodo.diaInicioSemana);
-    diaSemanaField.hidden = configPeriodo.frecuencia !== "Semanal";
-    periodoSelect.addEventListener("change", () => {
-      diaSemanaField.hidden = periodoSelect.value !== "Semanal";
-      void guardarFrecuenciaPeriodo(spreadsheetId, periodoSelect.value as FrecuenciaPeriodo);
-    });
-    diaSemanaSelect.addEventListener("change", () => {
-      void guardarDiaInicioSemana(spreadsheetId, Number(diaSemanaSelect.value));
-    });
-
-    if (configPeriodo.frecuencia === "Manual") {
+    {
       reinicioRow.hidden = false;
       const yaReinicioHoy = configPeriodo.fechaUltimoReinicio === todayISO();
 
       async function correrReinicio(): Promise<void> {
         const { disponible } = await calcularDisponible(spreadsheetId, configPeriodo.fechaUltimoReinicio);
-        const ok = await showConfirm(
-          "Esto reaplica tus ingresos \"Fijo\" y archiva los \"Adicional\" del periodo que termina. ¿Reiniciar el periodo ahora?",
-          { title: "Reiniciar periodo", confirmLabel: "Reiniciar" },
-        );
-        if (!ok) return;
-
-        let traspasoDeficit: "adicional" | "deuda" = "adicional";
-        if (disponible < 0) {
-          const eleccion = await showTraspasoNegativoDialog(Math.abs(disponible));
-          if (eleccion === null) return;
-          traspasoDeficit = eleccion;
-        }
+        const sobranteReal = await showConfirmarSobranteDialog(disponible);
+        if (sobranteReal === null) return;
 
         reiniciarPeriodoBtn.disabled = true;
-        forzarReinicioBtn.disabled = true;
         try {
-          await ejecutarReinicioPeriodo(spreadsheetId, todayISO(), traspasoDeficit);
+          await ejecutarReinicioPeriodo(spreadsheetId, todayISO(), sobranteReal);
           await renderConfiguracion(container, user, onLogout);
         } catch (err) {
           reiniciarPeriodoBtn.disabled = false;
-          forzarReinicioBtn.disabled = false;
           await showAlert(
             err instanceof Error ? err.message : "No se pudo reiniciar el periodo.",
             "Error al reiniciar el periodo",
@@ -269,15 +221,6 @@ export async function renderConfiguracion(container: HTMLElement, user: AuthUser
         reiniciarPeriodoBtn.className = "btn-secondary";
         reiniciarPeriodoBtn.textContent = "Ya reiniciaste hoy";
         reiniciarPeriodoBtn.title = "Solo se puede reiniciar el periodo una vez por día — vuelve a intentarlo mañana.";
-        forzarReinicioBtn.hidden = false;
-        forzarReinicioBtn.addEventListener("click", async () => {
-          const ok = await showConfirm(
-            "Ya reiniciaste el periodo hoy. Reiniciarlo otra vez el mismo día puede contar abonos/gastos de hoy dos veces en el cálculo de disponible. ¿Reiniciar de todas formas?",
-            { title: "Forzar reinicio", confirmLabel: "Sí, forzar", danger: true },
-          );
-          if (!ok) return;
-          await correrReinicio();
-        });
       } else {
         reiniciarPeriodoBtn.addEventListener("click", correrReinicio);
       }
@@ -374,7 +317,7 @@ interface ListaSimpleConfig {
 async function montarCategoriasTipos(grid: HTMLDivElement, spreadsheetId: string): Promise<void> {
   const listas: ListaSimpleConfig[] = [
     {
-      titulo: "Tipos de ingreso",
+      titulo: "Categorías de ingreso",
       listar: () => listTiposIngreso(spreadsheetId),
       crear: (n) => crearTipoIngreso(spreadsheetId, n),
       eliminar: (n) => eliminarTipoIngreso(spreadsheetId, n),
@@ -404,7 +347,7 @@ async function montarCategoriasTipos(grid: HTMLDivElement, spreadsheetId: string
       eliminar: (n) => eliminarTipoDeuda(spreadsheetId, "MeDeben", n),
     },
     {
-      titulo: "Tipos de meta",
+      titulo: "Categorías de bolsillos de ahorro",
       listar: () => listTiposMeta(spreadsheetId),
       crear: (n) => crearTipoMeta(spreadsheetId, n),
       eliminar: (n) => eliminarTipoMeta(spreadsheetId, n),

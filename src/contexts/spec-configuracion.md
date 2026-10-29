@@ -10,10 +10,11 @@
 
 ## 2. Tarjeta "Periodo de la app" *(NUEVA — base del sistema global de periodo, ver `spec-ingresos.md`)*
 
-- Selector con 4 opciones: **Semanal / Quincenal / Mensual / Manual**.
+- El periodo se maneja exclusivamente en modo **Manual**; ya no existe selector de frecuencia global.
 - Es una configuración **única y global**, aplica a toda la app (Ingresos, Gastos Fijos, Gastos y Compras, Deudas, Me Deben, Ahorros, Histórico, Dashboard).
 - Persistencia: pestaña `ConfigPeriodo` en la Hoja de Google (`frecuencia | fechaUltimoReinicio`).
-- El botón de reinicio manual ("Reiniciar periodo") **vive aquí**, junto al selector de Frecuencia, y solo aparece cuando el modo es **Manual**. Si ya se reinició hoy, el botón queda deshabilitado ("Ya reiniciaste hoy", en blanco/`.btn-secondary`; activo se ve azul/`.btn`) y aparece un botón secundario "Forzar reinicio de todas formas" con una advertencia explícita, por si de verdad hace falta reiniciar dos veces el mismo día. Antes vivía en Inicio (Dashboard); se movió aquí. Ver `spec-ingresos.md` sección 1.
+- Al usar **Limpiar todo**, la hoja nueva guarda la fecha actual como inicio: el contador comienza en **Día 1** aunque no sea el primer día calendario del mes.
+- El botón "Reiniciar periodo" vive aquí y está disponible salvo que ya se haya reiniciado hoy; cada fecha puede iniciar un solo periodo. Antes de reiniciar se confirma o corrige el sobrante real.
 - Reglas exactas de corte por modo (inicio de semana, días de corte de quincena, etc.) — pendientes de definir, ver `spec-ingresos.md` sección 1.
 
 ## 3. Tarjeta "Personalizar dashboard"
@@ -33,7 +34,7 @@
 
 ## 5. Tarjeta "Categorías y tipos" *(implementado — solo crear/borrar, sin renombrar)*
 
-- Acceso centralizado para gestionar los 6 listados hoy dispersos por módulo: tipos de ingreso, categorías de gastos fijos, categorías de gastos y compras, tipos de deuda (Yo debo), tipos de deuda (Me deben), tipos de meta. Cada uno en su propia mini-lista de chips con "×" para borrar y un input para agregar.
+- Acceso centralizado para gestionar los 6 listados hoy dispersos por módulo: categorías de ingreso, categorías de gastos fijos, categorías de gastos y compras, tipos de deuda (Yo debo), tipos de deuda (Me deben) y categorías de bolsillos de ahorro. Cada uno en su propia mini-lista de chips con "×" para borrar y un input para agregar.
 - **Confirmado con el usuario: solo crear/borrar por ahora, sin renombrar** — ningún módulo de la app soporta renombrar categorías/tipos hoy (sería funcionalidad nueva de cero, no reutilización), así que se dejó fuera de esta pasada.
 - Reutiliza las funciones `crear*`/`eliminar*`/`list*` ya existentes de cada dominio (`gastos.ts`, `gastos-y-compras.ts`, `ingresos.ts`, `deudas.ts`, `metas.ts`) — no duplica lógica de negocio, solo la UI.
 

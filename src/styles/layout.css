@@ -1185,6 +1185,8 @@
   color: var(--color-text);
   box-shadow: var(--shadow-card);
   width: min(420px, calc(100vw - 40px));
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
 }
 
 .modal::backdrop {

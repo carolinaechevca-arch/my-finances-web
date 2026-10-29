@@ -34,7 +34,7 @@ import {
   sumGastos as sumGastosYCompras,
   type GastoYCompra,
 } from "../../domain/gastos-y-compras";
-import { listIngresosVigentes } from "../../domain/ingresos";
+import { listIngresosVigentes, listMovimientosIngresos } from "../../domain/ingresos";
 import { obtenerConfigPeriodo } from "../../domain/periodo";
 import {
   agruparMovimientosPorMeta,
@@ -119,7 +119,7 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
 
       <div class="card" id="metas-resumen-card" data-card-id="resumenAhorros" hidden>
         <div class="table-toolbar">
-          ${cardTitle(moneybagPlusIcon, "Ahorros y Metas")}
+          ${cardTitle(moneybagPlusIcon, "Bolsillos de ahorro")}
           <button type="button" class="btn-secondary" id="metas-resumen-btn">Ver todas</button>
         </div>
         <div class="stat-card__value" id="metas-total" style="margin-bottom:12px">—</div>
@@ -228,6 +228,7 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
 
     const [
       ingresos,
+      movimientosIngresos,
       todosLosGastosFijos,
       todosLosGastosYCompras,
       deudasYoDebo,
@@ -238,6 +239,7 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
       dashboardConfig,
     ] = await Promise.all([
       listIngresosVigentes(spreadsheetId),
+      listMovimientosIngresos(spreadsheetId),
       listTodosLosGastosFijos(spreadsheetId),
       listTodosLosGastos(spreadsheetId),
       listDeudas(spreadsheetId, "YoDebo"),
@@ -256,7 +258,7 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
 
     // No vuelve a pedirle nada a Sheets: reutiliza lo que ya se cargó arriba para las demás tarjetas.
     const disponibleDetalle = calcularDisponibleDesde(
-      { ingresos, gastosFijosDelPeriodo: gastosFijos, gastosVariablesDelPeriodo, deudasYoDebo, deudasMeDeben, eventosDeudas, movimientosMetas },
+      { movimientosIngresos, gastosFijosDelPeriodo: gastosFijos, gastosVariablesDelPeriodo, deudasYoDebo, deudasMeDeben, eventosDeudas, movimientosMetas },
       configPeriodo.fechaUltimoReinicio,
     );
 
@@ -472,7 +474,7 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
         ${vencidasMeDeben.length > 0 ? `<p style="margin:0;color:var(--color-danger)">⚠️ ${vencidasMeDeben.map((d) => d.contraparte).join(", ")} con compromiso de pago vencido.</p>` : ""}
       `;
 
-    // --- F. Ahorros y Metas ---
+    // --- F. Bolsillos de ahorro ---
     const movimientosPorMeta = agruparMovimientosPorMeta(movimientosMetas);
     const totalAhorrado = metas.reduce((s, m) => s + calcularAcumulado(movimientosPorMeta.get(m.id) ?? []), 0);
     metasTotal.textContent = formatMoney(totalAhorrado);
@@ -483,20 +485,21 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
       const destacadas = [...metasVivas]
         .sort(
           (a, b) =>
-            calcularProgresoPct(b, movimientosPorMeta.get(b.id) ?? []) -
-            calcularProgresoPct(a, movimientosPorMeta.get(a.id) ?? []),
+            calcularAcumulado(movimientosPorMeta.get(b.id) ?? []) -
+            calcularAcumulado(movimientosPorMeta.get(a.id) ?? []),
         )
         .slice(0, 3);
       metasResumenList.innerHTML = destacadas
         .map((m) => {
           const progreso = calcularProgresoPct(m, movimientosPorMeta.get(m.id) ?? []);
+          const saldo = calcularAcumulado(movimientosPorMeta.get(m.id) ?? []);
           return `
             <div style="margin-bottom:12px">
               <div style="display:flex;justify-content:space-between;margin-bottom:4px">
                 <span>${m.nombre}</span>
-                <span class="empty-state">${progreso.toFixed(0)}%</span>
+                <span class="empty-state">${formatMoney(saldo)}</span>
               </div>
-              <div class="progress-bar"><div class="progress-bar__fill" style="width:${progreso}%"></div></div>
+              ${m.montoObjetivo > 0 ? `<div class="progress-bar"><div class="progress-bar__fill" style="width:${progreso}%"></div></div>` : ""}
             </div>
           `;
         })
@@ -554,7 +557,7 @@ export async function renderDashboard(container: HTMLElement, onNavigate: (secti
       movimientos.push({ fecha: e.fecha, texto: esMia ? "Abono a deuda" : "Pago recibido", monto: esMia ? -e.monto : e.monto });
     }
     for (const m of movimientosMetas) {
-      movimientos.push({ fecha: m.fecha, texto: m.tipo === "Retiro" ? "Retiro de ahorro" : "Aporte a meta", monto: m.tipo === "Retiro" ? m.monto : -m.monto });
+      movimientos.push({ fecha: m.fecha, texto: m.tipo === "Retiro" ? "Retiro de bolsillo" : "Depósito en bolsillo", monto: m.tipo === "Retiro" ? m.monto : -m.monto });
     }
     for (const i of ingresos) {
       if (i.recurrencia === "UnicoMes" && i.mes === monthKey()) movimientos.push({ fecha: `${i.mes}-01`, texto: i.tipo, monto: i.monto });

@@ -33,30 +33,30 @@ import { mountEyeToggle } from "../components/eye-toggle";
 import { loaderHtml } from "../components/loader";
 import { createOptionCombo, type OptionCombo } from "../components/tipo-combo";
 
-type SortOrder = "progreso" | "fecha-limite";
+type SortOrder = "saldo" | "progreso" | "fecha-limite";
 
 export async function renderAhorros(container: HTMLElement): Promise<void> {
   container.innerHTML = `
     <div class="page-title-row">
-      <h1 class="page-title">${moneybagPlusIcon} Ahorros y Metas</h1>
+      <h1 class="page-title">${moneybagPlusIcon} Bolsillos de ahorro</h1>
     </div>
     <div class="card" style="max-width:280px;margin-bottom:20px;background:var(--color-primary);color:white;display:flex;flex-direction:column;gap:8px">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
-        <span style="font-size:14px;font-weight:600;opacity:0.85">Total acumulado</span>
+        <span style="font-size:14px;font-weight:600;opacity:0.85">Total en bolsillos</span>
         <button type="button" class="icon-btn" id="ah-total-eye" aria-label="Mostrar u ocultar" title="Mostrar u ocultar" style="color:white"></button>
       </div>
       <div style="font-size:32px;font-weight:800" id="ah-total">—</div>
     </div>
 
     <div class="card" style="margin-bottom:20px">
-      <h2 style="margin-top:0">Agregar meta</h2>
+      <h2 style="margin-top:0">Crear bolsillo</h2>
       <form id="meta-form" class="form">
-        <div class="field"><label for="mt-nombre">Nombre</label><input id="mt-nombre" type="text" placeholder="Ej. Vacaciones" required /></div>
+        <div class="field"><label for="mt-nombre">Nombre del bolsillo</label><input id="mt-nombre" type="text" placeholder="Ej. Vacaciones o Emergencias" required /></div>
         <div class="field">
-          <label>Tipo</label>
+          <label>Categoría (opcional)</label>
           <div id="mt-tipo-mount"></div>
         </div>
-        <div class="field"><label for="mt-monto">Monto objetivo</label><input id="mt-monto" type="number" min="0" step="0.01" required /></div>
+        <div class="field"><label for="mt-monto">Meta del bolsillo (opcional)</label><input id="mt-monto" type="number" min="0" step="0.01" placeholder="Déjalo vacío si no tiene meta" /></div>
         <div class="field"><label for="mt-fecha-limite">Fecha límite (opcional)</label><input id="mt-fecha-limite" type="date" /></div>
         <button type="submit" class="btn">${deviceFloppyIcon} Guardar</button>
       </form>
@@ -68,7 +68,8 @@ export async function renderAhorros(container: HTMLElement): Promise<void> {
       <div class="field field--inline">
         <label for="ah-orden">Ordenar por</label>
         <select id="ah-orden">
-          <option value="progreso">Más cerca de cumplirse</option>
+          <option value="saldo">Mayor saldo</option>
+          <option value="progreso">Más cerca de la meta</option>
           <option value="fecha-limite">Fecha límite más próxima</option>
         </select>
       </div>
@@ -77,19 +78,19 @@ export async function renderAhorros(container: HTMLElement): Promise<void> {
     <div id="ah-activas-list" class="deuda-list" style="margin-top:14px">${loaderHtml()}</div>
 
     <details class="card" id="ah-cumplidas-card" style="margin-top:20px">
-      <summary style="cursor:pointer;font-weight:700">Cumplidas</summary>
+      <summary style="cursor:pointer;font-weight:700">Bolsillos cerrados</summary>
       <div id="ah-cumplidas-list" class="deuda-list" style="margin-top:14px"></div>
     </details>
 
     <dialog id="edit-modal" class="modal">
       <form class="modal__form" id="edit-form">
-        <h2 class="modal__title">Editar meta</h2>
+        <h2 class="modal__title">Editar bolsillo</h2>
         <div class="field"><label for="edit-nombre">Nombre</label><input id="edit-nombre" type="text" required /></div>
         <div class="field">
-          <label>Tipo</label>
+          <label>Categoría (opcional)</label>
           <div id="edit-tipo-mount"></div>
         </div>
-        <div class="field"><label for="edit-monto">Monto objetivo</label><input id="edit-monto" type="number" min="0" step="0.01" required /></div>
+        <div class="field"><label for="edit-monto">Meta del bolsillo (opcional)</label><input id="edit-monto" type="number" min="0" step="0.01" /></div>
         <div class="field"><label for="edit-fecha-limite">Fecha límite</label><input id="edit-fecha-limite" type="date" /></div>
         <p class="empty-state" id="edit-modal-error" hidden></p>
         <div class="modal__actions">
@@ -101,7 +102,7 @@ export async function renderAhorros(container: HTMLElement): Promise<void> {
 
     <dialog id="tipo-modal" class="modal">
       <form class="modal__form" id="tipo-form">
-        <h2 class="modal__title">Nuevo tipo de meta</h2>
+        <h2 class="modal__title">Nueva categoría de bolsillo</h2>
         <div class="field">
           <label for="tipo-modal-input">Nombre</label>
           <input id="tipo-modal-input" type="text" placeholder="Ej. Viaje" required />
@@ -164,7 +165,7 @@ export async function renderAhorros(container: HTMLElement): Promise<void> {
   let tiposMeta: string[] = [];
   let formTipoValue = "";
   let editTipoValue = "";
-  let sortOrder: SortOrder = "progreso";
+  let sortOrder: SortOrder = "saldo";
   let busy = false;
   let editingMeta: Meta | null = null;
 
@@ -225,7 +226,7 @@ export async function renderAhorros(container: HTMLElement): Promise<void> {
     const enUso = metas.some((m) => m.tipo === nombre);
     if (enUso) {
       await showAlert(
-        `No puedes eliminar "${nombre}" porque tienes metas con este tipo. Edítalas primero.`,
+        `No puedes eliminar "${nombre}" porque tienes bolsillos con esta categoría. Edítalos primero.`,
         "No se puede eliminar",
       );
       return;
@@ -253,9 +254,9 @@ export async function renderAhorros(container: HTMLElement): Promise<void> {
     onSelect: (tipo) => { formTipoValue = tipo; tipoCombo.refresh(); },
     onRequestNuevo: () => openTipoModal((nombre) => { formTipoValue = nombre; }),
     onRequestDelete: (tipo) => void handleDeleteTipo(tipo),
-    placeholder: "Selecciona un tipo",
-    addLabel: "+ Nuevo tipo…",
-    deleteLabel: "Eliminar tipo",
+    placeholder: "Sin categoría",
+    addLabel: "+ Nueva categoría…",
+    deleteLabel: "Eliminar categoría",
   });
   container.querySelector("#mt-tipo-mount")!.appendChild(tipoCombo.el);
 
@@ -265,9 +266,9 @@ export async function renderAhorros(container: HTMLElement): Promise<void> {
     onSelect: (tipo) => { editTipoValue = tipo; editTipoCombo.refresh(); },
     onRequestNuevo: () => openTipoModal((nombre) => { editTipoValue = nombre; }),
     onRequestDelete: (tipo) => void handleDeleteTipo(tipo),
-    placeholder: "Selecciona un tipo",
-    addLabel: "+ Nuevo tipo…",
-    deleteLabel: "Eliminar tipo",
+    placeholder: "Sin categoría",
+    addLabel: "+ Nueva categoría…",
+    deleteLabel: "Eliminar categoría",
   });
   container.querySelector("#edit-tipo-mount")!.appendChild(editTipoCombo.el);
 
@@ -284,12 +285,12 @@ export async function renderAhorros(container: HTMLElement): Promise<void> {
         .map((m) => {
           const esRetiro = m.tipo === "Retiro";
           acumulado += esRetiro ? -m.monto : m.monto;
-          const tipoLabel = m.tipo === "AporteAutomatico" ? "Aporte automático" : m.tipo === "Retiro" ? "Retiro" : "Aporte manual";
+          const tipoLabel = m.tipo === "AporteAutomatico" ? "Depósito automático" : m.tipo === "Retiro" ? "Retiro" : "Depósito";
           return `
             <div class="record-row">
               <div class="record-row__main">
                 <span class="record-row__title">${tipoLabel} — ${m.fecha}</span>
-                <span class="record-row__subtitle">${m.nota || "—"} · Acumulado después: ${formatMoney(acumulado)}</span>
+                <span class="record-row__subtitle">${m.nota || "—"} · Saldo después: ${formatMoney(acumulado)}</span>
               </div>
               <div class="record-row__amount" style="color:${esRetiro ? "var(--color-danger)" : "var(--color-success)"}">${esRetiro ? "-" : "+"}${formatMoney(m.monto)}</div>
             </div>
@@ -321,28 +322,33 @@ export async function renderAhorros(container: HTMLElement): Promise<void> {
           <button type="button" class="icon-btn icon-btn--delete" data-action="delete" aria-label="Eliminar" title="Eliminar">${trashIcon}</button>
         </div>
       </div>
-      <div class="progress-bar"><div class="progress-bar__fill" style="width:${progreso}%"></div></div>
+      ${meta.montoObjetivo > 0 ? `<div class="progress-bar"><div class="progress-bar__fill" style="width:${progreso}%"></div></div>` : ""}
       <div class="deuda-card__stats">
-        <div class="deuda-card__stat"><span class="deuda-card__stat-label">Acumulado</span><span class="deuda-card__stat-value deuda-card__stat-value--total">${formatMoney(acumulado)}</span></div>
-        <div class="deuda-card__stat"><span class="deuda-card__stat-label">Objetivo</span><span class="deuda-card__stat-value">${formatMoney(meta.montoObjetivo)}</span></div>
-        <div class="deuda-card__stat"><span class="deuda-card__stat-label">Progreso</span><span class="deuda-card__stat-value">${progreso.toFixed(0)}%</span></div>
+        <div class="deuda-card__stat"><span class="deuda-card__stat-label">Saldo disponible</span><span class="deuda-card__stat-value deuda-card__stat-value--total">${formatMoney(acumulado)}</span></div>
+        ${meta.montoObjetivo > 0 ? `<div class="deuda-card__stat"><span class="deuda-card__stat-label">Meta</span><span class="deuda-card__stat-value">${formatMoney(meta.montoObjetivo)}</span></div>` : ""}
+        ${meta.montoObjetivo > 0 ? `<div class="deuda-card__stat"><span class="deuda-card__stat-label">Progreso</span><span class="deuda-card__stat-value">${progreso.toFixed(0)}%</span></div>` : ""}
       </div>
       ${meta.fechaLimite ? `<p class="empty-state" style="margin:10px 0 0">Fecha límite: ${meta.fechaLimite}</p>` : ""}
       <div class="deuda-card__footer">
-        ${!cumplida ? `<button type="button" class="btn" data-action="aportar">Aportar</button>` : ""}
+        ${!cumplida ? `<button type="button" class="btn" data-action="aportar">Meter plata</button>` : ""}
         ${!cumplida && acumulado > 0 ? `<button type="button" class="btn-secondary" data-action="retirar">Retirar</button>` : ""}
         <button type="button" class="btn-secondary" data-action="historial">Ver historial</button>
         ${meta.compraVinculadaId && !cumplida && progreso >= 100 ? `<button type="button" class="btn" data-action="marcar-comprada">Marcar compra como pagada</button>` : ""}
         ${meta.compraVinculadaId && !cumplida ? `<button type="button" class="btn-secondary" data-action="deshacer-conversion">Deshacer conversión</button>` : ""}
         ${!cumplida ? `<button type="button" class="btn-secondary" data-action="${pausada ? "reanudar" : "pausar"}">${pausada ? "Reanudar" : "Pausar"}</button>` : ""}
-        ${!cumplida ? `<button type="button" class="btn-secondary" data-action="cumplida">Marcar cumplida</button>` : `<button type="button" class="btn-secondary" data-action="reabrir">Reabrir</button>`}
+        ${!cumplida ? `<button type="button" class="btn-secondary" data-action="cumplida">Cerrar bolsillo</button>` : `<button type="button" class="btn-secondary" data-action="reabrir">Reabrir bolsillo</button>`}
       </div>
     `;
 
     card.querySelector('[data-action="edit"]')!.addEventListener("click", () => openEditModal(meta));
     card.querySelector('[data-action="delete"]')!.addEventListener("click", async () => {
-      const ok = await showConfirm(`¿Eliminar la meta "${meta.nombre}"? Se borrará también su historial.`, {
-        title: "Eliminar meta",
+      const tieneMovimientos = (movimientosPorMeta.get(meta.id) ?? []).length > 0;
+      if (tieneMovimientos) {
+        await showAlert("Este bolsillo tiene movimientos y no se puede eliminar, porque se perdería su referencia en el Histórico. Puedes cerrarlo para dejar de usarlo.", "Bolsillo con historial");
+        return;
+      }
+      const ok = await showConfirm(`¿Eliminar el bolsillo "${meta.nombre}"?`, {
+        title: "Eliminar bolsillo",
         confirmLabel: "Eliminar",
         danger: true,
       });
@@ -352,7 +358,7 @@ export async function renderAhorros(container: HTMLElement): Promise<void> {
     card.querySelector('[data-action="historial"]')!.addEventListener("click", () => openHistorialModal(meta));
 
     card.querySelector('[data-action="aportar"]')?.addEventListener("click", async () => {
-      const resultado = await showAbonoDialog(`Aportar — ${meta.nombre}`);
+      const resultado = await showAbonoDialog(`Meter plata — ${meta.nombre}`);
       if (!resultado) return;
       void runAction(() => registrarAporte(spreadsheetId, meta, resultado.fecha, resultado.monto, resultado.nota));
     });
@@ -364,7 +370,7 @@ export async function renderAhorros(container: HTMLElement): Promise<void> {
     });
 
     card.querySelector('[data-action="cumplida"]')?.addEventListener("click", async () => {
-      const ok = await showConfirm(`¿Marcar la meta "${meta.nombre}" como cumplida?`, { title: "Marcar cumplida", confirmLabel: "Marcar cumplida" });
+      const ok = await showConfirm(`¿Cerrar el bolsillo "${meta.nombre}"? Su saldo y su historial se conservarán.`, { title: "Cerrar bolsillo", confirmLabel: "Cerrar bolsillo" });
       if (!ok) return;
       void runAction(() => setEstadoMeta(spreadsheetId, meta, "Cumplida"));
     });
@@ -398,10 +404,15 @@ export async function renderAhorros(container: HTMLElement): Promise<void> {
     card.querySelector('[data-action="deshacer-conversion"]')?.addEventListener("click", async () => {
       if (!meta.compraVinculadaId) return;
       const tieneMovimientos = (movimientosPorMeta.get(meta.id) ?? []).length > 0;
+      if (tieneMovimientos) {
+        await showAlert(
+          "Este bolsillo ya tiene movimientos. Para conservar su trazabilidad no se puede deshacer la vinculación; puedes terminar de financiar la compra o mantener el bolsillo abierto.",
+          "Bolsillo con historial",
+        );
+        return;
+      }
       const ok = await showConfirm(
-        tieneMovimientos
-          ? "Esta meta ya tiene aportes registrados. Si deshaces la conversión, se eliminará la meta junto con su historial de aportes. ¿Continuar?"
-          : "¿Deshacer la conversión? La compra vuelve a Pendiente de pago normal.",
+        "¿Deshacer la conversión? La compra vuelve a Pendiente de pago normal.",
         { title: "Deshacer conversión", confirmLabel: "Deshacer", danger: true },
       );
       if (!ok) return;
@@ -422,6 +433,9 @@ export async function renderAhorros(container: HTMLElement): Promise<void> {
     totalEye.refresh();
 
     const ordenadas = [...activasTodas].sort((a, b) => {
+      if (sortOrder === "saldo") {
+        return calcularAcumulado(movimientosPorMeta.get(b.id) ?? []) - calcularAcumulado(movimientosPorMeta.get(a.id) ?? []);
+      }
       if (sortOrder === "fecha-limite") {
         if (!a.fechaLimite) return 1;
         if (!b.fechaLimite) return -1;
@@ -434,14 +448,14 @@ export async function renderAhorros(container: HTMLElement): Promise<void> {
 
     activasListEl.innerHTML = "";
     if (ordenadas.length === 0) {
-      activasListEl.innerHTML = `<div class="card"><p class="empty-state">No tienes metas activas todavía. Crea la primera arriba.</p></div>`;
+      activasListEl.innerHTML = `<div class="card"><p class="empty-state">No tienes bolsillos todavía. Crea el primero arriba.</p></div>`;
     } else {
       for (const meta of ordenadas) activasListEl.appendChild(renderMetaCard(meta));
     }
 
     cumplidasListEl.innerHTML = "";
     if (cumplidas.length === 0) {
-      cumplidasListEl.innerHTML = `<p class="empty-state">Aún no tienes metas cumplidas.</p>`;
+      cumplidasListEl.innerHTML = `<p class="empty-state">Aún no tienes bolsillos cerrados.</p>`;
     } else {
       for (const meta of cumplidas) cumplidasListEl.appendChild(renderMetaCard(meta));
     }
@@ -489,9 +503,9 @@ export async function renderAhorros(container: HTMLElement): Promise<void> {
         e.preventDefault();
         const nombre = editNombreInput.value.trim();
         const monto = Number(editMontoInput.value);
-        if (!nombre || !monto || monto <= 0) {
+        if (!nombre || !Number.isFinite(monto) || monto < 0) {
           editModalError.hidden = false;
-          editModalError.textContent = "Completa el nombre y un monto objetivo válido.";
+          editModalError.textContent = "Completa el nombre y usa una meta igual o mayor que cero.";
           return;
         }
         if (!editingMeta) return;
@@ -532,14 +546,9 @@ export async function renderAhorros(container: HTMLElement): Promise<void> {
 
     const nombre = nombreInput.value.trim();
     const monto = Number(montoInput.value);
-    if (!nombre || !monto || monto <= 0) {
+    if (!nombre || !Number.isFinite(monto) || monto < 0) {
       formError.hidden = false;
-      formError.textContent = "Completa el nombre y un monto objetivo válido.";
-      return;
-    }
-    if (!formTipoValue) {
-      formError.hidden = false;
-      formError.textContent = "Elige o crea un tipo.";
+      formError.textContent = "Completa el nombre y usa una meta igual o mayor que cero.";
       return;
     }
 
@@ -553,10 +562,12 @@ export async function renderAhorros(container: HTMLElement): Promise<void> {
         compraVinculadaId: "",
       });
       form.reset();
+      formTipoValue = tiposMeta[0] ?? "";
+      refreshCombos();
       await reload();
     } catch (err) {
       formError.hidden = false;
-      formError.textContent = err instanceof Error ? err.message : "No se pudo guardar la meta.";
+      formError.textContent = err instanceof Error ? err.message : "No se pudo guardar el bolsillo.";
     } finally {
       submitBtn.disabled = false;
     }

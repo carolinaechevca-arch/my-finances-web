@@ -2,7 +2,6 @@ import "./styles/theme.css";
 import "./styles/layout.css";
 import { signOut, trySilentSignIn, type AuthUser } from "./auth/google-auth";
 import { ensureSpreadsheet } from "./api/spreadsheet-bootstrap";
-import { ensurePeriodoActualizado } from "./domain/periodo";
 import { renderLogin } from "./ui/pages/login";
 import { renderAppShell, NAV_SECTIONS } from "./ui/layout";
 import { renderDashboard } from "./ui/pages/dashboard";
@@ -33,8 +32,7 @@ function renderPlaceholder(container: HTMLElement, sectionId: string): void {
 
 async function showApp(user: AuthUser): Promise<void> {
   try {
-    const { spreadsheetId } = await ensureSpreadsheet();
-    await ensurePeriodoActualizado(spreadsheetId);
+    await ensureSpreadsheet();
   } catch {
     // Si falla, cada página reintenta ensureSpreadsheet() por su cuenta y muestra el error ahí.
   }

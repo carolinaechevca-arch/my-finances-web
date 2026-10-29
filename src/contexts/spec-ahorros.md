@@ -1,44 +1,29 @@
-# Spec — Ventana "Ahorros y Metas" — Mis Finanzas
+# Spec — Bolsillos de ahorro
 
-> Documento autocontenido para pasar directo a Claude Code. Cubre `src/ui/pages/ahorros.ts`. **Sin cambios funcionales nuevos** — el usuario confirmó que se deja igual, solo formalizado como spec independiente. Este módulo no dependía de "mes" en su diseño original (no tiene insignia de mes/periodo en la fila de título), así que no requiere adaptación al sistema global de periodo.
+## 1. Concepto
 
-## 1. Título y stats
+Ahorros funciona como los bolsillos de una cuenta bancaria. Cada bolsillo tiene nombre, categoría opcional, saldo propio y, si el usuario quiere, una meta y fecha límite. La meta no es obligatoria para poder guardar dinero.
 
-- Título "🐷💰 Ahorros y Metas" (ícono `moneybag-plus`).
-- Tarjeta de stats: **Total acumulado**.
+## 2. Operaciones
 
-## 2. Formulario "Agregar meta"
+- **Meter plata:** registra fecha, monto y nota opcional. Resta ese dinero del disponible del periodo.
+- **Retirar:** registra fecha, monto y motivo, sin permitir retirar más que el saldo. Devuelve ese dinero al disponible del periodo.
+- Cada depósito y retiro queda en el historial del bolsillo y en el Histórico general.
+- El historial del bolsillo muestra el saldo resultante después de cada movimiento.
 
-- **Nombre**.
-- **Tipo** — combo personalizado (crear/borrar), igual patrón que el resto de módulos.
-- **Monto objetivo**.
-- **Fecha límite** (opcional) — fecha calendario real, no depende del sistema de periodo.
+## 3. Bolsillos
 
-## 3. Control de orden
+- El total superior suma los saldos de todos los bolsillos.
+- Cada tarjeta muestra siempre el saldo disponible.
+- Si tiene meta, también muestra barra, monto objetivo, porcentaje y fecha límite opcional.
+- Se ordenan por mayor saldo, cercanía a la meta o fecha límite.
+- Un bolsillo puede pausarse, reanudarse, cerrarse o reabrirse.
+- Un bolsillo con movimientos no se elimina: se cierra para conservar su nombre y trazabilidad histórica.
 
-- "Más cerca de cumplirse" / "Fecha límite más próxima".
+## 4. Compras vinculadas
 
-## 4. Lista de metas activas (`.deuda-card` reutilizado)
+Una compra pendiente puede crear un bolsillo con una meta igual al valor de la compra. Al financiarla, se puede marcar la compra como pagada o deshacer la vinculación.
 
-- **Encabezado:** nombre, insignia de tipo, insignia "Vinculada a una compra" (si aplica), insignia "Pausada" (si aplica).
-- **Cuerpo:** barra de progreso, grilla de stats (Acumulado / Objetivo / Progreso %), línea opcional de fecha límite.
-- **Acciones de pie:**
-  - **Aportar** — diálogo de monto/fecha/nota.
-  - **Retirar** — solo si acumulado > 0; diálogo exige motivo obligatorio, con tope en el saldo actual.
-  - **Ver historial** — línea de tiempo de aportes/retiros/aportes automáticos.
-  - Para metas vinculadas a una compra pendiente: **"Marcar compra como pagada"** (una vez financiada al ≥100%) / **"Deshacer conversión"**.
-  - **Pausar/Reanudar**, **Marcar cumplida/Reabrir**.
+## 5. Compatibilidad
 
-## 5. Nota histórica sobre aportes automáticos
-
-Los aportes automáticos fueron eliminados (commit `3743054`). El tipo de movimiento `AporteAutomatico` **sigue existiendo solo para mostrar historial antiguo** — no hay ningún flujo de UI que los cree. Esto se mantiene igual.
-
-## 6. Sección "Cumplidas"
-
-Colapsable, mismo diseño de tarjeta que las activas.
-
-## 7. Modales
-
-- Editar meta.
-- Nuevo tipo de meta.
-- Historial (solo lectura).
+Las hojas internas conservan los nombres `Metas` y `MovimientosMetas` para no romper los datos existentes. Los antiguos `AporteAutomatico` se leen como depósitos automáticos históricos, pero ya no se crean.

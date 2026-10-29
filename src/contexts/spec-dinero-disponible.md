@@ -18,7 +18,7 @@ Antes de este cambio, Inicio e Ingresos calculaban "disponible" con **fórmulas 
 Reemplaza los cálculos duplicados/inconsistentes de Inicio e Ingresos. Fórmula:
 
 ```
-disponible = ingresos
+disponible = pagos de ingresos REALMENTE RECIBIDOS en el periodo
   − gastos fijos REALMENTE PAGADOS este periodo (no el total comprometido)   [CORREGIDO]
   − gastos y compras REALMENTE PAGADOS este periodo (sin cambio de lógica)
   − abonos REALES a deudas propias (YoDebo) este periodo                    [NUEVO — antes era la cuota programada]
@@ -27,34 +27,32 @@ disponible = ingresos
   + retiros REALES de metas de ahorro este periodo                         [NUEVO — no confirmado explícitamente, ver sección 5]
 ```
 
-- "Real" significa: el monto de eventos con fecha ya ocurrida dentro del periodo actual (`fechaUltimoReinicio` → hoy) — nunca lo programado/proyectado. Un gasto fijo "Pendiente" no resta nada hasta que lo marcas Pagado; en ese momento resta lo realmente pagado (`montoPagado`, que puede diferir del monto esperado).
+- "Real" significa: el monto de eventos con fecha ya ocurrida dentro del periodo actual (`fechaUltimoReinicio` → hoy) — nunca lo programado/proyectado. Una fuente de ingreso no suma hasta registrar su pago recibido; de igual forma, un gasto fijo "Pendiente" no resta hasta que lo marcas Pagado.
 - Aplica igual a deudas "Con cuotas" y "Deuda simple": ambas se miden por abono real, no por cuota.
 - Usado por: la tarjeta "Balance" de Inicio, el stat "Balance disponible" de Ingresos, y el cálculo de traspaso al reiniciar periodo (sección 2).
 
 ## 2. Traspaso de saldo al reiniciar el periodo
 
-Confirmado con el usuario: **el dinero disponible que sobra o falta al cerrar un periodo ya no se pierde** — se traspasa automáticamente al periodo siguiente.
+El periodo se reinicia únicamente de forma manual. Antes de ejecutarlo, la app muestra el disponible calculado y pregunta si ese fue el sobrante real. El usuario puede aceptarlo o corregirlo si hubo ingresos o gastos sin registrar.
 
-- **Si sobra dinero** (`disponible > 0` al momento del reinicio): se crea automáticamente un ingreso **"Adicional"** por ese monto, con tipo "Sobrante de periodo" y nota "Traspasado automáticamente del periodo anterior". Mismo mecanismo tanto en reinicio automático como manual.
-- **Si queda en negativo** (`disponible < 0`, gastaste de más):
-  - **Reinicio automático** (Semanal/Quincenal/Mensual, sin usuario presente para preguntar): se traspasa por defecto como un ingreso "Adicional" **negativo** (mismo mecanismo, monto negativo), con nota indicando que el periodo anterior cerró en negativo.
-  - **Reinicio manual** (botón en Inicio, solo visible en modo Manual): antes de ejecutar el reinicio, si el disponible es negativo, se le pregunta al usuario (`showTraspasoNegativoDialog`) cómo prefiere manejarlo — **queda a su discreción**:
-    - **"Traspasar como ingreso negativo"** — mismo comportamiento que el automático.
-    - **"Registrar como deuda"** — crea una Deuda nueva, dirección `YoDebo`, modo **"Simple"** (ver `spec-deudas.md`), contraparte y tipo "Sobregiro de periodo", monto = valor absoluto del déficit, con nota indicando que se generó automáticamente. Así el usuario puede decidir "trátalo como que me debo a mí mismo" en vez de simplemente descontarlo del próximo periodo.
-    - **"Cancelar reinicio"** — no reinicia el periodo.
+- El sobrante real debe ser igual o mayor que cero.
+- Si es mayor que cero, se crea en el periodo nuevo un pago único recibido llamado **"Lo que sobró del periodo anterior"**, categoría **"Sobrante anterior"**.
+- Si es cero, no se crea ningún pago único.
+- Las fuentes de pago único del periodo que termina se eliminan durante el reinicio, pero sus movimientos permanecen en el historial.
+- Cancelar el diálogo cancela también el reinicio.
 
 ## 3. Dónde vive la lógica
 
 - `domain/balance.ts` — `calcularDisponible(spreadsheetId, periodoInicio)`, sin dependencia de UI.
-- `domain/periodo.ts` — `ejecutarReinicioPeriodo(spreadsheetId, nuevaFecha, traspasoDeficit?)` calcula el disponible del periodo que cierra (con `calcularDisponible`), y luego **primero** mueve la fecha de reinicio (`ConfigPeriodo`) y registra el traspaso del sobrante/déficit, y **solo después** archiva ingresos "Adicional" abiertos y reaplica Gastos Fijos (que pueden ser muchas escrituras seguidas, una por cada serie). Ese orden es a propósito: si la API de Sheets corta la operación a mitad de camino por el límite de peticiones por minuto, el periodo ya quedó bien movido — lo único que puede quedar a medias son los efectos secundarios (visibles y corregibles a mano), no la fecha del periodo en sí.
-- `src/ui/components/dialogs.ts` — `showTraspasoNegativoDialog(montoDeficit)`, mismo patrón que los demás diálogos de la app (basado en promesas, `.modal`).
-- `configuracion.ts` — botón "Reiniciar periodo" (antes vivía en `dashboard.ts`, se movió a Configuración): si el disponible actual es negativo, muestra el diálogo de la sección 2 antes de ejecutar el reinicio.
+- `domain/periodo.ts` — `ejecutarReinicioPeriodo(spreadsheetId, nuevaFecha, sobranteReal)` valida el monto confirmado, mueve la fecha de reinicio, elimina fuentes de pago único anteriores, crea el nuevo sobrante cuando corresponde y reaplica Gastos Fijos.
+- `src/ui/components/dialogs.ts` — `showConfirmarSobranteDialog(disponibleCalculado)` permite aceptar el cálculo o ingresar el monto real, incluido cero pero nunca negativo.
+- `configuracion.ts` — el botón "Reiniciar periodo" calcula el disponible y abre siempre el diálogo de confirmación antes de ejecutar el reinicio.
 
 ## 4. Impacto en otras pantallas
 
 - **Inicio**: la tarjeta "Balance" ahora usa `calcularDisponible` en vez de su fórmula propia (que restaba cuota programada de deudas, no abono real).
 - **Ingresos**: el stat "Balance disponible" ahora usa `calcularDisponible` en vez de su fórmula propia (que no restaba deudas en absoluto).
-- **Deudas/Me Deben, Ahorros y Metas**: sin cambios funcionales — sus propias pantallas siguen mostrando totales acumulados de siempre (saldo pendiente, total ahorrado, etc.). Solo cambia qué eventos de esas pantallas alimentan el cálculo de "disponible" en Inicio/Ingresos.
+- **Deudas/Me Deben y Bolsillos de Ahorro**: sus pantallas muestran sus saldos acumulados. Los depósitos y retiros de bolsillos también alimentan el cálculo de "disponible" en Inicio/Ingresos.
 - **Histórico**: sin cambios — su "Balance del periodo" (`resumenPeriodo`) sigue siendo el cálculo histórico ya existente (ingresos − gastos), no incluye deudas/ahorros; queda fuera de alcance de este documento.
 
 ## 5. Pendiente / asunción no confirmada explícitamente

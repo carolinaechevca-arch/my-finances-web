@@ -152,6 +152,80 @@ export function showMontoPagadoDialog(nombre: string, montoEsperado: number): Pr
   });
 }
 
+/** Confirma el sobrante calculado al cerrar un periodo o permite corregirlo. */
+export function showConfirmarSobranteDialog(disponibleCalculado: number): Promise<number | null> {
+  return new Promise((resolve) => {
+    const dialog = createDialog();
+    const sugerido = Math.max(0, disponibleCalculado);
+    dialog.innerHTML = `
+      <div class="modal__form">
+        <h2 class="modal__title">Confirmar sobrante del periodo</h2>
+        <p class="modal__message">Según los movimientos registrados, el disponible es <strong>${formatMoney(disponibleCalculado)}</strong>. ¿Realmente te sobraron <strong>${formatMoney(sugerido)}</strong>?</p>
+        <div class="field" id="sobrante-real-field" hidden>
+          <label for="sobrante-real-input">¿Cuánto te sobró realmente?</label>
+          <input id="sobrante-real-input" type="number" min="0" step="0.01" value="${sugerido}" />
+          <p class="empty-state">Puedes escribir 0; en ese caso no se registrará un pago único.</p>
+        </div>
+        <p class="empty-state" id="sobrante-real-error" hidden></p>
+        <div class="modal__actions">
+          <button type="button" class="btn-secondary" data-action="cancel">Cancelar reinicio</button>
+          <button type="button" class="btn-secondary" data-action="corregir">Hubo movimientos sin registrar</button>
+          <button type="button" class="btn" data-action="confirmar">Sí, ese monto</button>
+        </div>
+      </div>
+    `;
+
+    const field = dialog.querySelector<HTMLDivElement>("#sobrante-real-field")!;
+    const input = dialog.querySelector<HTMLInputElement>("#sobrante-real-input")!;
+    const error = dialog.querySelector<HTMLParagraphElement>("#sobrante-real-error")!;
+    const corregirBtn = dialog.querySelector<HTMLButtonElement>('[data-action="corregir"]')!;
+    const confirmarBtn = dialog.querySelector<HTMLButtonElement>('[data-action="confirmar"]')!;
+    const cancelBtn = dialog.querySelector<HTMLButtonElement>('[data-action="cancel"]')!;
+    let corrigiendo = false;
+
+    const cleanup = (result: number | null) => {
+      dialog.close();
+      dialog.remove();
+      resolve(result);
+    };
+
+    corregirBtn.addEventListener("click", () => {
+      if (!corrigiendo) {
+        corrigiendo = true;
+        field.hidden = false;
+        confirmarBtn.style.display = "none";
+        corregirBtn.textContent = "Confirmar monto real";
+        cancelBtn.textContent = "Atrás";
+        input.focus();
+        input.select();
+        return;
+      }
+      const monto = Number(input.value);
+      if (!Number.isFinite(monto) || monto < 0) {
+        error.hidden = false;
+        error.textContent = "El monto debe ser igual o mayor que cero.";
+        return;
+      }
+      cleanup(monto);
+    });
+    confirmarBtn.addEventListener("click", () => cleanup(sugerido));
+    cancelBtn.addEventListener("click", () => {
+      if (corrigiendo) {
+        corrigiendo = false;
+        field.hidden = true;
+        error.hidden = true;
+        confirmarBtn.style.display = "";
+        corregirBtn.textContent = "Hubo movimientos sin registrar";
+        cancelBtn.textContent = "Cancelar reinicio";
+        return;
+      }
+      cleanup(null);
+    });
+    dialog.addEventListener("cancel", () => cleanup(null));
+    dialog.showModal();
+  });
+}
+
 /**
  * Modal para marcar una compra/gasto pendiente como realizado: pide el
  * monto real y la fecha real en que se hizo (puede ser distinta a cuando se
@@ -243,43 +317,6 @@ export function showMergeChoice(nombre: string, montoRestante: number): Promise<
 }
 
 /**
- * Cuando el periodo cierra en negativo (gastaste más de lo que tenías
- * disponible), le pregunta al usuario cómo traspasar el déficit al
- * siguiente periodo: como un ingreso "Adicional" negativo, o como una
- * deuda simple contigo mismo a pagar más adelante. Solo se muestra en el
- * reinicio manual (Inicio) — a discreción del usuario, según lo confirmado.
- */
-export function showTraspasoNegativoDialog(montoDeficit: number): Promise<"adicional" | "deuda" | null> {
-  return new Promise((resolve) => {
-    const dialog = createDialog();
-    dialog.innerHTML = `
-      <div class="modal__form">
-        <h2 class="modal__title">Este periodo cierra en negativo</h2>
-        <p class="modal__message">Gastaste ${formatMoney(montoDeficit)} más de lo que tenías disponible. ¿Cómo quieres traspasarlo al siguiente periodo?</p>
-        <div class="modal__actions">
-          <button type="button" class="btn-secondary" data-action="cancel">Cancelar reinicio</button>
-          <button type="button" class="btn-secondary" data-action="deuda">Registrar como deuda</button>
-          <button type="button" class="btn" data-action="adicional">Traspasar como ingreso negativo</button>
-        </div>
-      </div>
-    `;
-
-    const cleanup = (result: "adicional" | "deuda" | null) => {
-      dialog.close();
-      dialog.remove();
-      resolve(result);
-    };
-
-    dialog.querySelector('[data-action="cancel"]')!.addEventListener("click", () => cleanup(null));
-    dialog.querySelector('[data-action="deuda"]')!.addEventListener("click", () => cleanup("deuda"));
-    dialog.querySelector('[data-action="adicional"]')!.addEventListener("click", () => cleanup("adicional"));
-    dialog.addEventListener("cancel", () => cleanup(null));
-
-    dialog.showModal();
-  });
-}
-
-/**
  * Modal para registrar un abono (o un monto agregado): fecha, monto y nota
  * opcional. Si se pasa `maxMonto` (ej. el saldo pendiente de una deuda), no
  * deja registrar un abono mayor a eso — aplica igual a "Deuda simple" y a la
@@ -348,7 +385,7 @@ export function showAbonoDialog(
   });
 }
 
-/** Modal para retirar de una meta: fecha, monto (con tope) y motivo obligatorio. */
+/** Modal para retirar de un bolsillo de ahorro: fecha, monto (con tope) y motivo obligatorio. */
 export function showRetiroDialog(
   titulo: string,
   maxMonto: number,
@@ -358,7 +395,7 @@ export function showRetiroDialog(
     dialog.innerHTML = `
       <div class="modal__form">
         <h2 class="modal__title">${titulo}</h2>
-        <p class="modal__message">Tienes ${formatMoney(maxMonto)} acumulados en esta meta.</p>
+        <p class="modal__message">Tienes ${formatMoney(maxMonto)} disponibles en este bolsillo.</p>
         <div class="field">
           <label for="retiro-fecha">Fecha</label>
           <input id="retiro-fecha" type="date" value="${todayISO()}" />
@@ -417,22 +454,22 @@ export function showRetiroDialog(
   });
 }
 
-/** Modal para confirmar/editar el nombre al convertir una compra pendiente en meta de ahorro. */
+/** Modal para confirmar/editar el nombre al crear un bolsillo para una compra pendiente. */
 export function showConvertirMetaDialog(nombreSugerido: string, montoObjetivo: number): Promise<string | null> {
   return new Promise((resolve) => {
     const dialog = createDialog();
     dialog.innerHTML = `
       <div class="modal__form">
-        <h2 class="modal__title">Convertir en meta de ahorro</h2>
-        <p class="modal__message">Se creará una meta por <strong>${formatMoney(montoObjetivo)}</strong>. Puedes ajustar el nombre:</p>
+        <h2 class="modal__title">Crear bolsillo para la compra</h2>
+        <p class="modal__message">Se creará un bolsillo con una meta de <strong>${formatMoney(montoObjetivo)}</strong>. Puedes ajustar el nombre:</p>
         <div class="field">
-          <label for="convertir-nombre">Nombre de la meta</label>
+          <label for="convertir-nombre">Nombre del bolsillo</label>
           <input id="convertir-nombre" type="text" value="${nombreSugerido}" required />
         </div>
         <p class="empty-state" id="convertir-error" hidden></p>
         <div class="modal__actions">
           <button type="button" class="btn-secondary" data-action="cancel">Cancelar</button>
-          <button type="button" class="btn" data-action="confirm">Crear meta</button>
+          <button type="button" class="btn" data-action="confirm">Crear bolsillo</button>
         </div>
       </div>
     `;

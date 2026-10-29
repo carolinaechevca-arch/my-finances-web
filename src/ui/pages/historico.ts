@@ -81,7 +81,7 @@ export async function renderHistorico(container: HTMLElement): Promise<void> {
       { key: "gastosFijos", label: "Gastos fijos", value: r.gastosFijosTotal, items: detalle.gastosFijos },
       { key: "gastosCompras", label: "Gastos y compras", value: r.gastosVariables, items: detalle.gastosCompras },
       { key: "balance", label: "Balance del periodo", value: r.balance, primary: true, items: [] },
-      { key: "ahorros", label: "Aportado a ahorros", value: r.aportadoAhorros, items: detalle.ahorros },
+      { key: "ahorros", label: "Movimiento neto en ahorros", value: r.aportadoAhorros - r.retiradoAhorros, items: detalle.ahorros },
       { key: "deudas", label: "Abonado a deudas", value: r.abonadoDeudas, items: detalle.deudas },
       { key: "meDeben", label: "Recibido de Me Deben", value: r.recibidoMeDeben, items: detalle.meDeben },
     ];

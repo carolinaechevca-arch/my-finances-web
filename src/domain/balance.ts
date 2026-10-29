@@ -2,7 +2,7 @@ import { listDeudas, listTodosLosEventos, type Deuda, type EventoAbono } from ".
 import { todayISO } from "./format";
 import { listGastosFijosVigentes, sumGastosFijosPagado, type GastoFijo } from "./gastos";
 import { listGastosDelPeriodo, sumGastos, type GastoYCompra } from "./gastos-y-compras";
-import { listIngresosVigentes, sumIngresosActivos, type IngresoFijo } from "./ingresos";
+import { listMovimientosIngresos, sumMovimientosRecibidos, type MovimientoIngreso } from "./ingresos";
 import { listTodosLosMovimientos, type MovimientoMeta } from "./metas";
 
 export interface DisponibleDetalle {
@@ -20,7 +20,7 @@ export interface DisponibleDetalle {
 }
 
 export interface DisponibleInputs {
-  ingresos: IngresoFijo[];
+  movimientosIngresos: MovimientoIngreso[];
   /** Gastos fijos ya filtrados al periodo actual (`listGastosFijosVigentes(...).delPeriodo`). */
   gastosFijosDelPeriodo: GastoFijo[];
   /** Gastos y compras ya filtrados al periodo actual (`listGastosDelPeriodo`), no al mes calendario. */
@@ -62,7 +62,7 @@ export function calcularDisponibleDesde(inputs: DisponibleInputs, periodoInicio:
     .filter((m) => m.tipo === "Retiro" && enPeriodo(m.fecha))
     .reduce((s, m) => s + m.monto, 0);
 
-  const ingresosTotal = sumIngresosActivos(inputs.ingresos);
+  const ingresosTotal = sumMovimientosRecibidos(inputs.movimientosIngresos, periodoInicio, hoy);
   const gastosFijosPagadosTotal = sumGastosFijosPagado(inputs.gastosFijosDelPeriodo);
   const gastosVariablesTotal = sumGastos(inputs.gastosVariablesDelPeriodo);
 
@@ -95,9 +95,9 @@ export function calcularDisponibleDesde(inputs: DisponibleInputs, periodoInicio:
  * duplicar llamadas a la API.
  */
 export async function calcularDisponible(spreadsheetId: string, periodoInicio: string): Promise<DisponibleDetalle> {
-  const [ingresos, gastosFijosVigentes, gastosVariablesDelPeriodo, deudasYoDebo, deudasMeDeben, eventosDeudas, movimientosMetas] =
+  const [movimientosIngresos, gastosFijosVigentes, gastosVariablesDelPeriodo, deudasYoDebo, deudasMeDeben, eventosDeudas, movimientosMetas] =
     await Promise.all([
-      listIngresosVigentes(spreadsheetId),
+      listMovimientosIngresos(spreadsheetId),
       listGastosFijosVigentes(spreadsheetId, periodoInicio),
       listGastosDelPeriodo(spreadsheetId, periodoInicio),
       listDeudas(spreadsheetId, "YoDebo"),
@@ -108,7 +108,7 @@ export async function calcularDisponible(spreadsheetId: string, periodoInicio: s
 
   return calcularDisponibleDesde(
     {
-      ingresos,
+      movimientosIngresos,
       gastosFijosDelPeriodo: gastosFijosVigentes.delPeriodo,
       gastosVariablesDelPeriodo,
       deudasYoDebo,

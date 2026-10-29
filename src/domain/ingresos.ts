@@ -1,63 +1,65 @@
 import {
   HISTORIAL_INGRESOS_FIJOS_SHEET,
   INGRESOS_FIJOS_SHEET,
+  MOVIMIENTOS_INGRESOS_SHEET,
   TIPOS_INGRESO_SHEET,
 } from "../api/spreadsheet-bootstrap";
-import { appendRecord, deleteRecord, listRecords, updateRecord, type SheetRow } from "../api/records";
-import { monthKey, todayISO } from "./format";
+import { appendRecord, clearRecord, deleteRecord, listRecords, updateRecord, type SheetRow } from "../api/records";
+import { monthKey, parseDateInput, todayISO } from "./format";
 
 export type Recurrencia = "Fijo" | "UnicoMes";
-/** Cada cuánto se recibe un ingreso "Fijo" — solo aplica a esa recurrencia, no a "UnicoMes". */
-export type FrecuenciaIngreso = "Mensual" | "Quincenal" | "Semanal";
-
-/** Nombres de día de la semana en el mismo orden que Date.getDay() (0 = Domingo). */
+export type FrecuenciaIngreso = "Mensual" | "Quincenal" | "Semanal" | "PagoUnico";
+export type EstadoMovimientoIngreso = "Recibido" | "Omitido";
 export const DIAS_SEMANA = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"] as const;
 
 export interface IngresoFijo {
   id: string;
   row: number;
+  nombre: string;
   tipo: string;
-  /** Monto que recibes en cada pago (no el total mensual si es quincenal o semanal). */
   monto: number;
   notas: string;
   recurrencia: Recurrencia;
-  /** Solo aplica a "UnicoMes": el mes (YYYY-MM) al que pertenece. */
   mes: string;
   activo: boolean;
   fechaCreacion: string;
   frecuencia: FrecuenciaIngreso;
-  /**
-   * Solo informativo (no afecta el cálculo): "15,30" para Quincenal (los dos
-   * días del mes en que te pagan), o el nombre del día para Semanal (ej.
-   * "Viernes", uno de DIAS_SEMANA). Vacío para Mensual/UnicoMes.
-   */
   diaPago: string;
-  /**
-   * Solo aplica a "UnicoMes" ("Adicional" en el copy): queda en TRUE cuando
-   * se archiva al reiniciar el periodo global (ver domain/periodo.ts). La
-   * fila no se borra —Histórico sigue reconstruyendo periodos pasados a
-   * partir de "mes"— pero deja de listarse como vigente.
-   */
   cerrado: boolean;
+  proximaFecha: string;
+  cuentaDestino: string;
+  modeloNuevo: boolean;
+}
+
+export interface MovimientoIngreso {
+  id: string;
+  row: number;
+  fuenteId: string;
+  fuenteNombre: string;
+  tipo: string;
+  fechaEsperada: string;
+  fechaRecibida: string;
+  montoEstimado: number;
+  montoReal: number;
+  estado: EstadoMovimientoIngreso;
+  notas: string;
+  /** Fecha de inicio del periodo en el que se confirmó u omitió el movimiento. */
+  periodoId: string;
+}
+
+function esFrecuencia(value: string): value is FrecuenciaIngreso {
+  return ["Mensual", "Quincenal", "Semanal", "PagoUnico"].includes(value);
 }
 
 function parseIngreso(r: SheetRow): IngresoFijo {
-  const [
-    tipo = "",
-    monto = "0",
-    notas = "",
-    recurrencia = "Fijo",
-    mes = "",
-    activo = "TRUE",
-    fechaCreacion = "",
-    id = "",
-    frecuencia = "",
-    diaPago = "",
-    cerrado = "",
-  ] = r.values;
+  const [tipo = "", monto = "0", notas = "", recurrencia = "Fijo", mes = "", activo = "TRUE", fechaCreacion = "", id = "", frecuencia = "", diaPago = "", cerrado = "", proximaFecha = "", cuentaDestino = "", modelo = "", nombre = ""] = r.values;
+  const frecuenciaNormalizada: FrecuenciaIngreso = recurrencia === "UnicoMes"
+    ? "PagoUnico"
+    : esFrecuencia(frecuencia) ? frecuencia : "Mensual";
   return {
     id,
     row: r.row,
+    nombre: nombre || tipo,
     tipo,
     monto: Number(monto) || 0,
     notas,
@@ -65,173 +67,277 @@ function parseIngreso(r: SheetRow): IngresoFijo {
     mes,
     activo: activo.toUpperCase() !== "FALSE",
     fechaCreacion,
-    frecuencia: frecuencia === "Quincenal" || frecuencia === "Semanal" ? frecuencia : "Mensual",
-    diaPago,
+    frecuencia: frecuenciaNormalizada,
+    diaPago: frecuenciaNormalizada === "Quincenal" ? diasQuincena(diaPago).join(",") : diaPago,
     cerrado: cerrado.toUpperCase() === "TRUE",
+    proximaFecha,
+    cuentaDestino,
+    modeloNuevo: modelo === "Fuente",
   };
 }
 
-/** Cuántas veces cae ese día de la semana (0=Domingo...6=Sábado) dentro del mes de `date`. Normalmente 4, a veces 5. */
-export function ocurrenciasDiaSemanaEnMes(diaSemana: number, date: Date): number {
-  const year = date.getFullYear();
-  const month = date.getMonth();
-  const diasEnMes = new Date(year, month + 1, 0).getDate();
-  let ocurrencias = 0;
-  for (let dia = 1; dia <= diasEnMes; dia++) {
-    if (new Date(year, month, dia).getDay() === diaSemana) ocurrencias++;
-  }
-  return ocurrencias;
+function serializeIngreso(i: IngresoFijo): unknown[] {
+  const diaPago = i.frecuencia === "Quincenal"
+    ? diasQuincena(i.diaPago).map((dia) => `D${dia}`).join("-")
+    : i.diaPago;
+  return [
+    i.tipo, i.monto, i.notas, i.frecuencia === "PagoUnico" ? "UnicoMes" : "Fijo",
+    i.frecuencia === "PagoUnico" ? i.mes || monthKey() : "", i.activo ? "TRUE" : "FALSE",
+    i.fechaCreacion, i.id, i.frecuencia, diaPago, i.cerrado ? "TRUE" : "FALSE",
+    i.proximaFecha, i.cuentaDestino, i.modeloNuevo ? "Fuente" : "", i.nombre,
+  ];
 }
 
-/** Cuántas veces cae el pago de este ingreso dentro del mes de `date` (Mensual=1, Quincenal=2, Semanal=4 o 5 según el calendario real de ese mes). */
-export function ocurrenciasEnMes(ingreso: IngresoFijo, date: Date): number {
-  if (ingreso.frecuencia === "Mensual") return 1;
-  if (ingreso.frecuencia === "Quincenal") return 2;
-  const diaSemana = DIAS_SEMANA.indexOf(ingreso.diaPago as (typeof DIAS_SEMANA)[number]);
-  if (diaSemana === -1) return 4; // no configuró el día: aproximación razonable
-  return ocurrenciasDiaSemanaEnMes(diaSemana, date);
-}
-
-/**
- * Cuánto equivale por mes: el monto tal cual si es mensual/puntual, o
- * multiplicado por sus pagos dentro del mes de `date` si es quincenal o
- * semanal (para semanal, varía según el calendario real de ese mes).
- */
-export function montoMensualEquivalente(ingreso: IngresoFijo, date: Date = new Date()): number {
-  if (ingreso.recurrencia === "UnicoMes") return ingreso.monto;
-  return ingreso.monto * ocurrenciasEnMes(ingreso, date);
-}
-
-/**
- * Cambio de monto o de estado activo/inactivo de un ingreso "Fijo",
- * registrado para poder reconstruir cuánto aplicaba en un mes pasado (ver
- * domain/historico.ts). Los ingresos "UnicoMes" no lo necesitan: ya están
- * atados a un mes específico.
- */
-export interface CambioIngreso {
-  row: number;
-  idIngreso: string;
-  fecha: string;
-  montoAnterior: number;
-  montoNuevo: number;
-  activoAnterior: boolean;
-  activoNuevo: boolean;
-}
-
-function parseCambioIngreso(r: SheetRow): CambioIngreso {
-  const [idIngreso = "", fecha = "", montoAnterior = "0", montoNuevo = "0", activoAnterior = "", activoNuevo = ""] =
-    r.values;
+function parseMovimiento(r: SheetRow): MovimientoIngreso {
+  const [id = "", fuenteId = "", fuenteNombre = "", tipo = "", fechaEsperada = "", fechaRecibida = "", montoEstimado = "0", montoReal = "0", estado = "Recibido", notas = "", periodoId = ""] = r.values;
   return {
-    row: r.row,
-    idIngreso,
-    fecha,
-    montoAnterior: Number(montoAnterior) || 0,
-    montoNuevo: Number(montoNuevo) || 0,
-    activoAnterior: activoAnterior.toUpperCase() !== "FALSE",
-    activoNuevo: activoNuevo.toUpperCase() !== "FALSE",
+    id, row: r.row, fuenteId, fuenteNombre, tipo, fechaEsperada, fechaRecibida,
+    montoEstimado: Number(montoEstimado) || 0,
+    montoReal: Number(montoReal) || 0,
+    estado: estado === "Omitido" ? "Omitido" : "Recibido",
+    notas, periodoId,
   };
 }
 
-export async function listHistorialIngresos(spreadsheetId: string): Promise<CambioIngreso[]> {
-  const rows = await listRecords(spreadsheetId, HISTORIAL_INGRESOS_FIJOS_SHEET, 6);
-  return rows.map(parseCambioIngreso);
+export async function listMovimientosIngresos(spreadsheetId: string): Promise<MovimientoIngreso[]> {
+  return (await listRecords(spreadsheetId, MOVIMIENTOS_INGRESOS_SHEET, 11)).map(parseMovimiento);
+}
+
+export function movimientosRecibidosEnRango(movimientos: MovimientoIngreso[], inicio: string, fin = todayISO()): MovimientoIngreso[] {
+  return movimientos.filter((m) =>
+    m.estado === "Recibido" &&
+    (m.periodoId ? m.periodoId === inicio : m.fechaRecibida >= inicio && m.fechaRecibida <= fin),
+  );
+}
+
+export function sumMovimientosRecibidos(movimientos: MovimientoIngreso[], inicio: string, fin = todayISO()): number {
+  return movimientosRecibidosEnRango(movimientos, inicio, fin).reduce((s, m) => s + m.montoReal, 0);
 }
 
 export async function listTiposIngreso(spreadsheetId: string): Promise<string[]> {
   const rows = await listRecords(spreadsheetId, TIPOS_INGRESO_SHEET, 1);
-  const seen = new Set<string>();
-  const tipos: string[] = [];
-  for (const r of rows) {
-    const nombre = r.values[0];
-    if (nombre && !seen.has(nombre)) {
-      seen.add(nombre);
-      tipos.push(nombre);
-    }
-  }
-  return tipos;
+  return [...new Set(rows.map((r) => r.values[0]).filter(Boolean))];
 }
 
 export async function crearTipoIngreso(spreadsheetId: string, nombre: string): Promise<void> {
   await appendRecord(spreadsheetId, TIPOS_INGRESO_SHEET, [nombre]);
 }
 
-/** Borra todas las filas con ese nombre en TiposIngreso (por si quedaron duplicadas). */
 export async function eliminarTipoIngreso(spreadsheetId: string, nombre: string): Promise<void> {
   const rows = await listRecords(spreadsheetId, TIPOS_INGRESO_SHEET, 1);
-  const matching = rows
-    .filter((r) => r.values[0] === nombre)
-    .map((r) => r.row)
-    .sort((a, b) => b - a);
-  for (const row of matching) {
-    await deleteRecord(spreadsheetId, TIPOS_INGRESO_SHEET, row);
-  }
+  const matching = rows.filter((r) => r.values[0] === nombre).map((r) => r.row).sort((a, b) => b - a);
+  for (const row of matching) await deleteRecord(spreadsheetId, TIPOS_INGRESO_SHEET, row);
 }
 
-/**
- * Ingresos vigentes en el periodo actual: todos los "Fijo" (se reaplican
- * solos en cada reinicio de periodo, salvo que estén pausados) más los
- * "UnicoMes" ("Adicional") que todavía no se hayan archivado en el último
- * reinicio (ver domain/periodo.ts). Un "Adicional" archivado deja de
- * aparecer aquí, pero su fila sigue existiendo en la hoja como histórico.
- */
 export async function listIngresosVigentes(spreadsheetId: string): Promise<IngresoFijo[]> {
-  const todos = await listTodosLosIngresos(spreadsheetId);
-  return todos.filter((i) => i.recurrencia === "Fijo" || !i.cerrado);
+  return (await listTodosLosIngresos(spreadsheetId)).filter((i) => i.frecuencia !== "PagoUnico" || !i.cerrado);
 }
 
-/** Todos los ingresos registrados alguna vez, sin filtrar por vigencia — para reconstrucción histórica. */
 export async function listTodosLosIngresos(spreadsheetId: string): Promise<IngresoFijo[]> {
-  const rows = await listRecords(spreadsheetId, INGRESOS_FIJOS_SHEET, 11);
-  return rows.map(parseIngreso);
+  return (await listRecords(spreadsheetId, INGRESOS_FIJOS_SHEET, 15)).map(parseIngreso);
 }
 
-/**
- * Archiva (Cerrado=TRUE) todos los ingresos "Adicional" que sigan vigentes,
- * al reiniciar el periodo global — no borra la fila, solo deja de listarla
- * como vigente. Ver domain/periodo.ts.
- */
-export async function archivarIngresosAdicionalesAbiertos(spreadsheetId: string): Promise<void> {
-  const todos = await listTodosLosIngresos(spreadsheetId);
-  const abiertos = todos.filter((i) => i.recurrencia === "UnicoMes" && !i.cerrado);
-  for (const ingreso of abiertos) {
-    await updateRecord(spreadsheetId, INGRESOS_FIJOS_SHEET, ingreso.row, [
-      ingreso.tipo,
-      ingreso.monto,
-      ingreso.notas,
-      ingreso.recurrencia,
-      ingreso.mes,
-      ingreso.activo ? "TRUE" : "FALSE",
-      ingreso.fechaCreacion,
-      ingreso.id,
-      ingreso.frecuencia,
-      ingreso.diaPago,
-      "TRUE",
-    ]);
+export interface NuevaFuenteIngreso {
+  nombre: string;
+  tipo: string;
+  montoEstimado: number;
+  modalidad: FrecuenciaIngreso;
+  proximaFecha: string;
+  diasQuincena?: string;
+  cuentaDestino?: string;
+  notas?: string;
+}
+
+export async function crearFuenteIngreso(spreadsheetId: string, input: NuevaFuenteIngreso): Promise<void> {
+  const diasQuincena = input.diasQuincena || "15,30";
+  const fechaEsperada = input.modalidad === "Quincenal"
+    ? proximaFechaQuincenalDesde(diasQuincena)
+    : input.proximaFecha || todayISO();
+  const fecha = parseDateInput(fechaEsperada);
+  const diaPago = input.modalidad === "Quincenal"
+    ? diasQuincena
+    : input.modalidad === "Mensual"
+      ? String(fecha.getDate())
+      : input.modalidad === "Semanal"
+        ? DIAS_SEMANA[fecha.getDay()]
+        : "";
+  const fuente: IngresoFijo = {
+    id: crypto.randomUUID(), row: 0, nombre: input.nombre, tipo: input.tipo, monto: input.montoEstimado,
+    notas: input.notas ?? "", recurrencia: input.modalidad === "PagoUnico" ? "UnicoMes" : "Fijo",
+    mes: input.modalidad === "PagoUnico" ? monthKey() : "", activo: true, fechaCreacion: todayISO(),
+    frecuencia: input.modalidad, diaPago,
+    cerrado: false, proximaFecha: fechaEsperada, cuentaDestino: input.cuentaDestino ?? "", modeloNuevo: true,
+  };
+  await appendRecord(spreadsheetId, INGRESOS_FIJOS_SHEET, serializeIngreso(fuente));
+}
+
+function isoDate(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function addDays(fecha: string, dias: number): string {
+  const d = parseDateInput(fecha || todayISO());
+  d.setDate(d.getDate() + dias);
+  return isoDate(d);
+}
+
+function addMonth(fecha: string, diaAncla: string): string {
+  const actual = parseDateInput(fecha || todayISO());
+  const dia = Number(diaAncla) || actual.getDate();
+  const siguiente = new Date(actual.getFullYear(), actual.getMonth() + 1, 1);
+  const ultimoDia = new Date(siguiente.getFullYear(), siguiente.getMonth() + 1, 0).getDate();
+  siguiente.setDate(Math.min(dia, ultimoDia));
+  return isoDate(siguiente);
+}
+
+function diasQuincena(diasTexto: string): [number, number] {
+  const texto = diasTexto.trim();
+  const decimalConvertido = texto.match(/^(\d{1,2})[,.](\d)$/);
+  const numeros = decimalConvertido && Number(decimalConvertido[1]) >= 10
+    ? [Number(decimalConvertido[1]), Number(decimalConvertido[2]) * 10]
+    : (texto.match(/\d{1,2}/g) ?? []).map(Number);
+  const dias = numeros.filter((dia) => dia >= 1 && dia <= 31).slice(0, 2).sort((a, b) => a - b);
+  return [dias[0] ?? 15, dias[1] ?? 30];
+}
+
+/** Primera fecha quincenal igual o posterior a la referencia. */
+export function proximaFechaQuincenalDesde(diasTexto: string, desde = todayISO()): string {
+  const actual = parseDateInput(desde);
+  const [primero, segundo] = diasQuincena(diasTexto);
+  const ultimoActual = new Date(actual.getFullYear(), actual.getMonth() + 1, 0).getDate();
+  const fechasActuales = [Math.min(primero, ultimoActual), Math.min(segundo, ultimoActual)].sort((a, b) => a - b);
+  const siguienteDelMes = fechasActuales.find((dia) => dia >= actual.getDate());
+  if (siguienteDelMes !== undefined) return isoDate(new Date(actual.getFullYear(), actual.getMonth(), siguienteDelMes));
+  const siguienteMes = new Date(actual.getFullYear(), actual.getMonth() + 1, 1);
+  const ultimoSiguiente = new Date(siguienteMes.getFullYear(), siguienteMes.getMonth() + 1, 0).getDate();
+  return isoDate(new Date(siguienteMes.getFullYear(), siguienteMes.getMonth(), Math.min(primero, ultimoSiguiente)));
+}
+
+function siguienteQuincena(fecha: string, diasTexto: string, ocurrenciasProcesadas = 1): string {
+  const actual = parseDateInput(fecha || todayISO());
+  const [primero, segundo] = diasQuincena(diasTexto);
+  const ultimoActual = new Date(actual.getFullYear(), actual.getMonth() + 1, 0).getDate();
+  const fechasActuales = [Math.min(primero, ultimoActual), Math.min(segundo, ultimoActual)].sort((a, b) => a - b);
+  const repeticionesEnFecha = fechasActuales.filter((dia) => dia === actual.getDate()).length;
+  if (repeticionesEnFecha > 0 && ocurrenciasProcesadas < repeticionesEnFecha) return isoDate(actual);
+  const siguienteDelMes = fechasActuales.find((dia) => dia > actual.getDate());
+  if (siguienteDelMes !== undefined) return isoDate(new Date(actual.getFullYear(), actual.getMonth(), siguienteDelMes));
+  const siguiente = new Date(actual.getFullYear(), actual.getMonth() + 1, 1);
+  const ultimoSiguiente = new Date(siguiente.getFullYear(), siguiente.getMonth() + 1, 0).getDate();
+  return isoDate(new Date(siguiente.getFullYear(), siguiente.getMonth(), Math.min(primero, ultimoSiguiente)));
+}
+
+export function siguienteFechaIngreso(fuente: IngresoFijo, desde: string, ocurrenciasProcesadas = 1): string {
+  switch (fuente.frecuencia) {
+    case "Mensual": return addMonth(desde, fuente.diaPago);
+    case "Quincenal": return siguienteQuincena(desde, fuente.diaPago, ocurrenciasProcesadas);
+    case "Semanal": return addDays(desde, 7);
+    default: return "";
   }
 }
 
-/**
- * Reconstruye el monto y el estado activo/inactivo de un ingreso "Fijo" tal
- * como aplicaban en una fecha pasada, a partir de su historial de cambios.
- * Si nunca se registró un cambio, se asume que el valor actual siempre
- * aplicó (es la mejor aproximación posible sin historial previo a esta
- * función).
- */
-export function estadoIngresoEnFecha(
-  ingreso: IngresoFijo,
-  cambios: CambioIngreso[],
-  fecha: string,
-): { monto: number; activo: boolean } {
+export interface RegistrarIngresoInput { fechaRecibida: string; montoReal: number; notas?: string; periodoId: string; }
+
+async function contarOcurrenciasProcesadas(spreadsheetId: string, fuente: IngresoFijo, fechaEsperada: string): Promise<number> {
+  if (fuente.frecuencia !== "Quincenal") return 1;
+  const anteriores = await listMovimientosIngresos(spreadsheetId);
+  return anteriores.filter((movimiento) => movimiento.fuenteId === fuente.id && movimiento.fechaEsperada === fechaEsperada).length + 1;
+}
+
+export async function registrarIngresoRecibido(spreadsheetId: string, fuente: IngresoFijo, input: RegistrarIngresoInput): Promise<void> {
+  const fechaEsperada = fuente.proximaFecha || input.fechaRecibida;
+  const ocurrenciasProcesadas = await contarOcurrenciasProcesadas(spreadsheetId, fuente, fechaEsperada);
+  await appendRecord(spreadsheetId, MOVIMIENTOS_INGRESOS_SHEET, [
+    crypto.randomUUID(), fuente.id, fuente.nombre, fuente.tipo, fechaEsperada,
+    input.fechaRecibida, fuente.monto, input.montoReal, "Recibido", input.notas ?? "", input.periodoId,
+  ]);
+  const pagoUnico = fuente.frecuencia === "PagoUnico";
+  await updateRecord(spreadsheetId, INGRESOS_FIJOS_SHEET, fuente.row, serializeIngreso({
+    ...fuente,
+    activo: pagoUnico ? false : fuente.activo,
+    cerrado: pagoUnico,
+    proximaFecha: siguienteFechaIngreso(fuente, fechaEsperada, ocurrenciasProcesadas),
+  }));
+}
+
+export async function omitirProximoIngreso(spreadsheetId: string, fuente: IngresoFijo, periodoId: string): Promise<void> {
+  const fecha = fuente.proximaFecha || todayISO();
+  const ocurrenciasProcesadas = await contarOcurrenciasProcesadas(spreadsheetId, fuente, fecha);
+  await appendRecord(spreadsheetId, MOVIMIENTOS_INGRESOS_SHEET, [
+    crypto.randomUUID(), fuente.id, fuente.nombre, fuente.tipo, fecha, "", fuente.monto, 0, "Omitido", "Pago esperado omitido.", periodoId,
+  ]);
+  const pagoUnico = fuente.frecuencia === "PagoUnico";
+  await updateRecord(spreadsheetId, INGRESOS_FIJOS_SHEET, fuente.row, serializeIngreso({
+    ...fuente,
+    activo: pagoUnico ? false : fuente.activo,
+    cerrado: pagoUnico,
+    proximaFecha: siguienteFechaIngreso(fuente, fecha, ocurrenciasProcesadas),
+  }));
+}
+
+export async function setIngresoActivo(spreadsheetId: string, ingreso: IngresoFijo, activo: boolean): Promise<void> {
+  if (ingreso.recurrencia === "Fijo" && activo !== ingreso.activo) await registrarCambioIngreso(spreadsheetId, ingreso, ingreso.monto, activo);
+  if (!activo) {
+    await updateRecord(spreadsheetId, INGRESOS_FIJOS_SHEET, ingreso.row, serializeIngreso({ ...ingreso, activo: false }));
+    return;
+  }
+
+  const hoy = todayISO();
+  const fecha = parseDateInput(hoy);
+  const proximaFecha = ingreso.frecuencia === "Quincenal"
+    ? proximaFechaQuincenalDesde(ingreso.diaPago, hoy)
+    : hoy;
+  const diaPago = ingreso.frecuencia === "Mensual"
+    ? String(fecha.getDate())
+    : ingreso.frecuencia === "Semanal"
+      ? DIAS_SEMANA[fecha.getDay()]
+      : ingreso.diaPago;
+  await updateRecord(spreadsheetId, INGRESOS_FIJOS_SHEET, ingreso.row, serializeIngreso({
+    ...ingreso,
+    activo: true,
+    proximaFecha,
+    diaPago,
+  }));
+}
+
+export async function eliminarIngreso(spreadsheetId: string, ingreso: IngresoFijo): Promise<void> {
+  await clearRecord(spreadsheetId, INGRESOS_FIJOS_SHEET, ingreso.row, 15);
+}
+
+/** Elimina las fuentes de pago único al cerrar el periodo; sus movimientos recibidos permanecen en el historial. */
+export async function eliminarPagosUnicosDelPeriodo(spreadsheetId: string): Promise<void> {
+  const pagosUnicos = (await listTodosLosIngresos(spreadsheetId))
+    .filter((i) => i.frecuencia === "PagoUnico")
+    .sort((a, b) => b.row - a.row);
+  for (const ingreso of pagosUnicos) await deleteRecord(spreadsheetId, INGRESOS_FIJOS_SHEET, ingreso.row);
+}
+
+export interface CambioIngreso {
+  row: number; idIngreso: string; fecha: string; montoAnterior: number; montoNuevo: number; activoAnterior: boolean; activoNuevo: boolean;
+}
+
+function parseCambioIngreso(r: SheetRow): CambioIngreso {
+  const [idIngreso = "", fecha = "", montoAnterior = "0", montoNuevo = "0", activoAnterior = "", activoNuevo = ""] = r.values;
+  return { row: r.row, idIngreso, fecha, montoAnterior: Number(montoAnterior) || 0, montoNuevo: Number(montoNuevo) || 0, activoAnterior: activoAnterior.toUpperCase() !== "FALSE", activoNuevo: activoNuevo.toUpperCase() !== "FALSE" };
+}
+
+export async function listHistorialIngresos(spreadsheetId: string): Promise<CambioIngreso[]> {
+  return (await listRecords(spreadsheetId, HISTORIAL_INGRESOS_FIJOS_SHEET, 6)).map(parseCambioIngreso);
+}
+
+async function registrarCambioIngreso(spreadsheetId: string, ingreso: IngresoFijo, montoNuevo: number, activoNuevo: boolean): Promise<void> {
+  await appendRecord(spreadsheetId, HISTORIAL_INGRESOS_FIJOS_SHEET, [ingreso.id, todayISO(), ingreso.monto, montoNuevo, ingreso.activo ? "TRUE" : "FALSE", activoNuevo ? "TRUE" : "FALSE"]);
+}
+
+export function estadoIngresoEnFecha(ingreso: IngresoFijo, cambios: CambioIngreso[], fecha: string): { monto: number; activo: boolean } {
   const propios = cambios.filter((c) => c.idIngreso === ingreso.id).sort((a, b) => a.fecha.localeCompare(b.fecha));
   if (propios.length === 0) return { monto: ingreso.monto, activo: ingreso.activo };
-
   const aplicable = [...propios].reverse().find((c) => c.fecha <= fecha);
   if (aplicable) return { monto: aplicable.montoNuevo, activo: aplicable.activoNuevo };
-
-  const primero = propios[0];
-  return { monto: primero.montoAnterior, activo: primero.activoAnterior };
+  return { monto: propios[0].montoAnterior, activo: propios[0].activoAnterior };
 }
 
+/** Crea una fuente cerrada y su movimiento ya recibido (usado para traspasar el sobrante confirmado). */
 export async function crearIngreso(
   spreadsheetId: string,
   tipo: string,
@@ -240,101 +346,77 @@ export async function crearIngreso(
   recurrencia: Recurrencia,
   frecuencia: FrecuenciaIngreso = "Mensual",
   diaPago = "",
+  nombre = tipo,
+  periodoId = todayISO(),
 ): Promise<void> {
-  await appendRecord(spreadsheetId, INGRESOS_FIJOS_SHEET, [
-    tipo,
-    monto,
-    notas,
-    recurrencia,
-    recurrencia === "UnicoMes" ? monthKey() : "",
-    "TRUE",
-    new Date().toISOString().slice(0, 10),
-    crypto.randomUUID(),
-    frecuencia,
-    diaPago,
-    "FALSE",
-  ]);
-}
-
-export async function setIngresoActivo(spreadsheetId: string, ingreso: IngresoFijo, activo: boolean): Promise<void> {
-  if (ingreso.recurrencia === "Fijo" && activo !== ingreso.activo) {
-    await registrarCambioIngreso(spreadsheetId, ingreso, ingreso.monto, activo);
-  }
-  await updateRecord(spreadsheetId, INGRESOS_FIJOS_SHEET, ingreso.row, [
-    ingreso.tipo,
-    ingreso.monto,
-    ingreso.notas,
-    ingreso.recurrencia,
-    ingreso.mes,
-    activo ? "TRUE" : "FALSE",
-    ingreso.fechaCreacion,
-    ingreso.id,
-    ingreso.frecuencia,
-    ingreso.diaPago,
-    ingreso.cerrado ? "TRUE" : "FALSE",
-  ]);
-}
-
-/** Registra en HistorialIngresosFijos un cambio de monto y/o de estado activo, para reconstruir meses pasados. */
-async function registrarCambioIngreso(
-  spreadsheetId: string,
-  ingreso: IngresoFijo,
-  montoNuevo: number,
-  activoNuevo: boolean,
-): Promise<void> {
-  await appendRecord(spreadsheetId, HISTORIAL_INGRESOS_FIJOS_SHEET, [
-    ingreso.id,
-    todayISO(),
-    ingreso.monto,
-    montoNuevo,
-    ingreso.activo ? "TRUE" : "FALSE",
-    activoNuevo ? "TRUE" : "FALSE",
-  ]);
-}
-
-export async function eliminarIngreso(spreadsheetId: string, ingreso: IngresoFijo): Promise<void> {
-  await deleteRecord(spreadsheetId, INGRESOS_FIJOS_SHEET, ingreso.row);
+  const modalidad = recurrencia === "UnicoMes" ? "PagoUnico" : frecuencia;
+  const id = crypto.randomUUID();
+  const fuente: IngresoFijo = {
+    id, row: 0, nombre, tipo, monto, notas, recurrencia, mes: recurrencia === "UnicoMes" ? monthKey() : "",
+    activo: recurrencia !== "UnicoMes", fechaCreacion: todayISO(), frecuencia: modalidad, diaPago,
+    cerrado: recurrencia === "UnicoMes", proximaFecha: "", cuentaDestino: "", modeloNuevo: true,
+  };
+  await appendRecord(spreadsheetId, INGRESOS_FIJOS_SHEET, serializeIngreso(fuente));
+  await appendRecord(spreadsheetId, MOVIMIENTOS_INGRESOS_SHEET, [crypto.randomUUID(), id, nombre, tipo, todayISO(), todayISO(), monto, monto, "Recibido", notas, periodoId]);
 }
 
 export interface IngresoCambios {
-  tipo: string;
-  monto: number;
-  notas: string;
-  recurrencia: Recurrencia;
-  frecuencia: FrecuenciaIngreso;
-  diaPago: string;
+  tipo: string; monto: number; notas: string; recurrencia: Recurrencia; frecuencia: FrecuenciaIngreso; diaPago: string;
+  nombre?: string; proximaFecha?: string; cuentaDestino?: string;
 }
 
-export async function actualizarIngreso(
-  spreadsheetId: string,
-  ingreso: IngresoFijo,
-  cambios: IngresoCambios,
-): Promise<void> {
-  if (ingreso.recurrencia === "Fijo" && cambios.recurrencia === "Fijo" && cambios.monto !== ingreso.monto) {
-    await registrarCambioIngreso(spreadsheetId, ingreso, cambios.monto, ingreso.activo);
+export async function actualizarIngreso(spreadsheetId: string, ingreso: IngresoFijo, cambios: IngresoCambios): Promise<void> {
+  if (cambios.monto !== ingreso.monto) await registrarCambioIngreso(spreadsheetId, ingreso, cambios.monto, ingreso.activo);
+  const diasQuincenales = cambios.diaPago || "15,30";
+  const cambioProgramacionQuincenal = cambios.frecuencia !== ingreso.frecuencia || diasQuincenales !== ingreso.diaPago;
+  const proximaFecha = cambios.frecuencia === "Quincenal"
+    ? cambioProgramacionQuincenal || !ingreso.proximaFecha
+      ? proximaFechaQuincenalDesde(diasQuincenales)
+      : ingreso.proximaFecha
+    : cambios.proximaFecha ?? ingreso.proximaFecha;
+  const fecha = parseDateInput(proximaFecha || todayISO());
+  const conservaAncla = cambios.frecuencia === ingreso.frecuencia
+    && proximaFecha === ingreso.proximaFecha
+    && Boolean(ingreso.diaPago);
+  const diaPago = cambios.frecuencia === "Quincenal"
+    ? diasQuincenales
+    : cambios.frecuencia === "Mensual"
+      ? conservaAncla ? ingreso.diaPago : String(fecha.getDate())
+      : cambios.frecuencia === "Semanal"
+        ? conservaAncla ? ingreso.diaPago : DIAS_SEMANA[fecha.getDay()]
+        : "";
+  await updateRecord(spreadsheetId, INGRESOS_FIJOS_SHEET, ingreso.row, serializeIngreso({
+    ...ingreso, nombre: cambios.nombre ?? ingreso.nombre, tipo: cambios.tipo, monto: cambios.monto,
+    notas: cambios.notas, recurrencia: cambios.recurrencia, frecuencia: cambios.frecuencia, diaPago,
+    proximaFecha, cuentaDestino: cambios.cuentaDestino ?? ingreso.cuentaDestino,
+  }));
+}
+
+export function ocurrenciasDiaSemanaEnMes(diaSemana: number, date: Date): number {
+  const diasEnMes = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+  let total = 0;
+  for (let dia = 1; dia <= diasEnMes; dia++) if (new Date(date.getFullYear(), date.getMonth(), dia).getDay() === diaSemana) total++;
+  return total;
+}
+
+export function ocurrenciasEnMes(ingreso: IngresoFijo, date: Date): number {
+  if (ingreso.frecuencia === "Quincenal") return 2;
+  if (ingreso.frecuencia === "Semanal") {
+    const dia = DIAS_SEMANA.indexOf(ingreso.diaPago as (typeof DIAS_SEMANA)[number]);
+    return dia === -1 ? 4 : ocurrenciasDiaSemanaEnMes(dia, date);
   }
-  await updateRecord(spreadsheetId, INGRESOS_FIJOS_SHEET, ingreso.row, [
-    cambios.tipo,
-    cambios.monto,
-    cambios.notas,
-    cambios.recurrencia,
-    cambios.recurrencia === "UnicoMes" ? ingreso.mes || monthKey() : "",
-    ingreso.activo ? "TRUE" : "FALSE",
-    ingreso.fechaCreacion,
-    ingreso.id,
-    cambios.recurrencia === "Fijo" ? cambios.frecuencia : ingreso.frecuencia,
-    cambios.recurrencia === "Fijo" ? cambios.diaPago : ingreso.diaPago,
-    ingreso.cerrado ? "TRUE" : "FALSE",
-  ]);
+  return 1;
 }
 
+export function montoMensualEquivalente(ingreso: IngresoFijo, date: Date = new Date()): number {
+  return ingreso.monto * ocurrenciasEnMes(ingreso, date);
+}
+
+/** Proyección configurada; no usar para calcular dinero disponible. */
 export function sumIngresosActivos(ingresos: IngresoFijo[]): number {
-  return ingresos.filter((i) => i.activo).reduce((sum, i) => sum + montoMensualEquivalente(i), 0);
+  return ingresos.filter((i) => i.activo).reduce((s, i) => s + i.monto, 0);
 }
 
-/** Solo los ingresos "Fijo" (recurrentes) activos, sin contar los de "solo este mes" — ya convertidos a su equivalente mensual. */
 export function sumIngresosFijosRecurrentes(ingresos: IngresoFijo[]): number {
-  return ingresos
-    .filter((i) => i.recurrencia === "Fijo" && i.activo)
-    .reduce((sum, i) => sum + montoMensualEquivalente(i), 0);
+  return ingresos.filter((i) => i.activo && i.frecuencia !== "PagoUnico").reduce((s, i) => s + i.monto, 0);
 }

@@ -8,7 +8,7 @@ Barra con botón ← / etiqueta del periodo centrada / botón → — sin `<sele
 
 ## 2. Tarjetas de resumen del periodo — clickeables, con desglose
 
-Grilla de 7 tarjetas (igual que antes en contenido, nuevo en interacción): Ingresos, Gastos fijos, Gastos y compras, **Balance del periodo** (tarjeta primaria, no clickeable), Aportado a ahorros, Abonado a deudas, Recibido de Me Deben.
+Grilla de 7 tarjetas: Ingresos, Gastos fijos, Gastos y compras, **Balance del periodo** (tarjeta primaria, no clickeable), Movimiento neto en ahorros, Abonado a deudas y Recibido de Me Deben. El detalle de ahorros incluye depósitos positivos y retiros negativos.
 
 - Cada tarjeta (salvo Balance) es un botón: al hacer clic, se abre un panel debajo con el **detalle ítem por ítem** de esa categoría en este periodo (nombre, categoría/nota si aplica, monto) — `domain/historico.ts` → `detallePeriodo(snap, periodo)`. Solo una tarjeta puede estar abierta a la vez; un chevron rota para indicar el estado.
 - Sin movimientos en ese periodo → el panel dice "Sin movimientos en este periodo."

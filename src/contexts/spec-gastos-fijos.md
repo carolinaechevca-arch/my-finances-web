@@ -10,18 +10,20 @@ El usuario compartió una referencia de UI de app financiera (paleta morada, tar
 - **No se toma:** el concepto de "límite/tope de presupuesto" que esa pantalla sugiere (gastado vs. un tope que el usuario define). El usuario aclaró explícitamente que **no quiere topes configurables** — solo quiere la barra visual mostrando cuánto se gastó por categoría, igual al patrón que ya existe hoy en el Dashboard ("Gastos del mes por categoría": barras horizontales, orden descendente, escaladas a la categoría más grande), pero ahora **también dentro de la propia página de Gastos Fijos**.
 - **Paleta:** se mantiene el azul marino de la app — no se adopta el morado de la referencia.
 
-## 1. Modelo de recurrencia — 3 tipos (cambio respecto al modelo actual de 1 solo tipo)
+## 1. Modelo de recurrencia — 2 tipos
 
-Hoy todo gasto fijo es implícitamente recurrente mensual. Con el periodo global configurable, se introducen **3 tipos de recurrencia** por gasto (más granular que Ingresos, que solo tiene 2):
+Gastos Fijos contiene únicamente obligaciones recurrentes:
 
 | Tipo | Comportamiento | Insignia propuesta |
 |---|---|---|
 | **Fijo** | Se reaplica automáticamente en **cada** reinicio de periodo. | Verde "Fijo" |
 | **Personalizado** | Se reaplica **cada N periodos** — el usuario define N (número entero, ej. "cada 3 periodos"). | Azul "Personalizado · cada N" *(color propuesto, ajustable)* |
-| **Adicional** | Pago único — **se borra** al siguiente reinicio de periodo (no se reaplica). | Naranja "Adicional" |
 
-- **Campo N (solo para Personalizado):** aparece **únicamente cuando el usuario selecciona "Personalizado"** en el formulario — un campo numérico donde escribe cada cuántos periodos se repite. No aparece para Fijo ni Adicional.
+- **Campo N (solo para Personalizado):** aparece **únicamente cuando el usuario selecciona "Personalizado"** en el formulario — un campo numérico donde escribe cada cuántos periodos se repite.
+- Los gastos puntuales o planeados se registran en **Gastos y Compras**, no en Gastos Fijos.
+- Los registros antiguos de tipo `Adicional` se conservan únicamente para el Histórico y ya no aparecen como vigentes ni se pueden crear o editar como adicionales.
 - **Lógica de conteo sugerida para "Personalizado"** *(detalle técnico, no fue una decisión de diseño del usuario — es la implementación natural del comportamiento descrito)*: cada gasto "Personalizado" lleva un contador interno de periodos transcurridos desde su creación (o desde su última reaplicación). En cada reinicio de periodo, el contador aumenta en 1; cuando llega a N, el gasto se reaplica (genera una instancia pagable para ese periodo) y el contador vuelve a 0.
+- **Progreso visible:** la insignia muestra el periodo actual del ciclo como `1/N`, `2/N`, etc. Al reaplicarse vuelve a `1/N`; mientras esté pausado el progreso no avanza.
 - **Estado "En espera":** en los periodos donde un gasto "Personalizado" todavía no le toca reaplicarse, se sugiere que **siga apareciendo en la tabla** con un badge de estado tipo "En espera (faltan X periodos)" en vez de desaparecer — así el usuario no pierde de vista que existe. *(Propuesta — confirmar si prefieres que simplemente no aparezca hasta que le toque.)*
 
 ## 2. Pausado — comportamiento (por consistencia con Ingresos, confirmar si debe ser distinto)
@@ -58,7 +60,7 @@ Se agrega el selector de tipo de recurrencia (sección 1), con su campo condicio
 
 - **Nombre** (con `<datalist>` de autocompletado) — sin cambio.
 - **Categoría** (combo) — sin cambio.
-- **Tipo de recurrencia** *(nuevo campo)*: Fijo / Personalizado / Adicional.
+- **Tipo de recurrencia**: Fijo / Personalizado.
   - Si es **Personalizado** → aparece el campo numérico "¿Cada cuántos periodos se repite?".
 - **Monto** — sin cambio.
 - **Día de pago** — sin cambio (día de mes 1-31, sección 3).
@@ -72,15 +74,14 @@ Se agrega una columna **Recurrencia** (no existía antes, porque antes todo era 
 | Tipo | Insignia | Detalle adicional mostrado |
 |---|---|---|
 | Fijo | Verde "Fijo" | — |
-| Personalizado | Azul "Personalizado" | "cada N periodos" + si aplica, "En espera (faltan X)" |
-| Adicional | Naranja "Adicional" | — |
+| Personalizado | Azul "Personalizado" | "Cada N periodos · X/N" + si aplica, "En espera (faltan X)" |
 
 ## 8. Resumen de lo que se agrega vs. lo que no cambia
 
 **Se agrega:**
-- Columna/selector de **Tipo de recurrencia** (Fijo / Personalizado / Adicional) en formulario, tabla y modal de edición.
+- Columna/selector de **Tipo de recurrencia** (Fijo / Personalizado) en formulario, tabla y modal de edición.
 - Campo numérico condicional N (solo para Personalizado).
-- Lógica de reinicio de periodo aplicada a Gastos Fijos (igual que Ingresos: Fijo se reaplica siempre salvo pausado; Personalizado se reaplica cada N; Adicional se borra).
+- Lógica de reinicio de periodo aplicada a Gastos Fijos: Fijo se reaplica siempre salvo pausado; Personalizado se reaplica cada N.
 - Nueva tarjeta "Gasto por categoría" con barras de progreso (sin tope configurable).
 
 **No cambia:**

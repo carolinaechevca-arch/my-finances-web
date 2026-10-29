@@ -2,6 +2,7 @@ import { CATEGORIAS_SHEET, GASTOS_FIJOS_SHEET } from "../api/spreadsheet-bootstr
 import { appendRecord, deleteRecord, listRecords, updateRecord, type SheetRow } from "../api/records";
 import { monthKey } from "./format";
 
+/** "Adicional" se conserva solo para poder leer registros históricos creados antes de retirarlo de Gastos Fijos. */
 export type RecurrenciaGastoFijo = "Fijo" | "Personalizado" | "Adicional";
 
 export interface GastoFijo {
@@ -135,6 +136,9 @@ export function calcularGastosFijosVigentes(todos: GastoFijo[], periodoActualId:
   const delPeriodo: GastoFijo[] = [];
   const enEspera: GastoFijo[] = [];
   for (const g of ultimaPorSerie.values()) {
+    // Los antiguos "Adicional" quedan disponibles para Histórico, pero ya no
+    // pertenecen a la lista vigente de Gastos Fijos.
+    if (g.recurrencia === "Adicional") continue;
     if (g.periodoId === periodoActualId) {
       delPeriodo.push(g);
     } else if (g.pausado || g.recurrencia === "Personalizado") {

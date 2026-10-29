@@ -1,5 +1,5 @@
 import { deleteFileIfExists, findFileByName } from "./drive";
-import { appendRecords, listRecords, updateRecord } from "./records";
+import { appendRecords, deleteRecord, listRecords, updateRecord } from "./records";
 import { addSheets, createSpreadsheet, getSheetNames, getValues, updateValues, type SheetDefinition } from "./sheets";
 
 export const SPREADSHEET_TITLE = "MisFinanzas";
@@ -10,6 +10,8 @@ export const TIPOS_INGRESO_SHEET = "TiposIngreso";
 export const INGRESOS_FIJOS_SHEET = "IngresosFijos";
 /** Log de cambios de monto/activo de un ingreso "Fijo", para reconstruir cuánto aplicaba en meses pasados. */
 export const HISTORIAL_INGRESOS_FIJOS_SHEET = "HistorialIngresosFijos";
+/** Pagos de ingresos realmente recibidos, separados de su fuente/configuración. */
+export const MOVIMIENTOS_INGRESOS_SHEET = "MovimientosIngresos";
 export const GASTOS_FIJOS_SHEET = "GastosFijos";
 export const GASTOS_Y_COMPRAS_SHEET = "GastosYCompras";
 /** Categorías de Gastos Fijos. Independiente de CATEGORIAS_GASTOS_Y_COMPRAS_SHEET a propósito. */
@@ -29,11 +31,11 @@ export const MOVIMIENTOS_METAS_SHEET = "MovimientosMetas";
 export const TIPOS_METAS_SHEET = "TiposMetas";
 /** Visibilidad/color/orden de las tarjetas del dashboard, editable desde Configuración → "Personalizar dashboard". */
 export const CONFIG_DASHBOARD_SHEET = "ConfigDashboard";
-/** Frecuencia global de periodo (Semanal/Quincenal/Mensual/Manual) y fecha del último reinicio. Una sola fila de datos. */
+/** Configuración del periodo manual y fecha del último reinicio. Una sola fila de datos. */
 export const CONFIG_PERIODO_SHEET = "ConfigPeriodo";
 /** Plantillas de compras recurrentes (Fijo/Personalizado) de Gastos y Compras — nunca obligatorias, ver spec-gastos-compras.md. */
 export const COMPRAS_RECURRENTES_SHEET = "ComprasRecurrentes";
-/** Un registro por cada reinicio de periodo que realmente ocurrió (automático o manual) — permite a Histórico navegar periodos pasados con sus fechas reales, sin importar si el modo cambió con el tiempo. */
+/** Un registro por cada reinicio manual ocurrido; permite a Histórico navegar periodos pasados con sus fechas reales. */
 export const HISTORIAL_PERIODOS_SHEET = "HistorialPeriodos";
 
 /**
@@ -56,8 +58,8 @@ export const DEFAULT_DASHBOARD_CARD_ORDER = [
   "hojaDrive",
 ] as const;
 
-/** Tipos de ingreso fijo con los que arranca toda cuenta nueva; el usuario puede agregar más. */
-const DEFAULT_TIPOS_INGRESO = ["Nómina", "Trabajo independiente", "Regalo", "Otro"];
+/** Categorías de ingreso con las que arranca toda cuenta nueva; el usuario puede agregar más. */
+const DEFAULT_TIPOS_INGRESO = ["Nómina", "Trabajo independiente", "Regalo", "Otro", "Sobrante anterior"];
 /** Tipos de deuda con los que arranca toda cuenta nueva; el usuario puede agregar/eliminar más. */
 const DEFAULT_TIPOS_DEUDA = [
   "Tarjeta de crédito",
@@ -75,7 +77,7 @@ export const SHEET_DEFINITIONS: SheetDefinition[] = [
   {
     name: INGRESOS_FIJOS_SHEET,
     headers: [
-      "Tipo",
+      "Categoria",
       "Monto",
       "Notas",
       "Recurrencia",
@@ -86,6 +88,26 @@ export const SHEET_DEFINITIONS: SheetDefinition[] = [
       "Frecuencia",
       "DiaPago",
       "Cerrado",
+      "ProximaFecha",
+      "CuentaDestino",
+      "Modelo",
+      "Nombre",
+    ],
+  },
+  {
+    name: MOVIMIENTOS_INGRESOS_SHEET,
+    headers: [
+      "Id",
+      "FuenteId",
+      "FuenteNombre",
+      "Categoria",
+      "FechaEsperada",
+      "FechaRecibida",
+      "MontoEstimado",
+      "MontoReal",
+      "Estado",
+      "Notas",
+      "PeriodoId",
     ],
   },
   {
@@ -180,7 +202,7 @@ let ensurePromise: Promise<{ spreadsheetId: string; created: boolean }> | null =
  * usuarios corren la migración completa una vez más y vuelven a quedar
  * rápidos.
  */
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 7;
 const CACHE_KEY = "mf_spreadsheet_cache";
 
 interface SpreadsheetCache {
@@ -281,9 +303,12 @@ async function ensureSpreadsheetInternal(): Promise<{ spreadsheetId: string; cre
   if (existingId) {
     await ensureSheets(existingId);
     await ensureIngresosFijosHeaders(existingId);
+    await ensureMovimientosIngresosHeaders(existingId);
     await ensureIngresosFijosIds(existingId);
     await ensureIngresosFijosFrecuencia(existingId);
     await ensureIngresosFijosCerrado(existingId);
+    await ensureIngresosConCalendario(existingId);
+    await ensureMovimientosIngresosMigracion(existingId);
     await ensureHistorialIngresosFijosHeaders(existingId);
     await ensureGastosFijosHeaders(existingId);
     await ensureGastosYComprasHeaders(existingId);
@@ -296,8 +321,10 @@ async function ensureSpreadsheetInternal(): Promise<{ spreadsheetId: string; cre
     await ensureDefaultTiposDeuda(existingId);
     await ensureDefaultConfigDashboard(existingId);
     await ensureDefaultConfigPeriodo(existingId);
+    await ensurePeriodoSoloManual(existingId);
     await ensureConfigPeriodoDiaSemana(existingId);
     await ensureDefaultHistorialPeriodos(existingId);
+    await ensureMovimientosIngresosPeriodo(existingId);
     await ensureGastosFijosPeriodoColumnas(existingId);
     guardarCache(existingId);
     return { spreadsheetId: existingId, created: false };
@@ -317,6 +344,59 @@ async function crearSpreadsheetDesdeCero(): Promise<string> {
   return spreadsheetId;
 }
 
+/**
+ * Al estrenar el modelo fuente/movimiento, registra como recibido el ingreso
+ * vigente que la versión anterior ya estaba contando en el periodo actual.
+ * Solo corre cuando la hoja de movimientos todavía está vacía.
+ */
+async function ensureMovimientosIngresosMigracion(spreadsheetId: string): Promise<void> {
+  const movimientos = await listRecords(spreadsheetId, MOVIMIENTOS_INGRESOS_SHEET, 11);
+  if (movimientos.length > 0) return;
+
+  const ingresos = await listRecords(spreadsheetId, INGRESOS_FIJOS_SHEET, 15);
+  const [configPeriodo] = await listRecords(spreadsheetId, CONFIG_PERIODO_SHEET, 3);
+  const periodoInicio = configPeriodo?.values[1] || new Date().toISOString().slice(0, 10);
+  const hoy = new Date().toISOString().slice(0, 10);
+  const filas = ingresos
+    .filter((r) => {
+      const recurrencia = r.values[3] || "Fijo";
+      const activo = (r.values[5] || "TRUE").toUpperCase() !== "FALSE";
+      const cerrado = (r.values[10] || "").toUpperCase() === "TRUE";
+      const esFuenteNueva = r.values[13] === "Fuente";
+      return !esFuenteNueva && activo && (recurrencia === "Fijo" || !cerrado);
+    })
+    .map((r) => {
+      const tipo = r.values[0] || "Ingreso";
+      const monto = Number(r.values[1]) || 0;
+      const fechaCreacion = r.values[6] || hoy;
+      const fuenteId = r.values[7] || crypto.randomUUID();
+      const nombre = r.values[14] || tipo;
+      const fecha = fechaCreacion >= periodoInicio ? fechaCreacion : periodoInicio;
+      return [
+        crypto.randomUUID(),
+        fuenteId,
+        nombre,
+        tipo,
+        fecha,
+        fecha,
+        monto,
+        monto,
+        "Recibido",
+        "Migrado automáticamente desde el modelo anterior.",
+        periodoInicio,
+      ];
+    });
+  if (filas.length > 0) await appendRecords(spreadsheetId, MOVIMIENTOS_INGRESOS_SHEET, filas);
+  for (const row of ingresos.filter(
+    (r) => r.values[3] === "UnicoMes" && r.values[13] !== "Fuente" && (r.values[10] || "").toUpperCase() !== "TRUE",
+  )) {
+    const values = Array.from({ length: 15 }, (_, index) => row.values[index] ?? "");
+    values[5] = "FALSE";
+    values[10] = "TRUE";
+    await updateRecord(spreadsheetId, INGRESOS_FIJOS_SHEET, row.row, values);
+  }
+}
+
 async function ensureSheets(spreadsheetId: string): Promise<void> {
   const existingNames = new Set(await getSheetNames(spreadsheetId));
   const missing = SHEET_DEFINITIONS.filter((s) => !existingNames.has(s.name));
@@ -331,8 +411,41 @@ async function ensureSheets(spreadsheetId: string): Promise<void> {
 async function ensureIngresosFijosHeaders(spreadsheetId: string): Promise<void> {
   const def = SHEET_DEFINITIONS.find((s) => s.name === INGRESOS_FIJOS_SHEET)!;
   const [headerRow = []] = await getValues(spreadsheetId, `${INGRESOS_FIJOS_SHEET}!A1:Z1`);
-  if (headerRow.length >= def.headers.length) return;
+  if (def.headers.every((header, index) => headerRow[index] === header)) return;
   await updateValues(spreadsheetId, `${INGRESOS_FIJOS_SHEET}!A1`, [def.headers]);
+}
+
+async function ensureMovimientosIngresosHeaders(spreadsheetId: string): Promise<void> {
+  const def = SHEET_DEFINITIONS.find((s) => s.name === MOVIMIENTOS_INGRESOS_SHEET)!;
+  const [headerRow = []] = await getValues(spreadsheetId, `${MOVIMIENTOS_INGRESOS_SHEET}!A1:Z1`);
+  if (def.headers.every((header, index) => headerRow[index] === header)) return;
+  await updateValues(spreadsheetId, `${MOVIMIENTOS_INGRESOS_SHEET}!A1`, [def.headers]);
+}
+
+/**
+ * Vincula movimientos antiguos con el periodo que les corresponde. Desde
+ * esta versión el identificador evita que un ingreso confirmado antes de un
+ * reinicio el mismo día aparezca en el periodo nuevo.
+ */
+async function ensureMovimientosIngresosPeriodo(spreadsheetId: string): Promise<void> {
+  const movimientos = await listRecords(spreadsheetId, MOVIMIENTOS_INGRESOS_SHEET, 11);
+  const pendientes = movimientos.filter((row) => !row.values[10]);
+  if (pendientes.length === 0) return;
+
+  const historial = (await listRecords(spreadsheetId, HISTORIAL_PERIODOS_SHEET, 1))
+    .map((row) => row.values[0])
+    .filter(Boolean)
+    .sort();
+  const [config] = await listRecords(spreadsheetId, CONFIG_PERIODO_SHEET, 3);
+  const periodoActual = config?.values[1] || new Date().toISOString().slice(0, 10);
+  const inicios = historial.length > 0 ? historial : [periodoActual];
+
+  for (const row of pendientes) {
+    const values = Array.from({ length: 11 }, (_, index) => row.values[index] ?? "");
+    const fecha = values[5] || values[4] || periodoActual;
+    values[10] = [...inicios].reverse().find((inicio) => inicio <= fecha) || inicios[0] || periodoActual;
+    await updateRecord(spreadsheetId, MOVIMIENTOS_INGRESOS_SHEET, row.row, values);
+  }
 }
 
 /**
@@ -438,6 +551,57 @@ async function ensureIngresosFijosCerrado(spreadsheetId: string): Promise<void> 
       "FALSE",
     ]);
   }
+}
+
+/**
+ * Retira la modalidad Variable y conserva el ancla matemática de las fuentes
+ * recurrentes: día del mes para Mensual y día de la semana para Semanal.
+ * Así un mensual del 31 vuelve al 31 después de un mes corto.
+ */
+async function ensureIngresosConCalendario(spreadsheetId: string): Promise<void> {
+  const rows = await listRecords(spreadsheetId, INGRESOS_FIJOS_SHEET, 15);
+  const diasSemana = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
+
+  for (const row of rows) {
+    const values = Array.from({ length: 15 }, (_, index) => row.values[index] ?? "");
+    const frecuencia = values[8];
+    const proximaFecha = values[11];
+    if (frecuencia === "Quincenal") {
+      const texto = values[9].trim();
+      const decimalConvertido = texto.match(/^(\d{1,2})[,.](\d)$/);
+      const numeros = decimalConvertido && Number(decimalConvertido[1]) >= 10
+        ? [Number(decimalConvertido[1]), Number(decimalConvertido[2]) * 10]
+        : (texto.match(/\d{1,2}/g) ?? []).map(Number);
+      const dias = numeros.filter((dia) => dia >= 1 && dia <= 31).slice(0, 2).sort((a, b) => a - b);
+      const primero = dias[0] ?? 15;
+      const segundo = dias[1] ?? 30;
+      const estabaCorrupto = Boolean(decimalConvertido);
+      values[9] = `D${primero}-D${segundo}`;
+
+      if (estabaCorrupto && proximaFecha && Number(proximaFecha.slice(-2)) === Number(decimalConvertido![2])) {
+        const hoy = new Date();
+        const ultimoActual = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 0).getDate();
+        const candidatos = [Math.min(primero, ultimoActual), Math.min(segundo, ultimoActual)].sort((a, b) => a - b);
+        const siguienteDia = candidatos.find((dia) => dia >= hoy.getDate());
+        const siguienteMes = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 1);
+        const ultimoSiguiente = new Date(siguienteMes.getFullYear(), siguienteMes.getMonth() + 1, 0).getDate();
+        const fecha = siguienteDia === undefined
+          ? new Date(siguienteMes.getFullYear(), siguienteMes.getMonth(), Math.min(primero, ultimoSiguiente))
+          : new Date(hoy.getFullYear(), hoy.getMonth(), siguienteDia);
+        values[11] = `${fecha.getFullYear()}-${String(fecha.getMonth() + 1).padStart(2, "0")}-${String(fecha.getDate()).padStart(2, "0")}`;
+      }
+      await updateRecord(spreadsheetId, INGRESOS_FIJOS_SHEET, row.row, values);
+      continue;
+    }
+    if (!proximaFecha || values[9] || (frecuencia !== "Mensual" && frecuencia !== "Semanal")) continue;
+    const [anio, mes, dia] = proximaFecha.split("-").map(Number);
+    if (!anio || !mes || !dia) continue;
+    values[9] = frecuencia === "Mensual" ? String(dia) : diasSemana[new Date(anio, mes - 1, dia).getDay()];
+    await updateRecord(spreadsheetId, INGRESOS_FIJOS_SHEET, row.row, values);
+  }
+
+  const variables = rows.filter((row) => row.values[8] === "Variable").sort((a, b) => b.row - a.row);
+  for (const row of variables) await deleteRecord(spreadsheetId, INGRESOS_FIJOS_SHEET, row.row);
 }
 
 /** Deja el encabezado de HistorialIngresosFijos solo si todavía no tiene filas de datos. */
@@ -621,11 +785,15 @@ async function ensureMetasHeaders(spreadsheetId: string): Promise<void> {
 
 async function ensureDefaultTipos(spreadsheetId: string): Promise<void> {
   const rows = await listRecords(spreadsheetId, TIPOS_INGRESO_SHEET, 1);
-  if (rows.length > 0) return;
+  const existentes = new Set(rows.map((row) => row.values[0]));
+  const faltantes = rows.length === 0
+    ? DEFAULT_TIPOS_INGRESO
+    : ["Sobrante anterior"].filter((nombre) => !existentes.has(nombre));
+  if (faltantes.length === 0) return;
   await appendRecords(
     spreadsheetId,
     TIPOS_INGRESO_SHEET,
-    DEFAULT_TIPOS_INGRESO.map((nombre) => [nombre]),
+    faltantes.map((nombre) => [nombre]),
   );
 }
 
@@ -672,13 +840,20 @@ export async function ensureDefaultConfigDashboard(spreadsheetId: string): Promi
   );
 }
 
-/** Arranca en modo "Mensual", reiniciado el día 1 del mes actual (mismo corte que el sistema de mes calendario que reemplaza), semana empezando el lunes (1). */
+/** Arranca en modo manual y en el día 1 del periodo, usando hoy como fecha inicial. */
 async function ensureDefaultConfigPeriodo(spreadsheetId: string): Promise<void> {
   const rows = await listRecords(spreadsheetId, CONFIG_PERIODO_SHEET, 3);
   if (rows.length > 0) return;
   const hoy = new Date();
-  const primerDiaMes = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, "0")}-01`;
-  await appendRecords(spreadsheetId, CONFIG_PERIODO_SHEET, [["Mensual", primerDiaMes, "1"]]);
+  const fechaInicial = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, "0")}-${String(hoy.getDate()).padStart(2, "0")}`;
+  await appendRecords(spreadsheetId, CONFIG_PERIODO_SHEET, [["Manual", fechaInicial, "1"]]);
+}
+
+/** Migra configuraciones anteriores: desde esta versión el reinicio es únicamente manual. */
+async function ensurePeriodoSoloManual(spreadsheetId: string): Promise<void> {
+  const [row] = await listRecords(spreadsheetId, CONFIG_PERIODO_SHEET, 3);
+  if (!row || row.values[0] === "Manual") return;
+  await updateRecord(spreadsheetId, CONFIG_PERIODO_SHEET, row.row, ["Manual", row.values[1] ?? "", row.values[2] || "1"]);
 }
 
 /** Agrega "DiaInicioSemana" a ConfigPeriodo (día en que empieza la semana en modo Semanal, configurable) con "1" (lunes) por defecto si la fila ya existía sin esa columna. */
@@ -690,7 +865,7 @@ async function ensureConfigPeriodoDiaSemana(spreadsheetId: string): Promise<void
   }
   const [row] = await listRecords(spreadsheetId, CONFIG_PERIODO_SHEET, 3);
   if (!row || row.values[2]) return;
-  const [frecuencia = "Mensual", fechaUltimoReinicio = ""] = row.values;
+  const [frecuencia = "Manual", fechaUltimoReinicio = ""] = row.values;
   await updateRecord(spreadsheetId, CONFIG_PERIODO_SHEET, row.row, [frecuencia, fechaUltimoReinicio, "1"]);
 }
 

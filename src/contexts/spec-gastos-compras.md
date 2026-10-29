@@ -24,7 +24,7 @@ No existe un selector de "Tipo de recurrencia": toda compra que se registra aqu�
   1. Se crea el gasto normal (pendiente o pagado, según el toggle) — igual que si no se hubiera marcado.
   2. **Además** se guarda una plantilla en "Archivados" (ver sección 3) con nombre/categoría/monto, para reutilizarla la próxima vez sin volver a escribir el formulario.
 - Si "Ya lo pagué" está activo, se ofrece adjuntar factura (sin cambios respecto a antes).
-- "Convertir en meta de ahorro" sigue existiendo, pero ahora aplica a cualquier compra que caiga en "Pendientes" (ya no depende de un tipo "Adicional", porque ese tipo dejó de existir).
+- "Crear bolsillo para esta compra" aplica a cualquier compra que caiga en "Pendientes" y crea un bolsillo con la meta correspondiente.
 
 ## 3. Archivados (antes "Compras recurrentes pendientes de registrar")
 
@@ -39,7 +39,7 @@ Reemplaza por completo al viejo sistema de recurrencia Fijo/Personalizado con co
 
 ## 4. Pendientes (antes "Pendientes por pagar")
 
-Sin cambios de comportamiento — solo se acortó el nombre a "Pendientes" (en la tarjeta resumen y en el título de la sección). Es la única sección que se mantiene **siempre visible** (no es acordeón). Botones: "Marcar como realizado" (con subida opcional de factura a Drive), "Convertir en meta de ahorro", ícono de basura.
+"Pendientes" es la única sección que se mantiene **siempre visible** (no es acordeón). Botones: "Marcar como realizado" (con subida opcional de factura a Drive), "Crear bolsillo para esta compra", ícono de basura.
 
 ## 5. Historial — ahora en acordeón, y ligado al periodo (no al mes calendario)
 
@@ -69,4 +69,4 @@ El historial (tabla Fecha/Categoría/Nombre/Monto/Factura/Acciones, filtrable po
 - Toggle segmentado (Pendiente/Ya lo pagué) reemplazando el `<select>` de estado.
 
 **No cambió:**
-- "Convertir en meta de ahorro", tabla de historial (contenido), subida de facturas, modal de categorías.
+- "Crear bolsillo para esta compra", tabla de historial (contenido), subida de facturas y modal de categorías.
